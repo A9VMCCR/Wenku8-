@@ -12,26 +12,12 @@ const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: 'mikufoxxx/Wenku8_Flutter',
 );
-const currentAppVersion = '0.3.1';
-const currentAppBuild = 30;
+const currentAppVersion = '0.3.2';
+const currentAppBuild = 31;
 const currentReleaseNotes = '''
-修复检查到新版本却无法获取安装包的问题，兼容旧版客户端升级。
-阅读器支持上下滚动、横排翻页与竖排翻页，大屏自动对页阅读。
-新增阅读配色、段落排版、分区点按、音量键翻页与自动滚动，字号和行距支持透明预览。
-翻页逐段／逐列进入；横排对页先左后右，竖排由右向左。切换排版及折叠／展开保留阅读位置。
-隐藏／显示控件时增量调整正文，边缘模糊平滑退场；修复翻页闪字、按钮重叠和状态栏遮挡。
-目录按卷展开，支持章节搜索与定位；书签回到段落中部并高亮，系统侧边返回增加退出确认。
-新增独立本地书库，支持多选导入 TXT／EPUB、分类和书籍信息编辑；EPUB 支持至 256 MiB。
-同系列分卷统一确认合并，可调整卷序、追加新卷或恢复独立，保留插图、进度与书签。
-本地原书与合订本只显示在「本地」，不加入书架；旧数据自动整理，原书和阅读记录保留。
-新增 OpenList／WebDAV 与实验性夸克网盘导入，通过系统云文档入口手动合并同步书籍和阅读记录。
-新增自定义 Microsoft SSML 兼容语音接口；优化听书切段、章级进度、段落高亮与悬浮跟随入口。
-新增离线适配与阅读器模式，支持书架「立体书架＋列表／仅列表」切换及标签、分类搜索。
-平板采用等宽浏览／详情双栏与多列列表，骨架屏同步适配；优化宽屏详情进退与封面返回落点。
-统一液态玻璃开关、滑杆、菜单和阅读配色，修复亮边、Dock 裁切、二级标题及按钮布局。
-优化骨架与内容的连续过渡、书评骨架；轻提示自动消失并避开 Dock。
-修复玻璃滑块和开关抢占纵向滚动、取消拖动重复提交，以及滚动阅读隐藏控件时的正文重建。
-更新奶白剪影图标与中性深灰深色模式，修复分类登录刷新和版本信息缓存，每次打开应用检查更新。
+新增液态玻璃更新弹窗，显示新版本与更新说明，支持「立即更新／稍后提醒」。
+同一版本 24 小时内不重复提醒；已有菜单、抽屉、返回手势或正在输入时延后提示，后台不弹出。
+点击「立即更新」进入下载页并开始匹配架构的下载，安装仍由你确认。
 ''';
 
 class ReleaseVersion implements Comparable<ReleaseVersion> {
@@ -404,6 +390,32 @@ class AppUpdates extends ChangeNotifier {
       release != null && installed != null && release!.isNewerThan(installed!);
   UpdateAsset? get asset =>
       installed == null ? null : release?.assetFor(installed!.abis);
+
+  /// Snooze only this release, including across process restarts. A different
+  /// release can still be announced immediately; manual updating stays usable.
+  bool get shouldPrompt {
+    if (!available) return false;
+    final previous = preferences.getString('lastAppUpdatePrompt')?.split('|');
+    if (previous == null ||
+        previous.length != 2 ||
+        previous.first != release!.tag) {
+      return true;
+    }
+    final timestamp = int.tryParse(previous.last);
+    return timestamp == null ||
+        _clock().millisecondsSinceEpoch - timestamp >=
+            const Duration(hours: 24).inMilliseconds;
+  }
+
+  Future<void> rememberPrompt(AppRelease prompted) async {
+    if (!await preferences.setString(
+      'lastAppUpdatePrompt',
+      '${prompted.tag}|${_clock().millisecondsSinceEpoch}',
+    )) {
+      throw const FileSystemException('更新提醒保存失败');
+    }
+  }
+
   void _notify() {
     if (!_disposed) notifyListeners();
   }

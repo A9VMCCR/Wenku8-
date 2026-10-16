@@ -126,6 +126,7 @@ class _NovelAppState extends State<NovelApp> {
   WenkuFeatures? get features => widget.features;
   ListeningController? get listening => widget.listening;
   AppUpdates? get updates => widget.updates;
+  final _updateNavigation = AppUpdateNavigation();
   late AppTypeface _lastTypeface = state.appTypeface;
   static final _themes =
       <(TargetPlatform, Brightness, AppTypeface), ThemeData>{};
@@ -137,6 +138,12 @@ class _NovelAppState extends State<NovelApp> {
   ), () => novelTheme(brightness, fontFamily: state.appTypeface.family));
 
   @override
+  void dispose() {
+    _updateNavigation.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: state.applicationChanges,
@@ -145,6 +152,7 @@ class _NovelAppState extends State<NovelApp> {
         _lastTypeface = state.appTypeface;
         return MaterialApp(
           title: '轻小说文库',
+          navigatorObservers: [_updateNavigation],
           debugShowCheckedModeBanner: false,
           scrollBehavior: const NovelScrollBehavior(),
           theme: _theme(Brightness.light),
@@ -188,7 +196,11 @@ class _NovelAppState extends State<NovelApp> {
             );
             return updates == null
                 ? content
-                : AppUpdateMonitor(updates: updates!, child: content);
+                : AppUpdateMonitor(
+                    updates: updates!,
+                    navigation: _updateNavigation,
+                    child: content,
+                  );
           },
           home: Builder(
             builder: (context) {

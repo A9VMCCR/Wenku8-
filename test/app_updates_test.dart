@@ -280,6 +280,7 @@ void main() {
   late AppUpdates updates;
   var now = DateTime(2026, 10, 15);
   setUp(() async {
+    now = DateTime(2026, 10, 15);
     SharedPreferences.setMockInitialValues({});
     temp = await Directory.systemTemp.createTemp('wenku8-update-test-');
     source = _Source();
@@ -312,6 +313,36 @@ void main() {
       expect(source.checks, 2);
       await updates.check();
       expect(source.checks, 3);
+    },
+  );
+  test(
+    'update reminders persist for 24 hours without suppressing a newer release',
+    () async {
+      await updates.check();
+      expect(updates.shouldPrompt, isTrue);
+      await updates.rememberPrompt(updates.release!);
+      expect(updates.shouldPrompt, isFalse);
+      final restarted = AppUpdates(
+        preferences: updates.preferences,
+        source: source,
+        platform: platform,
+        clock: () => now,
+      );
+      addTearDown(restarted.dispose);
+      await restarted.check();
+      expect(restarted.shouldPrompt, isFalse);
+      now = now.add(const Duration(hours: 23, minutes: 59));
+      expect(restarted.shouldPrompt, isFalse);
+      now = now.add(const Duration(minutes: 1));
+      expect(restarted.shouldPrompt, isTrue);
+      await restarted.rememberPrompt(restarted.release!);
+      source.release = AppRelease.fromGithub(_json(tag: 'v0.4.0'), _repo);
+      await restarted.check();
+      expect(restarted.shouldPrompt, isTrue);
+      // The reminder does not block an explicit check/download of the same tag.
+      await updates.check();
+      await updates.download();
+      expect(updates.downloaded, isNotNull);
     },
   );
   testWidgets(

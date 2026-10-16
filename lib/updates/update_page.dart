@@ -17,14 +17,68 @@ class AppUpdatesScope extends InheritedNotifier<AppUpdates> {
       context.dependOnInheritedWidgetOfExactType<AppUpdatesScope>()?.notifier;
 }
 
+/// Announcements wait for the current page to settle and never stack over an
+/// existing menu, sheet or Android back gesture. No polling ticker is needed.
+class AppUpdateNavigation extends NavigatorObserver with ChangeNotifier {
+  Route<dynamic>? _top;
+  Animation<double>? _enter, _leave;
+  bool _gesture = false;
+
+  bool get ready =>
+      navigator != null &&
+      _top is PageRoute &&
+      _top!.isCurrent &&
+      !_gesture &&
+      (_enter == null || _enter!.status == AnimationStatus.completed) &&
+      (_leave == null || _leave!.status == AnimationStatus.dismissed);
+
+  void _animationChanged(AnimationStatus _) => notifyListeners();
+
+  @override
+  void didChangeTop(Route<dynamic> topRoute, Route<dynamic>? previousTopRoute) {
+    _enter?.removeStatusListener(_animationChanged);
+    _leave?.removeStatusListener(_animationChanged);
+    _top = topRoute;
+    _enter = topRoute is ModalRoute ? topRoute.animation : null;
+    _leave = topRoute is ModalRoute ? topRoute.secondaryAnimation : null;
+    _enter?.addStatusListener(_animationChanged);
+    _leave?.addStatusListener(_animationChanged);
+    notifyListeners();
+  }
+
+  @override
+  void didStartUserGesture(
+    Route<dynamic> route,
+    Route<dynamic>? previousRoute,
+  ) {
+    _gesture = true;
+    notifyListeners();
+  }
+
+  @override
+  void didStopUserGesture() {
+    _gesture = false;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _enter?.removeStatusListener(_animationChanged);
+    _leave?.removeStatusListener(_animationChanged);
+    super.dispose();
+  }
+}
+
 class AppUpdateMonitor extends StatefulWidget {
   const AppUpdateMonitor({
     super.key,
     required this.updates,
     required this.child,
+    this.navigation,
   });
   final AppUpdates updates;
   final Widget child;
+  final AppUpdateNavigation? navigation;
   @override
   State<AppUpdateMonitor> createState() => _AppUpdateMonitorState();
 }
@@ -33,12 +87,99 @@ class _AppUpdateMonitorState extends State<AppUpdateMonitor>
     with WidgetsBindingObserver {
   Timer? _timer;
   bool _pendingForegroundCheck = true;
+  bool _promptQueued = false, _promptOpen = false;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.updates.addListener(_queuePrompt);
+    widget.navigation?.addListener(_queuePrompt);
     unawaited(widget.updates.loadInstalled().catchError((Object _) {}));
     _schedule();
+  }
+
+  @override
+  void didUpdateWidget(AppUpdateMonitor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.updates != widget.updates) {
+      oldWidget.updates.removeListener(_queuePrompt);
+      widget.updates.addListener(_queuePrompt);
+    }
+    if (oldWidget.navigation != widget.navigation) {
+      oldWidget.navigation?.removeListener(_queuePrompt);
+      widget.navigation?.addListener(_queuePrompt);
+    }
+    _queuePrompt();
+  }
+
+  void _queuePrompt() {
+    if (!mounted || _promptQueued || _promptOpen) return;
+    _promptQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _promptQueued = false;
+      if (mounted) unawaited(_showPromptIfReady());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _showPromptIfReady() async {
+    final service = widget.updates;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    final navigation = widget.navigation;
+    if (_promptOpen ||
+        lifecycle != null && lifecycle != AppLifecycleState.resumed ||
+        navigation?.ready != true ||
+        !service.autoCheck ||
+        service.checking ||
+        service.downloading ||
+        service.installing ||
+        service.error != null ||
+        !service.shouldPrompt) {
+      return;
+    }
+    final navigator = navigation!.navigator!;
+    final overlay = navigator.overlay!.context;
+    if (MediaQuery.viewInsetsOf(overlay).bottom > 0) return;
+    final release = service.release!;
+    final route = _AppUpdatePromptRoute(
+      release: release,
+      canDownload: service.asset != null,
+      appearance: GlassAppearance.of(overlay),
+      reduceMotion: MediaQuery.disableAnimationsOf(overlay),
+    );
+    _promptOpen = true;
+    try {
+      FocusManager.instance.primaryFocus?.unfocus();
+      final answer = navigator.push<bool>(route);
+      // Save only after actually presenting a prompt, not when a menu or a
+      // background app prevented it. Dismissing outside also counts as later.
+      try {
+        await service.rememberPrompt(release);
+      } catch (_) {
+        if (mounted && overlay.mounted) {
+          showNovelFeedback(overlay, '提醒偏好未保存，下次打开可能再次提示');
+        }
+      }
+      final accepted = await answer;
+      await route.completed;
+      if (!mounted || !navigator.mounted || accepted != true) return;
+      unawaited(
+        pushNovelPage<void>(
+          navigator.overlay!.context,
+          AppUpdatePage(updates: service),
+          reduceMotion: route.reduceMotion,
+        ),
+      );
+      // The button is explicit download consent, never installation consent.
+      if (service.release?.tag == release.tag &&
+          service.asset != null &&
+          service.downloaded == null) {
+        unawaited(service.download());
+      }
+    } finally {
+      _promptOpen = false;
+      if (mounted) _queuePrompt();
+    }
   }
 
   void _schedule() {
@@ -59,12 +200,16 @@ class _AppUpdateMonitorState extends State<AppUpdateMonitor>
   }
 
   @override
+  void didChangeMetrics() => _queuePrompt();
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(
         widget.updates.loadInstalled(refresh: true).catchError((Object _) {}),
       );
       if (_pendingForegroundCheck) _schedule();
+      _queuePrompt();
     } else {
       _timer?.cancel();
       if (state == AppLifecycleState.paused ||
@@ -77,6 +222,8 @@ class _AppUpdateMonitorState extends State<AppUpdateMonitor>
   @override
   void dispose() {
     _timer?.cancel();
+    widget.updates.removeListener(_queuePrompt);
+    widget.navigation?.removeListener(_queuePrompt);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -84,6 +231,165 @@ class _AppUpdateMonitorState extends State<AppUpdateMonitor>
   @override
   Widget build(BuildContext context) =>
       AppUpdatesScope(updates: widget.updates, child: widget.child);
+}
+
+class _AppUpdatePromptRoute extends PopupRoute<bool> {
+  _AppUpdatePromptRoute({
+    required this.release,
+    required this.canDownload,
+    required this.appearance,
+    required this.reduceMotion,
+  });
+  final AppRelease release;
+  final bool canDownload;
+  final GlassAppearance appearance;
+  final bool reduceMotion;
+
+  @override
+  Duration get transitionDuration =>
+      reduceMotion ? Duration.zero : NovelMotion.enter;
+  @override
+  Duration get reverseTransitionDuration =>
+      reduceMotion ? Duration.zero : NovelMotion.exit;
+  @override
+  bool get barrierDismissible => true;
+  @override
+  Color get barrierColor => Colors.black.withValues(alpha: .16);
+  @override
+  String get barrierLabel => '稍后提醒';
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) => GlassAppearance(
+    blur: appearance.blur,
+    opacity: appearance.opacity,
+    child: Material(
+      type: MaterialType.transparency,
+      child: SafeArea(
+        child: Padding(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 24) +
+              MediaQuery.viewInsetsOf(context),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440, maxHeight: 640),
+              child: GlassOverlayTransition(
+                animation: animation,
+                kind: GlassOverlayKind.sheet,
+                reduceMotion: reduceMotion,
+                child: GlassOverlaySurface(
+                  key: const ValueKey('app-update-prompt'),
+                  child: Semantics(
+                    namesRoute: true,
+                    label: '发现新版本 ${release.version.name}',
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Flexible(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  CupertinoIcons.arrow_up_circle,
+                                  size: 28,
+                                ),
+                                const SizedBox(height: 16),
+                                const Text(
+                                  '发现新版本',
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  '轻小说文库 ${release.version.name}',
+                                  style: TextStyle(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                ReleaseNotes(
+                                  release.notes.trim().isEmpty
+                                      ? '新版本已准备好，可以下载更新。'
+                                      : release.notes,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '选择稍后提醒，24 小时内不再提示此版本。',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    height: 1.5,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final later = GlassTextButton(
+                                key: const ValueKey('postpone-app-update'),
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('稍后提醒'),
+                              );
+                              final update = GlassTextButton(
+                                key: const ValueKey('confirm-app-update'),
+                                onPressed: () => Navigator.pop(context, true),
+                                child: Text(
+                                  canDownload ? '立即更新' : '查看更新',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              );
+                              if (constraints.maxWidth < 300 ||
+                                  MediaQuery.textScalerOf(context).scale(14) >
+                                      19) {
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    update,
+                                    const SizedBox(height: 4),
+                                    later,
+                                  ],
+                                );
+                              }
+                              return Row(
+                                children: [
+                                  Expanded(child: later),
+                                  const SizedBox(width: 12),
+                                  Expanded(child: update),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class AppUpdatePage extends StatelessWidget {
