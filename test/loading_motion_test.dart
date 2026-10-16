@@ -47,8 +47,11 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 150));
       expect(find.byType(ReaderPageSkeleton), findsOneWidget);
+      expect(find.byType(ReaderSkeleton), findsWidgets);
       expect(
-        tester.widget<ReaderSkeleton>(find.byType(ReaderSkeleton)).vertical,
+        tester
+            .widgetList<ReaderSkeleton>(find.byType(ReaderSkeleton))
+            .every((skeleton) => skeleton.vertical),
         isTrue,
       );
       expect(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wenku8_flutter/app_ui.dart';
+import 'package:wenku8_flutter/book_collection_layout.dart';
 import 'package:wenku8_flutter/catalog.dart';
 import 'package:wenku8_flutter/novel_feed_controller.dart';
 import 'package:wenku8_flutter/pages.dart';
@@ -132,7 +133,10 @@ void main() {
       final scroll = tester.state<ScrollableState>(find.byType(Scrollable));
       scroll.position.jumpTo(scroll.position.maxScrollExtent);
       await tester.pump();
-      expect(find.byType(BookRowSkeleton), findsOneWidget);
+      final columns = BookCollectionLayout.columnsFor(
+        tester.getSize(find.byType(BookCollectionSkeleton)).width,
+      );
+      expect(find.byType(BookRowSkeleton), findsNWidgets(columns * 2));
       expect(find.byType(RefreshProgressIndicator), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       repo.page.complete(

@@ -83,3 +83,15 @@ coverage are unchanged. Both single-lens and metaball shaders share this fix.
 on uniform sage/parchment/night papers; zero-light pixels must not exceed either
 input color. Before repair the sage/parchment cases exceed the allowed channel
 ceiling by 16/21, respectively; night already passes.
+
+## 2026-10-16 — Scrollable form gestures and cancellation
+
+Switch and slider add opt-in `horizontalDragOnly`, enabled by the app adapters.
+An axis-aware horizontal-drag/tap team lets vertical gestures scroll the parent
+instead of capturing them and accidentally changing settings. The upstream
+eager grab remains the default for other callers. Lens rendering, rubber band,
+thumb deformation and settling springs are unchanged.
+
+Slider cancellation settles to the last preview rather than interpreting a
+short cancelled drag as a new track tap. A vertical switch cancellation does
+not toggle. Both controls retain one gesture team through their rebuilds.

@@ -252,7 +252,10 @@ void main() {
       await tester.pumpAndSettle();
       SystemUiOverlayStyle barStyle() => tester
           .widget<AnnotatedRegion<SystemUiOverlayStyle>>(
-            find.byType(AnnotatedRegion<SystemUiOverlayStyle>),
+            find.descendant(
+              of: find.byKey(const ValueKey('reader-article-boundary')),
+              matching: find.byType(AnnotatedRegion<SystemUiOverlayStyle>),
+            ),
           )
           .value;
       BuildContext titleContext() => tester.element(find.text(book.title));

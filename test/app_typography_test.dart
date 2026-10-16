@@ -191,42 +191,48 @@ void main() {
       state.dispose();
     },
   );
-  testWidgets(
-    'cancelled typography drag commits the last preview exactly once',
-    (tester) async {
-      final committed = <double>[], previews = <double>[], phases = <bool>[];
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ReaderValueSlider(
-              sliderKey: const ValueKey('slider'),
-              label: '字号',
-              value: 19,
-              min: 15,
-              max: 27,
-              format: (v) => '$v',
-              onCommitted: committed.add,
-              onPreview: previews.add,
-              onInteractionChanged: phases.add,
+  for (final cancel in [false, true]) {
+    testWidgets(
+      '${cancel ? 'cancelled' : 'quick'} typography drag commits the last preview exactly once',
+      (tester) async {
+        final committed = <double>[], previews = <double>[], phases = <bool>[];
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ReaderValueSlider(
+                sliderKey: const ValueKey('slider'),
+                label: '字号',
+                value: 19,
+                min: 15,
+                max: 27,
+                format: (v) => '$v',
+                onCommitted: committed.add,
+                onPreview: previews.add,
+                onInteractionChanged: phases.add,
+              ),
             ),
           ),
-        ),
-      );
-      final rect = tester.getRect(find.byKey(const ValueKey('slider')));
-      final gesture = await tester.startGesture(
-        Offset(rect.left + rect.width / 3, rect.center.dy),
-      );
-      await gesture.moveBy(const Offset(25, 0));
-      await tester.pump();
-      await gesture.moveBy(const Offset(80, 0));
-      await tester.pump();
-      expect(previews, isNotEmpty);
-      expect(committed, isEmpty);
-      await gesture.cancel();
-      await tester.pump();
-      expect(committed, [previews.last]);
-      expect(phases, [true, false]);
-      expect(tester.takeException(), isNull);
-    },
-  );
+        );
+        final rect = tester.getRect(find.byKey(const ValueKey('slider')));
+        final gesture = await tester.startGesture(
+          Offset(rect.left + rect.width / 3, rect.center.dy),
+        );
+        await gesture.moveBy(const Offset(25, 0));
+        await tester.pump();
+        await gesture.moveBy(const Offset(80, 0));
+        await tester.pump();
+        expect(previews, isNotEmpty);
+        expect(committed, isEmpty);
+        if (cancel) {
+          await gesture.cancel();
+        } else {
+          await gesture.up();
+        }
+        await tester.pump();
+        expect(committed, [previews.last]);
+        expect(phases, [true, false]);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 }

@@ -13,7 +13,7 @@ const updateRepository = String.fromEnvironment(
   defaultValue: 'mikufoxxx/Wenku8_Flutter',
 );
 const currentAppVersion = '0.3.0';
-const currentAppBuild = 28;
+const currentAppBuild = 29;
 const currentReleaseNotes = '''
 阅读器支持上下滚动、横排翻页与竖排翻页，大屏自动对页阅读。
 新增阅读配色、段落排版、分区点按、音量键翻页与自动滚动，字号和行距支持透明预览。
@@ -29,6 +29,7 @@ const currentReleaseNotes = '''
 平板采用等宽浏览／详情双栏与多列列表，骨架屏同步适配；优化宽屏详情进退与封面返回落点。
 统一液态玻璃开关、滑杆、菜单和阅读配色，修复亮边、Dock 裁切、二级标题及按钮布局。
 优化骨架与内容的连续过渡、书评骨架；轻提示自动消失并避开 Dock。
+修复玻璃滑块和开关抢占纵向滚动、取消拖动重复提交，以及滚动阅读隐藏控件时的正文重建。
 更新奶白剪影图标与中性深灰深色模式，修复分类登录刷新和版本信息缓存，每次打开应用检查更新。
 ''';
 

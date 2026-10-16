@@ -879,10 +879,13 @@ class _ReaderValueSliderState extends State<ReaderValueSlider> {
   late double _draft = widget.value;
   bool _dragging = false;
   bool _pointerCancelled = false;
+  bool _previewChanged = false;
   double get _unit => (widget.max - widget.min) / (widget.divisions ?? 20);
 
   void _change(double value) {
-    setState(() => _draft = value.clamp(widget.min, widget.max));
+    final next = value.clamp(widget.min, widget.max);
+    if (_dragging && next != _draft) _previewChanged = true;
+    setState(() => _draft = next);
     // Accessibility increments have no pointer drag/end callback.
     if (_dragging) {
       widget.onPreview?.call(_draft);
@@ -898,13 +901,13 @@ class _ReaderValueSliderState extends State<ReaderValueSlider> {
   void _finish() {
     if (!_dragging) return;
     _dragging = false;
-    widget.onCommitted?.call(_draft);
+    if (_previewChanged) widget.onCommitted?.call(_draft);
     widget.onInteractionChanged?.call(false);
   }
 
   @override
   void dispose() {
-    if (_dragging) {
+    if (_dragging && _previewChanged) {
       // Back navigation can remove the slider before the control's end callback.
       // Retain the last visible value without calling the disposed sheet.
       final commit = widget.onCommitted, draft = _draft;
@@ -972,6 +975,7 @@ class _ReaderValueSliderState extends State<ReaderValueSlider> {
                   onChangeStart: (_) {
                     _pointerCancelled = false;
                     _dragging = true;
+                    _previewChanged = false;
                     widget.onInteractionChanged?.call(true);
                   },
                   onChangeEnd: (value) {

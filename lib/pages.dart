@@ -4206,7 +4206,12 @@ class _ReaderPageState extends State<ReaderPage>
     _chromeTarget = visible;
     // Start the incremental text move with the glass transition, not after
     // waiting for the hide animation to finish and then shaping the chapter.
-    if (_chromeReserved != visible) setState(() => _chromeReserved = visible);
+    if (_chromeReserved != visible) {
+      _chromeReserved = visible;
+      // Scrolling has a constant status-bar inset. Only paged text changes
+      // its reserved area; leave the scrolling article and paragraphs intact.
+      if (_paginated) setState(() {});
+    }
     if (widget.state.reduceMotion || MediaQuery.disableAnimationsOf(context)) {
       _chrome.value = visible ? 1 : 0;
     } else if (visible) {

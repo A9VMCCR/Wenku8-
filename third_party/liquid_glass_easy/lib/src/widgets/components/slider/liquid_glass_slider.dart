@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart' show GestureArenaTeam, kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
@@ -175,6 +176,9 @@ class LiquidGlassSlider extends StatefulWidget {
   final double pixelRatio;
   final bool reduceMotion;
   final double minimumTouchHeight;
+  /// Yield vertical gestures to an enclosing scrollable. The eager upstream
+  /// gesture remains the default for existing standalone controls.
+  final bool horizontalDragOnly;
 
   const LiquidGlassSlider({
     super.key,
@@ -198,6 +202,7 @@ class LiquidGlassSlider extends StatefulWidget {
     this.pixelRatio = 1.0,
     this.reduceMotion = false,
     this.minimumTouchHeight = 0,
+    this.horizontalDragOnly = false,
   });
 
   @override
@@ -206,6 +211,7 @@ class LiquidGlassSlider extends StatefulWidget {
 
 class _LiquidGlassSliderState extends State<LiquidGlassSlider>
     with TickerProviderStateMixin {
+  final _gestureTeam = GestureArenaTeam();
   // ── Constants that are not geometry ────────────────────────────────
   static const double _tapTimeThreshold = 0.15; // seconds
   static const double _fillEndRamp = 10; // px, the fill's end snap zone
@@ -453,6 +459,7 @@ class _LiquidGlassSliderState extends State<LiquidGlassSlider>
   }
 
   void _handleDown(Offset globalPosition) {
+    if (_pointerDown) return;
     _pointerDown = true;
     _isDragging = false;
     _didMinHaptic = false;
@@ -521,7 +528,9 @@ class _LiquidGlassSliderState extends State<LiquidGlassSlider>
     _pointerDown = false;
     final elapsed = DateTime.now().difference(_downTime).inMicroseconds / 1e6;
 
-    if (elapsed < _tapTimeThreshold) {
+    final moved = widget.horizontalDragOnly &&
+        (_lastFingerX - _startFingerX).abs() > kTouchSlop;
+    if (elapsed < _tapTimeThreshold && !moved) {
       // A tap: glide the thumb to the tapped spot and report the value.
       final clampedX = _lastFingerX.clamp(_minThumbCX, _maxThumbCX).toDouble();
       final newValue = _valueAt(clampedX);
@@ -557,6 +566,21 @@ class _LiquidGlassSliderState extends State<LiquidGlassSlider>
     }
     _ensureTicking();
     widget.onChangeEnd?.call(_gestureValue);
+    setState(() {});
+  }
+
+  void _handleCancel() {
+    if (!mounted || !_pointerDown) return;
+    _pointerDown = false;
+    _isDragging = false;
+    _thumbActive = false;
+    _contractGen++;
+    _rubberSettling = _rubber != 0;
+    _thumbSpringTarget = _centerForValue(_gestureValue);
+    if (!widget.isContinuous) widget.onChanged(_gestureValue);
+    // A cancelled drag retains its last preview, never a new track-tap value.
+    widget.onChangeEnd?.call(_gestureValue);
+    _ensureTicking();
     setState(() {});
   }
 
@@ -614,12 +638,21 @@ class _LiquidGlassSliderState extends State<LiquidGlassSlider>
 
     final gestureSurface = RawGestureDetector(
       behavior: HitTestBehavior.opaque,
-      gestures: liquidGlassEagerPanGestures(
-        debugOwner: this,
-        onDown: _handleDown,
-        onMove: _handleMove,
-        onUp: _handleUp,
-      ),
+      gestures: widget.horizontalDragOnly
+          ? liquidGlassHorizontalPanGestures(
+              debugOwner: this,
+              team: _gestureTeam,
+              onDown: _handleDown,
+              onMove: _handleMove,
+              onUp: _handleUp,
+              onCancel: _handleCancel,
+            )
+          : liquidGlassEagerPanGestures(
+              debugOwner: this,
+              onDown: _handleDown,
+              onMove: _handleMove,
+              onUp: _handleUp,
+            ),
     );
 
     return SizedBox(

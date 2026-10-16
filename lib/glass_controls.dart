@@ -78,6 +78,7 @@ class _AppGlassSwitchState extends State<AppGlassSwitch> {
                   constraints: const BoxConstraints(minHeight: 48),
                   child: easy.LiquidGlassSwitch(
                     value: _value,
+                    horizontalDragOnly: true,
                     onChanged: _change,
                     activeColor: enabled
                         ? widget.activeColor
@@ -215,6 +216,7 @@ class _AppGlassSliderState extends State<AppGlassSlider> {
               child: LayoutBuilder(
                 builder: (context, constraints) => easy.LiquidGlassSlider(
                   value: _draft,
+                  horizontalDragOnly: true,
                   minimumValue: widget.min,
                   maximumValue: widget.max,
                   onChanged: _change,

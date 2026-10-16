@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/gestures.dart' show kTouchSlop;
+import 'package:flutter/gestures.dart' show GestureArenaTeam, kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
@@ -187,7 +187,12 @@ class LiquidGlassSwitch extends StatefulWidget {
     this.reserveSwellRoom = false,
     this.pixelRatio = 1.0,
     this.reduceMotion = false,
+    this.horizontalDragOnly = false,
   });
+
+  /// Yield vertical gestures to an enclosing scrollable; existing callers
+  /// retain the eager grab-and-carry contract by default.
+  final bool horizontalDragOnly;
 
   /// The tuned default thumb glass: a clear pill — refraction and rim
   /// only, no tint. The glass shows what is behind it rather than
@@ -239,6 +244,7 @@ LiquidGlassStyle _withShadow(LiquidGlassStyle base, LiquidGlassShadow? shadow) {
 
 class _LiquidGlassSwitchState extends State<LiquidGlassSwitch>
     with TickerProviderStateMixin {
+  final _gestureTeam = GestureArenaTeam();
   static const double _tapTimeThreshold = 0.15; // seconds
   static const double _edgeToggleThreshold = 5; // px
 
@@ -498,6 +504,7 @@ class _LiquidGlassSwitchState extends State<LiquidGlassSwitch>
   }
 
   void _handleDown(Offset globalPosition) {
+    if (_pointerDown) return;
     _pointerDown = true;
     _isDragging = false;
     _didToggleDuringDrag = false;
@@ -606,9 +613,9 @@ class _LiquidGlassSwitchState extends State<LiquidGlassSwitch>
   /// A cancelled interaction: an established drag finishes as a drag
   /// (toggling); a not-yet-drag just settles home.
   void _handleCancel() {
-    if (!_pointerDown) return;
+    if (!mounted || !_pointerDown) return;
     final elapsed = DateTime.now().difference(_downTime).inMicroseconds / 1e6;
-    if (_didMoveFar || elapsed >= _tapTimeThreshold) {
+    if (_didMoveFar || !widget.horizontalDragOnly && elapsed >= _tapTimeThreshold) {
       _handleUp();
       return;
     }
@@ -820,13 +827,22 @@ class _LiquidGlassSwitchState extends State<LiquidGlassSwitch>
       height: l.height,
       child: RawGestureDetector(
         behavior: HitTestBehavior.opaque,
-        gestures: liquidGlassEagerPanGestures(
-          debugOwner: this,
-          onDown: _handleDown,
-          onMove: _handleMove,
-          onUp: _handleUp,
-          onCancel: _handleCancel,
-        ),
+        gestures: widget.horizontalDragOnly
+            ? liquidGlassHorizontalPanGestures(
+                debugOwner: this,
+                team: _gestureTeam,
+                onDown: _handleDown,
+                onMove: _handleMove,
+                onUp: _handleUp,
+                onCancel: _handleCancel,
+              )
+            : liquidGlassEagerPanGestures(
+                debugOwner: this,
+                onDown: _handleDown,
+                onMove: _handleMove,
+                onUp: _handleUp,
+                onCancel: _handleCancel,
+              ),
         child: OverflowBox(
           maxWidth: viewWidth,
           maxHeight: viewHeight,

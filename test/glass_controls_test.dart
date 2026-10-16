@@ -292,6 +292,71 @@ void main({
     },
   );
 
+  for (final useSwitch in [false, true]) {
+    testWidgets(
+      'vertical scroll through ${useSwitch ? 'switch' : 'slider'} does not edit it',
+      (tester) async {
+        final controller = ScrollController();
+        addTearDown(controller.dispose);
+        final values = <Object>[];
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: novelTheme(Brightness.light),
+            home: Scaffold(
+              body: ListView(
+                controller: controller,
+                children: [
+                  const SizedBox(height: 220),
+                  Center(
+                    child: SizedBox(
+                      width: 280,
+                      child: Builder(
+                        builder: (context) => useSwitch
+                            ? AppControls.toggle(
+                                context,
+                                value: false,
+                                onChanged: values.add,
+                              )
+                            : ReaderValueSlider(
+                                sliderKey: const ValueKey('scroll-slider'),
+                                label: '字号',
+                                value: 19,
+                                min: 15,
+                                max: 27,
+                                format: (value) => '$value',
+                                onCommitted: values.add,
+                              ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 1000),
+                ],
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final control = useSwitch
+            ? find.byType(easy.LiquidGlassSwitch)
+            : find.byType(easy.LiquidGlassSlider);
+        final gesture = await tester.startGesture(tester.getCenter(control));
+        // Include a held press before scrolling, not only a fast flick.
+        await tester.pump(const Duration(milliseconds: 120));
+        await gesture.moveBy(const Offset(0, -30));
+        await tester.pump(const Duration(milliseconds: 16));
+        await gesture.moveBy(const Offset(0, -140));
+        await tester.pump(const Duration(milliseconds: 80));
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(controller.offset, greaterThan(100));
+        expect(values, isEmpty);
+        expect(tester.binding.transientCallbackCount, 0);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
   for (final brightness in Brightness.values) {
     testWidgets(
       'actual settings/listening remain readable in ${brightness.name}',
@@ -334,7 +399,7 @@ void main({
         expect(
           tester
               .getRect(offline)
-              .overlaps(tester.getRect(find.text('断网后隐藏发现，书架只显示已缓存和本地书籍'))),
+              .overlaps(tester.getRect(find.text('断网后隐藏发现，书架只显示已缓存的收藏'))),
           false,
         );
         await snapshot(tester, boundary, 'settings-glass-${brightness.name}');

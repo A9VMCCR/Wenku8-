@@ -8,6 +8,7 @@ import 'package:wenku8_flutter/library_state.dart';
 import 'package:wenku8_flutter/main.dart';
 import 'package:wenku8_flutter/native_effects.dart';
 import 'package:wenku8_flutter/pages.dart';
+import 'package:wenku8_flutter/ui_notifiers.dart';
 
 Finder _control(String label) => find
     .descendant(
@@ -459,11 +460,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         tester
-            .widget<Offstage>(
+            .widget<RetainedPane>(
               find.byKey(const ValueKey('home-tab-0'), skipOffstage: false),
             )
-            .offstage,
-        isTrue,
+            .active,
+        isFalse,
       );
       expect(find.byType(DiscoverPage), findsNothing);
       expect(find.byType(InlineSearchResults), findsOneWidget);
@@ -472,9 +473,9 @@ void main() {
       expect(tester.element(find.byType(DiscoverPage)), same(page));
       expect(
         tester
-            .widget<Offstage>(find.byKey(const ValueKey('home-tab-0')))
-            .offstage,
-        isFalse,
+            .widget<RetainedPane>(find.byKey(const ValueKey('home-tab-0')))
+            .active,
+        isTrue,
       );
       expect(tester.takeException(), isNull);
     },
