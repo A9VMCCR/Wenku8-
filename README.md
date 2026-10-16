@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases">下载</a> ·
+  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases/latest">下载</a> ·
   <a href="CHANGELOG.md">更新日志</a> ·
   <a href="https://github.com/mikufoxxx/Wenku8_Flutter/issues">问题反馈</a> ·
   <a href="docs/RELEASING.md">构建指南</a>
@@ -22,7 +22,7 @@
 
 ## 简介
 
-Wenku8 Flutter 是轻小说文库客户端的 Flutter 重构版本，面向 Android，集成书籍发现、书架管理、阅读、离线缓存与在线听书。界面采用半透明材质与档案式排版，提供立体书架、连贯的页面过渡和可自定义的阅读体验。
+Wenku8 Flutter 是面向 Android 手机与平板的轻小说阅读客户端，集成书籍发现、书架管理、本地书库、离线阅读与在线听书。奶白玻璃材质、档案式排版与立体书架贯穿界面，阅读器支持滚动、横排翻页、竖排翻页和大屏对页。
 
 ## 界面预览
 
@@ -37,21 +37,32 @@ Wenku8 Flutter 是轻小说文库客户端的 Flutter 重构版本，面向 Andr
 ## 功能特性
 
 - **书籍发现**：分类、排行、书名与作者搜索、出版文库。
-- **立体书架**：循环轮播、惯性滚动、吸附定位与触觉反馈。
+- **立体书架**：循环轮播、惯性滚动、吸附定位与触觉反馈，可切换为纯列表。
 - **阅读排版**：上下滚动、横排翻页与竖排翻页，大屏对页；阅读配色、字号、行距、页边距、段落间距、缩进与对齐，系统字体与内置思源宋体，支持实时预览。
 - **阅读工具**：可展开的分卷目录、书签定位与高亮、章内查找、插图查看、分区点按与音量键翻页、自动滚动。
 - **离线阅读**：章节缓存、缓存管理、阅读历史、进度续读与本地备份。
-- **本地书库**：多选导入 TXT、EPUB，同系列分卷合并，保留目录、插图与阅读记录；支持分类整理、OpenList／WebDAV 与夸克网盘导入，以及系统云文档同步。
+- **本地书库**：多选导入 TXT、EPUB，同系列分卷合并，保留目录、插图与阅读记录；支持分类整理、书籍信息编辑与分卷顺序调整，导入书籍独立保存在「本地」。
+- **网盘与同步**：OpenList／WebDAV、夸克网盘导入（实验性），通过 OneDrive、Google Drive 等系统云文档入口手动合并同步原书与阅读记录。
 - **在线听书**：中文音色、自定义 Microsoft SSML 接口、语速调节、段落跟随、睡眠定时、后台与锁屏控制。
 - **账号与社区**：文库账号、云书架、书评与回复。
 - **性能设置**：低性能设备模式，可独立调整玻璃折射、模糊、动效与立体书架。
 - **使用方式**：离线时隐藏发现、书架只显示已缓存收藏；阅读器模式只保留本地与设置。
 
-## 下载
+## 下载与更新
 
-从 [GitHub Releases](https://github.com/mikufoxxx/Wenku8_Flutter/releases) 下载 APK。提供 `arm64-v8a`、`armeabi-v7a` 与 `x86_64` 三种架构，常见 Android 手机请选择 **arm64-v8a**。
+当前正式版为 **[0.3.0 · build 29](https://github.com/mikufoxxx/Wenku8_Flutter/releases/tag/v0.3.0%2B29)**。本版重点升级阅读器、本地多选导入与分卷合并，完善平板布局、液态玻璃控件和听书交互。[查看完整更新说明](CHANGELOG.md)。
 
-安装后，可在 **设置 → 关于轻小说文库** 查看版本信息、更新说明并检查更新。
+常见 Android 手机与平板请选择 **ARM64**：
+
+| 设备 | 安装包 |
+| --- | --- |
+| 常见手机、平板（推荐） | [ARM64 · arm64-v8a](https://github.com/mikufoxxx/Wenku8_Flutter/releases/download/v0.3.0%2B29/wenku8-0.3.0-arm64-v8a.apk) |
+| 旧款 32 位 ARM 设备 | [ARMv7 · armeabi-v7a](https://github.com/mikufoxxx/Wenku8_Flutter/releases/download/v0.3.0%2B29/wenku8-0.3.0-armeabi-v7a.apk) |
+| x86_64 设备或模拟器 | [x86_64](https://github.com/mikufoxxx/Wenku8_Flutter/releases/download/v0.3.0%2B29/wenku8-0.3.0-x86_64.apk) |
+
+已安装旧版时，可在 **设置 → 关于轻小说文库 → 检查更新** 获取新版；开启自动检查后，应用会在检查到新版本时提示。正式版沿用同一签名，可直接覆盖安装。
+
+源码与其他版本见 [GitHub Releases](https://github.com/mikufoxxx/Wenku8_Flutter/releases)。
 
 阅读与自定义语音见 [阅读器与本地书库](docs/READER.md)，网盘连接见 [网盘导入指南](docs/CLOUD_IMPORT.md)，标签与关键词用法见 [搜索指南](docs/SEARCH.md)。
 
