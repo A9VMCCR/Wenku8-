@@ -55,7 +55,10 @@ void main({
             .setMockMethodCallHandler(SystemChannels.platform, null),
       );
     }
-    SharedPreferences.setMockInitialValues({'reduceMotion': true});
+    SharedPreferences.setMockInitialValues({
+      'reduceMotion': true,
+      'shelfLayout': 'list',
+    });
     state = await LibraryState.load();
     repository = OfflineFixtureRepository();
     boundary = GlobalKey();
@@ -288,6 +291,8 @@ void main({
           ),
         ),
       );
+      await tester.tap(_button('搜索书架'));
+      await tester.pumpAndSettle();
       await tester.enterText(find.byKey(const ValueKey('shelf-search')), '73');
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('shelf-book-73')), findsOneWidget);

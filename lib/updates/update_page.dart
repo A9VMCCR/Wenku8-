@@ -32,6 +32,7 @@ class AppUpdateMonitor extends StatefulWidget {
 class _AppUpdateMonitorState extends State<AppUpdateMonitor>
     with WidgetsBindingObserver {
   Timer? _timer;
+  bool _pendingForegroundCheck = true;
   @override
   void initState() {
     super.initState();
@@ -42,17 +43,34 @@ class _AppUpdateMonitorState extends State<AppUpdateMonitor>
 
   void _schedule() {
     _timer?.cancel();
-    _timer = Timer(const Duration(seconds: 8), () {
-      if (mounted) unawaited(widget.updates.check(automatic: true));
+    // Check once for each foreground session, after the first screen settles.
+    // Transient inactive states (notification shade, system dialogs) are not a
+    // new launch. A background return is, regardless of the last check's age.
+    _timer = Timer(const Duration(seconds: 2), () {
+      _timer = null;
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      if (!mounted ||
+          lifecycle != null && lifecycle != AppLifecycleState.resumed) {
+        return;
+      }
+      _pendingForegroundCheck = false;
+      unawaited(widget.updates.check(automatic: true));
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _schedule();
+      unawaited(
+        widget.updates.loadInstalled(refresh: true).catchError((Object _) {}),
+      );
+      if (_pendingForegroundCheck) _schedule();
     } else {
       _timer?.cancel();
+      if (state == AppLifecycleState.paused ||
+          state == AppLifecycleState.hidden) {
+        _pendingForegroundCheck = true;
+      }
     }
   }
 
@@ -88,20 +106,16 @@ class AppUpdatePage extends StatelessWidget {
     return Scaffold(
       body: Atmosphere(
         child: GlassHeaderLayout(
-          header: Row(
-            children: [
-              GlassIconButton(
-                icon: CupertinoIcons.back,
-                label: '返回设置',
-                onPressed: () => Navigator.pop(context),
-              ),
-              const Expanded(
-                child: ArchiveRouteTitle(
-                  title: '关于轻小说文库',
-                  code: 'SYSTEM / ABOUT',
-                ),
-              ),
-            ],
+          header: ArchiveHeaderBar(
+            leading: GlassIconButton(
+              icon: CupertinoIcons.back,
+              label: '返回设置',
+              onPressed: () => Navigator.pop(context),
+            ),
+            title: const ArchiveRouteTitle(
+              title: '关于轻小说文库',
+              code: 'SYSTEM / ABOUT',
+            ),
           ),
           body: ListView(
             key: const ValueKey('update-page-scroll'),
@@ -136,12 +150,10 @@ class AppUpdatePage extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 12),
-                          CupertinoSwitch(
+                          AppControls.toggle(
+                            context,
                             key: const ValueKey('automatic-update-check'),
                             value: service.autoCheck,
-                            activeTrackColor: Theme.of(
-                              context,
-                            ).colorScheme.primary,
                             onChanged: (value) async {
                               try {
                                 await service.setAutoCheck(value);
@@ -156,7 +168,7 @@ class AppUpdatePage extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '打开应用时检查 GitHub Releases，下载与安装由你确认。',
+                        '每次打开应用时检查 GitHub Releases，下载与安装由你确认。',
                         style: TextStyle(
                           fontSize: 13,
                           height: 1.5,
@@ -181,6 +193,19 @@ class AppUpdatePage extends StatelessWidget {
                         const SizedBox(height: 12),
                         Text(
                           service.release == null ? '暂未发布可用的正式版本' : '已是最新版本',
+                        ),
+                      ],
+                      if (service.checked && service.release != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          '最新正式版 ${service.release!.version.name}',
+                          key: const ValueKey('latest-app-version'),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                       if (service.error != null) ...[

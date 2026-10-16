@@ -25,7 +25,8 @@ class PublicSourceExportTest(unittest.TestCase):
                      "third_party/liquid_glass_easy/pubspec.yaml",
                      "third_party/liquid_glass_easy/LICENSE",
                      "third_party/liquid_glass_easy/lib/liquid_glass_easy.dart",
-                     "flutter_screenshots/private.png", "LISTENING.md", "README.md"):
+                     "flutter_screenshots/private.png", "LISTENING.md", "README.md", "docs/READER.md",
+                     "docs/CLOUD_IMPORT.md", "docs/SEARCH.md"):
             file = self.root / name
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text("fixture")
@@ -40,7 +41,7 @@ class PublicSourceExportTest(unittest.TestCase):
         output = self.base / "complete"
         self.export(output)
         files = {p.relative_to(output).as_posix() for p in output.rglob("*") if p.is_file()}
-        self.assertEqual(files, {"README.md", "lib/main.dart",
+        self.assertEqual(files, {"README.md", "docs/READER.md", "docs/CLOUD_IMPORT.md", "docs/SEARCH.md", "lib/main.dart",
             "third_party/liquid_glass_easy/pubspec.yaml",
             "third_party/liquid_glass_easy/LICENSE",
             "third_party/liquid_glass_easy/lib/liquid_glass_easy.dart",

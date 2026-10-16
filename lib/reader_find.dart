@@ -255,37 +255,53 @@ class ReaderHighlightText extends StatelessWidget {
     required this.text,
     required this.match,
     required this.style,
+    this.indent = false,
+    this.textAlign = TextAlign.start,
+    this.sourceStart = 0,
   });
   final int index;
   final String text;
   final ValueListenable<ReaderMatch?> match;
   final TextStyle style;
+  final bool indent;
+  final TextAlign textAlign;
+  final int sourceStart;
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<ReaderMatch?>(
     valueListenable: match,
     builder: (context, selected, _) {
       if (selected == null ||
           selected.paragraph != index ||
-          selected.end > text.length) {
-        return Text(text, key: ValueKey('paragraph-$index'), style: style);
+          selected.end <= sourceStart ||
+          selected.start >= sourceStart + text.length) {
+        return Text(
+          '${indent ? '\u3000\u3000' : ''}$text',
+          key: ValueKey('paragraph-$index'),
+          style: style,
+          textAlign: textAlign,
+        );
       }
+      final start = (selected.start - sourceStart).clamp(0, text.length);
+      final end = (selected.end - sourceStart).clamp(start, text.length);
       return Text.rich(
         TextSpan(
           children: [
-            TextSpan(text: text.substring(0, selected.start)),
+            if (indent) const TextSpan(text: '\u3000\u3000'),
+            TextSpan(text: text.substring(0, start)),
             TextSpan(
-              text: text.substring(selected.start, selected.end),
+              text: text.substring(start, end),
               style: TextStyle(
                 backgroundColor: Theme.of(
                   context,
                 ).colorScheme.onSurface.withValues(alpha: .14),
               ),
             ),
-            TextSpan(text: text.substring(selected.end)),
+            TextSpan(text: text.substring(end)),
           ],
         ),
         key: ValueKey('paragraph-$index'),
         style: style,
+        textAlign: textAlign,
       );
     },
   );

@@ -142,7 +142,7 @@ void main({
       final before = _anchor(tester);
       await tester.tap(_control('阅读设置'));
       await tester.pumpAndSettle();
-      final font = tester.widget<CupertinoSlider>(
+      final font = tester.widget<AppGlassSlider>(
         find.byKey(const ValueKey('reader-font-slider')),
       );
       font.onChangeEnd!(27);
@@ -150,7 +150,7 @@ void main({
       final afterFont = _anchor(tester);
       expect(afterFont.index, before.index);
       expect(afterFont.fraction, closeTo(before.fraction, .015));
-      final spacing = tester.widget<CupertinoSlider>(
+      final spacing = tester.widget<AppGlassSlider>(
         find.byKey(const ValueKey('reader-line-height-slider')),
       );
       spacing.onChangeEnd!(2.2);
@@ -196,7 +196,7 @@ void main({
   );
 
   testWidgets(
-    'focus reading hides controls but retains live edge blur without shifting paragraphs',
+    'focus reading hides controls and edge blur without shifting paragraphs',
     (tester) async {
       await reader(tester, brightness: Brightness.dark);
       _scroll(tester).position.jumpTo(900);
@@ -210,7 +210,8 @@ void main({
       await tester.pumpAndSettle();
       expect(find.byType(GlassIconButton), findsNothing);
       expect(tester.element(find.byType(FrostedHeader)), same(header));
-      expect(tester.element(find.byType(ReaderEdgeBlur)), same(underlay));
+      expect(find.byType(ReaderEdgeBlur), findsNothing);
+      expect(tester.element(find.byType(ReaderEdgeBlur, skipOffstage: false)), same(underlay));
       expect(tester.widget(paragraph), same(original));
       expect(_scroll(tester).position.pixels, offset);
       if (capture != null) await capture(tester, boundary, 'reader-focus-dark');

@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import '../reader_content.dart';
 
-enum ListeningSource { edge, system }
+enum ListeningSource { edge, system, custom }
 
 enum ListeningPhase { stopped, preparing, playing, paused, completed, failed }
 
@@ -27,7 +27,8 @@ class SpeechVoice {
       (offline && supportedSystemSpeechEngine(engine));
   // Offline engine plumbing is retained for development, not offered as a
   // working product feature until device coverage and synthesis are ready.
-  bool get availableForListening => source == ListeningSource.edge && supported;
+  bool get availableForListening =>
+      source != ListeningSource.system && supported;
   Map<String, Object?> toJson() => {
     'id': id,
     'label': label,
@@ -40,9 +41,11 @@ class SpeechVoice {
   factory SpeechVoice.fromJson(Map<String, dynamic> json) => SpeechVoice(
     id: json['id'] as String,
     label: json['label'] as String,
-    source: json['source'] == 'system'
-        ? ListeningSource.system
-        : ListeningSource.edge,
+    source: switch (json['source']) {
+      'system' => ListeningSource.system,
+      'custom' => ListeningSource.custom,
+      _ => ListeningSource.edge,
+    },
     locale: json['locale'] is String ? json['locale'] : 'zh-CN',
     engine: json['engine'] as String?,
     offline: json['offline'] == true,
@@ -305,7 +308,7 @@ class ListeningCursor {
   };
   factory ListeningCursor.fromJson(Map<String, dynamic> json) {
     int number(String key) =>
-        json[key] is int ? (json[key] as int).clamp(0, 1 << 30) : 0;
+        json[key] is int ? (json[key] as int).clamp(0, 0x7fffffff) : 0;
     return ListeningCursor(
       novelId: number('novelId'),
       chapterId: number('chapterId'),

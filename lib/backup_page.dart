@@ -89,21 +89,16 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
     child: Scaffold(
       body: Atmosphere(
         child: GlassHeaderLayout(
-          header: Row(
-            children: [
-              GlassIconButton(
-                icon: CupertinoIcons.back,
-                label: '返回设置',
-                onPressed: _busy == null ? () => Navigator.pop(context) : null,
-              ),
-              const Expanded(
-                child: ArchiveRouteTitle(
-                  title: '备份与恢复',
-                  code: 'SYSTEM / DATA TRANSFER',
-                ),
-              ),
-              const SizedBox(width: 44),
-            ],
+          header: ArchiveHeaderBar(
+            leading: GlassIconButton(
+              icon: CupertinoIcons.back,
+              label: '返回设置',
+              onPressed: _busy == null ? () => Navigator.pop(context) : null,
+            ),
+            title: const ArchiveRouteTitle(
+              title: '备份与恢复',
+              code: 'SYSTEM / DATA TRANSFER',
+            ),
           ),
           body: LoadedContentSequence(
             generation: _preview,
@@ -215,14 +210,12 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                           Row(
                             children: [
                               const Expanded(child: Text('同时恢复外观与阅读偏好')),
-                              CupertinoSwitch(
+                              AppControls.toggle(
+                                context,
                                 key: const ValueKey(
                                   'backup-import-preferences',
                                 ),
                                 value: _preferences,
-                                activeTrackColor: Theme.of(
-                                  context,
-                                ).colorScheme.primary,
                                 onChanged: _busy == null
                                     ? (value) =>
                                           setState(() => _preferences = value)

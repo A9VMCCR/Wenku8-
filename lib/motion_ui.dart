@@ -6,8 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import 'archive_motion.dart';
+import 'loading_handoff.dart';
+import 'loading_ui.dart';
 
 export 'archive_motion.dart';
+export 'loading_handoff.dart';
 
 /// One motion vocabulary for controls, menus, sheets and in-place expansion.
 /// The paper flight/reveal are choreographed sequences, not repeating effects.
@@ -105,28 +108,60 @@ class PaperCoverRectTween extends RectTween {
     super.end,
     required this.returning,
     this.heroCurve = false,
+    this.endPaintOffset = Offset.zero,
   });
   final bool returning;
   final bool heroCurve;
+  final Offset endPaintOffset;
+
+  /// Hero tracks its destination's local origin on every tick, but initially
+  /// measures a transformed bounding rectangle. Those differ on a slanted
+  /// cover. Keep the tracked endpoint at the origin, and apply its exact
+  /// bounds correction only when painting the flight.
+  factory PaperCoverRectTween.toHero({
+    required BuildContext context,
+    required Rect? begin,
+    required Rect? end,
+    required bool returning,
+  }) {
+    final box = context.findRenderObject();
+    final route = ModalRoute.of(context)?.subtreeContext?.findRenderObject();
+    var offset = Offset.zero;
+    if (box is RenderBox && box.hasSize && route != null && end != null) {
+      final matrix = box.getTransformTo(route);
+      final bounds = MatrixUtils.transformRect(matrix, Offset.zero & box.size);
+      final origin = MatrixUtils.transformPoint(matrix, Offset.zero);
+      offset = bounds.topLeft - origin;
+      end = origin & bounds.size;
+    }
+    return PaperCoverRectTween(
+      begin: begin,
+      end: end,
+      returning: returning,
+      heroCurve: true,
+      endPaintOffset: offset,
+    );
+  }
 
   @override
   Rect lerp(double t) {
+    final target = end!.shift(endPaintOffset);
     if (t <= 0) return begin!;
-    if (t >= 1) return end!;
+    if (t >= 1) return target;
     if (heroCurve) t = PaperFlightPose.heroTimeline(t);
     final travel = returning
         ? 1 - PaperFlightPose.travel(1 - t)
         : PaperFlightPose.travel(t);
     if (travel <= 0) return begin!;
-    if (travel >= 1) return end!;
-    final center = Offset.lerp(begin!.center, end!.center, travel)!;
-    final distance = (end!.center - begin!.center).distance;
+    if (travel >= 1) return target;
+    final center = Offset.lerp(begin!.center, target.center, travel)!;
+    final distance = (target.center - begin!.center).distance;
     final lift =
         math.min(32.0, 12 + distance * .075) * math.sin(travel * math.pi);
     return Rect.fromCenter(
       center: center + Offset(0, -lift),
-      width: begin!.width + (end!.width - begin!.width) * travel,
-      height: begin!.height + (end!.height - begin!.height) * travel,
+      width: begin!.width + (target.width - begin!.width) * travel,
+      height: begin!.height + (target.height - begin!.height) * travel,
     );
   }
 }
@@ -180,7 +215,23 @@ class PaperCoverPlane {
     RenderObject? ancestor = face.parent;
     while (ancestor != null) {
       if (ancestor is PaperCoverOcclusionSource) {
-        return (ancestor as PaperCoverOcclusionSource).coverOcclusion(face);
+        final path = (ancestor as PaperCoverOcclusionSource).coverOcclusion(
+          face,
+        );
+        final route = ModalRoute.of(
+          context,
+        )?.subtreeContext?.findRenderObject();
+        final overlay = Navigator.maybeOf(
+          context,
+        )?.overlay?.context.findRenderObject();
+        if (path == null || route == null || overlay == null) return path;
+        // The covered shelf is still under Cupertino's outgoing parallax at
+        // pop start. Retain its final scene mask, not that temporary offset.
+        final inverse = Matrix4.tryInvert(route.getTransformTo(null));
+        if (inverse == null) return path;
+        return path.transform(
+          (overlay.getTransformTo(null)..multiply(inverse)).storage,
+        );
       }
       ancestor = ancestor.parent;
     }
@@ -1219,10 +1270,12 @@ class LoadedContentItem extends StatelessWidget {
     required this.index,
     required this.child,
     this.animation,
+    this.placeholder = const LoadingSkeleton(layout: SkeletonLayout.actions),
   });
   final int index;
   final Widget child;
   final Animation<double>? animation;
+  final Widget? placeholder;
 
   @override
   Widget build(BuildContext context) {
@@ -1237,9 +1290,77 @@ class LoadedContentItem extends StatelessWidget {
       animation: clock,
       start: start,
       end: start + .52,
+      placeholder: placeholder,
       child: child,
     );
   }
+}
+
+/// Small dependent controls expand in place, borrowing the page's finite
+/// cut-in vocabulary. Live glass is clipped, never faded in an opacity layer.
+class AnimatedOptionSection extends StatefulWidget {
+  const AnimatedOptionSection({
+    super.key,
+    required this.expanded,
+    required this.child,
+  });
+  final bool expanded;
+  final Widget child;
+  @override
+  State<AnimatedOptionSection> createState() => _AnimatedOptionSectionState();
+}
+
+class _AnimatedOptionSectionState extends State<AnimatedOptionSection>
+    with SingleTickerProviderStateMixin {
+  late final _clock =
+      AnimationController(
+        vsync: this,
+        duration: NovelMotion.enter,
+        reverseDuration: NovelMotion.exit,
+        value: widget.expanded ? 1 : 0,
+      )..addStatusListener((_) {
+        if (mounted) setState(() {});
+      });
+  late final _size = _clock.drive(CurveTween(curve: NovelMotion.ease));
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _clock.value = widget.expanded ? 1 : 0;
+    }
+  }
+
+  @override
+  void didUpdateWidget(AnimatedOptionSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.expanded == widget.expanded) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _clock.value = widget.expanded ? 1 : 0;
+    } else {
+      widget.expanded ? _clock.forward() : _clock.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _clock.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => !_clock.isAnimating && _clock.value == 0
+      ? const SizedBox.shrink()
+      : IgnorePointer(
+          ignoring: !widget.expanded,
+          child: ExcludeSemantics(
+            excluding: !widget.expanded,
+            child: SizeTransition(
+              sizeFactor: _size,
+              axisAlignment: -1,
+              child: RevealFromTop(animation: _clock, child: widget.child),
+            ),
+          ),
+        );
 }
 
 class RevealFromTop extends StatelessWidget {
@@ -1250,17 +1371,19 @@ class RevealFromTop extends StatelessWidget {
     this.start = 0,
     this.end = 1,
     this.axis = ArchiveRevealAxis.vertical,
+    this.placeholder,
   });
   final Animation<double> animation;
   final Widget child;
   final double start;
   final double end;
   final ArchiveRevealAxis axis;
+  final Widget? placeholder;
 
   @override
   Widget build(BuildContext context) {
     if (MediaQuery.disableAnimationsOf(context)) return child;
-    return ArchiveReveal(
+    final revealed = ArchiveReveal(
       animation: animation,
       start: start,
       end: end,
@@ -1270,5 +1393,20 @@ class RevealFromTop extends StatelessWidget {
           : const Offset(-8, -6),
       child: child,
     );
+    return placeholder == null
+        ? revealed
+        : LoadingHandoff(
+            animation: animation,
+            start: start,
+            end: end,
+            axis: axis == ArchiveRevealAxis.vertical
+                ? Axis.vertical
+                : Axis.horizontal,
+            travel: axis == ArchiveRevealAxis.horizontal
+                ? const Offset(-10, 0)
+                : const Offset(-8, -6),
+            placeholder: placeholder!,
+            child: revealed,
+          );
   }
 }

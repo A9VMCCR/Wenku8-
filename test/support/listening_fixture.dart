@@ -79,6 +79,7 @@ class FakeSpeechAudio implements SpeechAudioSource {
   SpeechFailure? Function(SpeechSegment segment)? errorFor;
   Completer<void>? Function(SpeechSegment segment)? gateFor;
   final prepared = <SpeechSegment>[];
+  final preparedVoices = <SpeechVoice>[];
   final invalidated = <String>[];
   final protected = <String>{};
   @override
@@ -88,6 +89,7 @@ class FakeSpeechAudio implements SpeechAudioSource {
     SpeechCancellation cancellation,
   ) async {
     prepared.add(segment);
+    preparedVoices.add(voice);
     final wait = gateFor?.call(segment) ?? gate;
     if (wait != null) await wait.future;
     cancellation.check();

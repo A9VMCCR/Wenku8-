@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,7 +9,12 @@ import 'package:wenku8_flutter/main.dart';
 import 'package:wenku8_flutter/pages.dart';
 
 Finder get _hostInput => find.byKey(const ValueKey('host-input'));
-Finder get _shelfInput => find.byKey(const ValueKey('shelf-search'));
+Finder get _shelfInput => find.byKey(const ValueKey('expanded-search-input'));
+
+Future<void> _openShelfSearch(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('shelf-search-entry')));
+  await tester.pumpAndSettle();
+}
 
 FocusNode _inputFocus(WidgetTester tester, Finder input) => tester
     .widget<EditableText>(
@@ -90,16 +94,26 @@ void main() {
     'shelf query survives a book round trip without keyboard revival',
     (tester) async {
       await _mountHome(tester);
+      await _openShelfSearch(tester);
       await tester.enterText(_shelfInput, demoNovels.first.title);
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
       final previous = _inputFocus(tester, _shelfInput);
       tester.testTextInput.hide();
-      await tester.tap(find.text(demoNovels.first.title).last);
+      await tester.tap(
+        find
+            .descendant(
+              of: find.byType(InlineSearchResults),
+              matching: find.text(demoNovels.first.title),
+            )
+            .last,
+      );
       await tester.pumpAndSettle();
       expect(find.byType(DetailLoaderPage), findsOneWidget);
       await tester.binding.handlePopRoute();
       await _expectDismissed(tester, previous);
       expect(
-        tester.widget<CupertinoSearchTextField>(_shelfInput).controller!.text,
+        tester.widget<TextField>(_shelfInput).controller!.text,
         demoNovels.first.title,
       );
     },
@@ -109,27 +123,38 @@ void main() {
     'hidden shelf cannot retain or reacquire input focus in settings',
     (tester) async {
       await _mountHome(tester);
+      await _openShelfSearch(tester);
       await tester.enterText(_shelfInput, '查询');
       final previous = _inputFocus(tester, _shelfInput);
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.tap(find.byKey(const ValueKey('inline-search-close')));
+      await tester.pumpAndSettle();
       await tester.tapAt(
-        tester.getCenter(find.byKey(const ValueKey('dock-tab-2'))),
+        tester.getCenter(find.byKey(const ValueKey('dock-tab-3'))),
       );
       await _expectDismissed(tester, previous);
       expect(previous.canRequestFocus, isFalse);
       previous.requestFocus();
       await _expectDismissed(tester, previous);
       final about = find.byKey(const ValueKey('settings-app-update'));
-      await tester.scrollUntilVisible(
-        about,
-        400,
-        scrollable: find
-            .descendant(
-              of: find.byKey(const PageStorageKey('settings')),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
-      await tester.tap(about);
+      final scrollable = find
+          .descendant(
+            of: find.byKey(const PageStorageKey('settings')),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      // Start in the gutter rather than dragging a slider/switch at the center.
+      for (var i = 0; i < 20 && about.evaluate().isEmpty; i++) {
+        final viewport = tester.getRect(scrollable);
+        await tester.dragFrom(
+          Offset(viewport.left + 8, viewport.center.dy),
+          const Offset(0, -400),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.ensureVisible(about);
+      await tester.pumpAndSettle();
+      await tester.tapAt(tester.getCenter(about));
       await tester.pumpAndSettle();
       await tester.binding.handlePopRoute();
       await _expectDismissed(tester, previous);
@@ -137,13 +162,11 @@ void main() {
         tester.getCenter(find.byKey(const ValueKey('dock-tab-1'))),
       );
       await _expectDismissed(tester, previous);
+      expect(_shelfInput, findsNothing);
+      expect(previous.canRequestFocus, isFalse);
+      await _openShelfSearch(tester);
+      expect(tester.widget<TextField>(_shelfInput).controller!.text, '查询');
       expect(previous.canRequestFocus, isTrue);
-      expect(
-        tester.widget<CupertinoSearchTextField>(_shelfInput).controller!.text,
-        '查询',
-      );
-      await tester.tap(_shelfInput);
-      await tester.pumpAndSettle();
       expect(previous.hasFocus, isTrue);
       expect(tester.testTextInput.isVisible, isTrue);
     },

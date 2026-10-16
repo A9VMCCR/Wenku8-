@@ -84,12 +84,11 @@ class BookCommunityActions extends StatelessWidget {
     if (features == null) return const SizedBox.shrink();
     return AnimatedBuilder(
       animation: features.account,
-      builder: (context, _) => Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
+      builder: (context, _) {
+        final actions = [
           GlassTextButton(
             key: const ValueKey('detail-cloud-save'),
+            compact: true,
             onPressed: features.account.busy
                 ? null
                 : () => _mutate(context, features.account, false),
@@ -97,6 +96,7 @@ class BookCommunityActions extends StatelessWidget {
           ),
           GlassTextButton(
             key: const ValueKey('detail-recommend'),
+            compact: true,
             onPressed: features.account.busy
                 ? null
                 : () => _mutate(context, features.account, true),
@@ -104,6 +104,8 @@ class BookCommunityActions extends StatelessWidget {
           ),
           GlassTextButton(
             key: const ValueKey('detail-reviews'),
+            compact: true,
+            child: const Text('书评'),
             onPressed: () => pushNovelPage<void>(
               context,
               WenkuReviewsPage(
@@ -114,15 +116,29 @@ class BookCommunityActions extends StatelessWidget {
               ),
               reduceMotion: state.reduceMotion,
             ),
-            child: const Text('书评'),
           ),
           GlassTextButton(
             key: const ValueKey('detail-share'),
-            onPressed: () => _share(context),
+            compact: true,
             child: const Text('分享'),
+            onPressed: () => _share(context),
           ),
-        ],
-      ),
+        ];
+        final row = Row(
+          key: const ValueKey('detail-community-actions'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var index = 0; index < actions.length; index++) ...[
+              if (index > 0) const SizedBox(width: 8),
+              actions[index],
+            ],
+          ],
+        );
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: row,
+        );
+      },
     );
   }
 }
@@ -330,14 +346,20 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
                         children: [
                           FeatureError(_feed.error),
                           if (_feed.loading)
-                            SizedBox(
-                              height: 100,
-                              child: LoadingSkeleton(
-                                layout: SkeletonLayout.bookRow,
-                                label: widget.thread == null
-                                    ? '正在读取书评'
-                                    : '正在读取正文与回复',
-                              ),
+                            Column(
+                              children: [
+                                for (
+                                  var item = 0;
+                                  item < (_feed.items.isEmpty ? 3 : 1);
+                                  item++
+                                )
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: ReviewCardSkeleton(
+                                      thread: widget.thread != null,
+                                    ),
+                                  ),
+                              ],
                             ),
                           if (_feed.error != null)
                             GlassTextButton(
@@ -377,6 +399,12 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
                     return LoadedContentItem(
                       key: ValueKey(review.identity),
                       index: index,
+                      placeholder: Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: ReviewCardSkeleton(
+                          thread: widget.thread != null,
+                        ),
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: ContentPanel(
@@ -446,6 +474,27 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
                 ),
               ),
             ),
+    ),
+  );
+}
+
+class ReviewCardSkeleton extends StatelessWidget {
+  const ReviewCardSkeleton({super.key, this.thread = false});
+  final bool thread;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: ContentPanel(
+      child: SizedBox(
+        height:
+            (thread ? 174 : 104) *
+            (MediaQuery.textScalerOf(context).scale(14) / 14),
+        width: double.infinity,
+        child: LoadingSkeleton(
+          layout: thread ? SkeletonLayout.reviewThread : SkeletonLayout.review,
+          label: thread ? '正在读取正文与回复' : '正在读取书评',
+        ),
+      ),
     ),
   );
 }

@@ -1,15 +1,21 @@
+import 'dart:async';
 import 'dart:math' as math;
+import 'library_reflow.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'dart:ui' show ImageFilter, TileMode;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:liquid_glass_easy/liquid_glass_easy.dart' as easy;
 
 import 'archive_design.dart';
 import 'catalog.dart';
+import 'local_book_media.dart';
 import 'cover_arrival.dart';
 import 'glass_optics.dart';
+import 'glass_palette.dart';
+import 'glass_controls.dart';
 import 'legacy_cover.dart';
 import 'loading_ui.dart';
 import 'motion_ui.dart';
@@ -21,6 +27,7 @@ export 'scroll_edge_blur.dart' show ProgressiveBlur, ScrollEdgeProfile;
 export 'loading_ui.dart';
 export 'motion_ui.dart';
 export 'archive_design.dart';
+export 'glass_controls.dart';
 
 const ink = Color(0xFF181818);
 const accent = Color(0xFF202020);
@@ -42,6 +49,10 @@ class GlassAppearance extends InheritedWidget {
   static GlassAppearance of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<GlassAppearance>() ??
       const GlassAppearance(child: SizedBox.shrink());
+
+  static Color tintOf(BuildContext context, {required double opacity}) =>
+      Theme.of(context).extension<GlassPalette>()?.tint ??
+      ArchiveDesign.glassTint(Theme.of(context).brightness, opacity: opacity);
 
   @override
   bool updateShouldNotify(GlassAppearance oldWidget) =>
@@ -69,35 +80,55 @@ SystemUiOverlayStyle novelSystemUiStyle(Brightness brightness) {
 
 ThemeData novelTheme(Brightness brightness, {String? fontFamily}) {
   final dark = brightness == Brightness.dark;
-  final scheme = ColorScheme.fromSeed(
+  final baseScheme = ColorScheme.fromSeed(
     seedColor: accent,
     brightness: brightness,
     dynamicSchemeVariant: DynamicSchemeVariant.monochrome,
     primary: dark ? Colors.white : ink,
     onPrimary: dark ? ink : Colors.white,
     surface: dark ? ArchiveDesign.darkSurface : ArchiveDesign.surface,
-    onSurface: dark ? const Color(0xFFF0F2EC) : ink,
-    onSurfaceVariant: dark ? const Color(0xFFADB4AC) : const Color(0xFF646B62),
+    onSurface: dark ? ArchiveDesign.darkInk : ink,
+    onSurfaceVariant: dark ? ArchiveDesign.darkMuted : const Color(0xFF646B62),
   );
+  final scheme = dark
+      ? baseScheme.copyWith(
+          surfaceDim: ArchiveDesign.darkBackground,
+          surfaceBright: ArchiveDesign.darkRaisedHigh,
+          surfaceContainerLowest: ArchiveDesign.darkBackground,
+          surfaceContainerLow: ArchiveDesign.darkSurface,
+          surfaceContainer: ArchiveDesign.darkRaised,
+          surfaceContainerHigh: const Color(0xFF333333),
+          surfaceContainerHighest: ArchiveDesign.darkRaisedHigh,
+          outline: const Color(0xFF7A7A7A),
+          outlineVariant: ArchiveDesign.darkOutline,
+          surfaceTint: Colors.transparent,
+        )
+      : baseScheme;
   return ThemeData(
     useMaterial3: true,
     brightness: brightness,
     colorScheme: scheme,
     scaffoldBackgroundColor: dark ? ArchiveDesign.darkBackground : canvas,
+    cupertinoOverrideTheme: CupertinoThemeData(
+      brightness: brightness,
+      primaryColor: scheme.primary,
+      primaryContrastingColor: scheme.onPrimary,
+      scaffoldBackgroundColor: scheme.surface,
+    ),
     splashFactory: InkRipple.splashFactory,
     textTheme: ThemeData(brightness: brightness).textTheme.apply(
       fontFamily: fontFamily,
-      bodyColor: dark ? Colors.white : ink,
-      displayColor: dark ? Colors.white : ink,
+      bodyColor: dark ? ArchiveDesign.darkInk : ink,
+      displayColor: dark ? ArchiveDesign.darkInk : ink,
     ),
-    dividerColor: dark ? const Color(0xFF353C35) : hairline,
+    dividerColor: dark ? ArchiveDesign.darkOutline : hairline,
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: scheme.surface,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(ArchiveDesign.panelRadius),
         borderSide: BorderSide(
-          color: dark ? const Color(0xFF353C35) : hairline,
+          color: dark ? ArchiveDesign.darkOutline : hairline,
         ),
       ),
     ),
@@ -112,6 +143,149 @@ ThemeData novelTheme(Brightness brightness, {String? fontFamily}) {
       ),
     ),
   );
+}
+
+/// The package's controls share the app's milk/stone palette and optics.
+abstract final class AppControls {
+  static Color _accent(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (MediaQuery.highContrastOf(context)) return const Color(0xFF747474);
+    return Color.lerp(
+      scheme.onSurface,
+      scheme.surface,
+      scheme.brightness == Brightness.dark ? .46 : .48,
+    )!;
+  }
+
+  static Color _track(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Color.lerp(
+      scheme.surface,
+      scheme.onSurface,
+      scheme.brightness == Brightness.dark ? .16 : .10,
+    )!;
+  }
+
+  static easy.LiquidGlassStyle _material(
+    BuildContext context, {
+    bool plate = false,
+  }) {
+    final appearance = GlassAppearance.of(context);
+    final highContrast = MediaQuery.highContrastOf(context);
+    return easy.LiquidGlassStyle(
+      shape: const easy.LiquidGlassShape.continuousRoundedRectangle(
+        cornerRadius: 100,
+      ),
+      specular: const easy.LiquidGlassLight.specular(
+        intensity: 0,
+        thickness: 0,
+      ),
+      glow: const easy.LiquidGlassLight.glow(intensity: 0, thickness: 0),
+      refractionIndex: 1.03,
+      refractionWidth: plate ? 16 : 8,
+      dispersion: 0,
+      blur: 0,
+      color: GlassAppearance.tintOf(context, opacity: appearance.opacity)
+          .withValues(
+            alpha: highContrast
+                ? 1
+                : plate
+                ? appearance.opacity
+                : .10,
+          ),
+      shadow: plate
+          ? null
+          : const easy.LiquidGlassShadow(blur: 6, opacity: .12, inset: 3),
+      liteGlass: !PerformanceScope.of(context).glass || highContrast,
+    );
+  }
+
+  static AppGlassSwitch toggle(
+    BuildContext context, {
+    Key? key,
+    required bool value,
+    required FutureOr<void> Function(bool)? onChanged,
+  }) {
+    return AppGlassSwitch(
+      key: key,
+      value: value,
+      onChanged: onChanged,
+      activeColor: _accent(context),
+      inactiveColor: _track(context),
+      thumbColor:
+          Theme.of(context).extension<GlassPalette>()?.thumb ??
+          ArchiveDesign.milk,
+      style: _material(context),
+      reduceMotion: MediaQuery.disableAnimationsOf(context),
+    );
+  }
+
+  static AppGlassSlider slider(
+    BuildContext context, {
+    Key? key,
+    required double value,
+    required ValueChanged<double>? onChanged,
+    double min = 0,
+    double max = 1,
+    int? divisions,
+    ValueChanged<double>? onChangeStart,
+    ValueChanged<double>? onChangeEnd,
+  }) {
+    return AppGlassSlider(
+      key: key,
+      value: value,
+      min: min,
+      max: max,
+      divisions: divisions,
+      onChanged: onChanged,
+      onChangeStart: onChangeStart,
+      onChangeEnd: onChangeEnd,
+      activeColor: _accent(context),
+      inactiveColor: _track(context),
+      thumbColor:
+          Theme.of(context).extension<GlassPalette>()?.thumb ??
+          ArchiveDesign.milk,
+      style: _material(context),
+      reduceMotion: MediaQuery.disableAnimationsOf(context),
+    );
+  }
+
+  static Widget segments<T extends Object>(
+    BuildContext context, {
+    Key? key,
+    required T? groupValue,
+    required Map<T, Widget> children,
+    required ValueChanged<T?> onValueChanged,
+    Set<T> disabledChildren = const {},
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return DefaultTextStyle.merge(
+      style: TextStyle(
+        color: scheme.onSurface,
+        fontSize: 14,
+        height: 1.4,
+        fontWeight: FontWeight.w500,
+      ),
+      child: AppGlassSegments<T>(
+        key: key,
+        groupValue: groupValue,
+        children: children,
+        disabledChildren: disabledChildren,
+        onValueChanged: onValueChanged,
+        foregroundColor: scheme.onSurface,
+        style: _material(context, plate: true),
+        pillStyle: easy.LiquidGlassSegmentedPillStyle(
+          animated: !MediaQuery.disableAnimationsOf(context),
+          glass: PerformanceScope.of(context).glass,
+          duration: NovelMotion.enter,
+          glassStyle: _material(context),
+          restStyle: easy.LiquidGlassStyle(
+            color: scheme.onSurface.withValues(alpha: .065),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class Atmosphere extends StatelessWidget {
@@ -158,7 +332,7 @@ class Atmosphere extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: dark
-              ? [ArchiveDesign.darkBackground, const Color(0xFF171B17)]
+              ? [ArchiveDesign.darkBackground, ArchiveDesign.darkSurface]
               : [ArchiveDesign.surface, ArchiveDesign.background],
         ),
       ),
@@ -167,6 +341,69 @@ class Atmosphere extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Route titles are centered on the navigation plane, not on the space left
+/// over after the back button. Both sides reserve the wider control group.
+class ArchiveHeaderBar extends StatelessWidget {
+  const ArchiveHeaderBar({
+    super.key,
+    required this.title,
+    required this.leading,
+    this.actions = const [],
+  });
+
+  final Widget title;
+  final Widget leading;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 48,
+    child: CustomMultiChildLayout(
+      delegate: _ArchiveHeaderLayout(),
+      children: [
+        LayoutId(id: 'leading', child: leading),
+        LayoutId(id: 'title', child: title),
+        LayoutId(
+          id: 'actions',
+          child: Row(mainAxisSize: MainAxisSize.min, children: actions),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ArchiveHeaderLayout extends MultiChildLayoutDelegate {
+  @override
+  void performLayout(Size size) {
+    final sideConstraints = BoxConstraints(
+      maxWidth: size.width / 2,
+      maxHeight: size.height,
+    );
+    final leading = layoutChild('leading', sideConstraints);
+    final actions = layoutChild('actions', sideConstraints);
+    positionChild('leading', Offset(0, (size.height - leading.height) / 2));
+    positionChild(
+      'actions',
+      Offset(size.width - actions.width, (size.height - actions.height) / 2),
+    );
+    final gutter = math.max(leading.width, actions.width) + 8;
+    final title = layoutChild(
+      'title',
+      BoxConstraints(
+        maxWidth: math.max(0, size.width - gutter * 2),
+        maxHeight: size.height,
+      ),
+    );
+    positionChild(
+      'title',
+      Offset((size.width - title.width) / 2, (size.height - title.height) / 2),
+    );
+  }
+
+  @override
+  bool shouldRelayout(_ArchiveHeaderLayout oldDelegate) => false;
 }
 
 /// Content may bounce under this header; its controls never join the scroll
@@ -407,10 +644,7 @@ class _LiquidGlassState extends State<LiquidGlass> {
     final tintOpacity = widget.tintOpacity ?? appearance.opacity;
     final tint =
         widget.tintColor ??
-        ArchiveDesign.glassTint(
-          Theme.of(context).brightness,
-          opacity: tintOpacity,
-        );
+        GlassAppearance.tintOf(context, opacity: tintOpacity);
     return AnimatedScale(
       scale: _pressed && !media.disableAnimations ? .97 : 1,
       duration: media.disableAnimations
@@ -519,27 +753,29 @@ class GlassIconButton extends StatelessWidget {
   final Color? color;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    enabled: onPressed != null,
-    child: Tooltip(
-      message: label,
-      triggerMode: TooltipTriggerMode.manual,
-      excludeFromSemantics: true,
-      child: LiquidGlass(
-        radius: 24,
-        elevated: false,
-        semanticLabel: label,
-        onTap: onPressed,
-        child: SizedBox(
-          width: 46,
-          height: 46,
-          child: Icon(
-            icon,
-            size: 21,
-            color:
-                color ??
-                (onPressed == null ? Theme.of(context).disabledColor : null),
+  Widget build(BuildContext context) => LibraryReflowPart(
+    child: Semantics(
+      button: true,
+      enabled: onPressed != null,
+      child: Tooltip(
+        message: label,
+        triggerMode: TooltipTriggerMode.manual,
+        excludeFromSemantics: true,
+        child: LiquidGlass(
+          radius: 24,
+          elevated: false,
+          semanticLabel: label,
+          onTap: onPressed,
+          child: SizedBox(
+            width: 46,
+            height: 46,
+            child: Icon(
+              icon,
+              size: 21,
+              color:
+                  color ??
+                  (onPressed == null ? Theme.of(context).disabledColor : null),
+            ),
           ),
         ),
       ),
@@ -630,34 +866,48 @@ class GlassTextButton extends StatelessWidget {
     super.key,
     required this.child,
     required this.onPressed,
+    this.compact = false,
   });
   final Widget child;
   final VoidCallback? onPressed;
+  final bool compact;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    enabled: onPressed != null,
-    child: LiquidGlass(
-      radius: 22,
-      elevated: false,
-      onTap: onPressed,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 64, minHeight: 48),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Align(
-            widthFactor: 1,
-            heightFactor: 1,
-            child: DefaultTextStyle.merge(
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Theme.of(context).colorScheme.onSurface.withValues(
-                  alpha: onPressed == null ? .45 : 1,
+  Widget build(BuildContext context) => Padding(
+    // A shared vertical gutter also separates wrapped rows and consecutive
+    // actions on secondary settings pages. The optical plates never touch.
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Semantics(
+      button: true,
+      enabled: onPressed != null,
+      child: LiquidGlass(
+        radius: 22,
+        elevated: false,
+        onTap: onPressed,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minWidth: compact ? 48 : 64,
+            minHeight: 48,
+          ),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 8 : 14,
+              vertical: 10,
+            ),
+            child: Align(
+              widthFactor: 1,
+              heightFactor: 1,
+              child: DefaultTextStyle.merge(
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.4,
+                  fontWeight: FontWeight.w500,
+                  color: Theme.of(context).colorScheme.onSurface.withValues(
+                    alpha: onPressed == null ? .45 : 1,
+                  ),
                 ),
+                child: child,
               ),
-              child: child,
             ),
           ),
         ),
@@ -674,6 +924,7 @@ Widget sectionHeader(BuildContext context, String title, String subtitle) =>
         '更多书籍' => '02 / ARCHIVE INDEX',
         '简介' => '01 / SYNOPSIS',
         '目录' => '02 / CONTENTS',
+        '使用方式' => '00 / READING MODE',
         '阅读偏好' => '01 / READING PROFILE',
         '阅读记录' || '最近阅读' => '02 / READING LOG',
         '离线阅读' => '03 / LOCAL ARCHIVE',
@@ -831,11 +1082,11 @@ class NovelCover extends StatelessWidget {
     return Hero(
       tag: heroTag!,
       transitionOnUserGestures: true,
-      createRectTween: (begin, end) => PaperCoverRectTween(
+      createRectTween: (begin, end) => PaperCoverRectTween.toHero(
+        context: context,
         begin: begin,
         end: end,
         returning: !isDetailCover,
-        heroCurve: true,
       ),
       flightShuttleBuilder: (context, animation, direction, from, to) {
         final pushing = direction == HeroFlightDirection.push;
@@ -846,7 +1097,8 @@ class NovelCover extends StatelessWidget {
                 direction == HeroFlightDirection.push ? to : from,
               )?.animation ??
               animation,
-          imageProvider: switch (LegacyCover.peek(novel.id)) {
+          imageProvider: switch (LocalBookMedia.peek(novel.coverUrl) ??
+              LegacyCover.peek(novel.id)) {
             final bytes? => MemoryImage(bytes),
             null => null,
           },
@@ -918,8 +1170,12 @@ class NovelCover extends StatelessWidget {
               );
               return FutureBuilder<Uint8List>(
                 key: ValueKey('cover-bytes-${novel.id}'),
-                future: LegacyCover.bytes(novel.id),
-                initialData: LegacyCover.peek(novel.id),
+                future: novel.coverUrl?.startsWith('wenku-local:') == true
+                    ? LocalBookMedia.load(novel.coverUrl!)
+                    : LegacyCover.bytes(novel.id),
+                initialData:
+                    LocalBookMedia.peek(novel.coverUrl) ??
+                    LegacyCover.peek(novel.id),
                 builder: (context, snapshot) {
                   final bytes = snapshot.data;
                   if (bytes == null) {
@@ -975,11 +1231,13 @@ class CoverGlow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (novel.coverUrl == null || !PerformanceScope.of(context).blur) {
+    if (novel.coverUrl == null ||
+        novel.coverUrl!.startsWith('wenku-local:') ||
+        !PerformanceScope.of(context).blur) {
       return const SizedBox.shrink();
     }
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final background = dark ? const Color(0xFF101010) : Colors.white;
+    final background = dark ? ArchiveDesign.darkBackground : Colors.white;
     return FutureBuilder(
       future: LegacyCover.bytes(novel.id),
       builder: (context, snapshot) {
@@ -1138,7 +1396,7 @@ class _NovelPageRoute<T> extends CupertinoPageRoute<T> {
     required Widget page,
     required this.reduceMotion,
     required this.paperFlight,
-  }) : super(builder: (_) => page);
+  }) : super(builder: (_) => RepaintBoundary(child: page));
 
   final bool reduceMotion;
   final bool paperFlight;
@@ -1163,12 +1421,16 @@ Future<T?> showJellySheet<T>({
   required WidgetBuilder builder,
   bool reduceMotion = false,
   ValueListenable<bool>? previewing,
+  double? heightFactor,
+  Widget Function(Widget)? surfaceWrapper,
 }) => _showGlassOverlay<T>(
   context: context,
   builder: builder,
   reduceMotion: reduceMotion,
   kind: GlassOverlayKind.sheet,
   previewing: previewing,
+  heightFactor: heightFactor,
+  surfaceWrapper: surfaceWrapper,
 );
 
 /// The trigger holds its layout slot while its material stretches into the
@@ -1275,6 +1537,8 @@ Future<T?> _showGlassOverlay<T>({
   required GlassOverlayKind kind,
   Rect? anchor,
   ValueListenable<bool>? previewing,
+  double? heightFactor,
+  Widget Function(Widget)? surfaceWrapper,
 }) async {
   if (!context.mounted) return null;
   if (_activeGlassOverlays[context] == true) return null;
@@ -1287,6 +1551,8 @@ Future<T?> _showGlassOverlay<T>({
     appearance: GlassAppearance.of(context),
     themes: InheritedTheme.capture(from: context, to: navigator.context),
     previewing: previewing,
+    heightFactor: heightFactor,
+    surfaceWrapper: surfaceWrapper,
   );
   _activeGlassOverlays[context] = true;
   try {
@@ -1477,6 +1743,8 @@ class _GlassOverlayRoute<T> extends PopupRoute<T> {
     this.anchorBox,
     this.source,
     this.previewing,
+    this.heightFactor,
+    this.surfaceWrapper,
   });
   final WidgetBuilder builder;
   final GlassOverlayKind kind;
@@ -1487,6 +1755,8 @@ class _GlassOverlayRoute<T> extends PopupRoute<T> {
   final RenderBox? anchorBox;
   final GlassMenuSource? source;
   final ValueListenable<bool>? previewing;
+  final double? heightFactor;
+  final Widget Function(Widget)? surfaceWrapper;
 
   @override
   void install() {
@@ -1531,7 +1801,7 @@ class _GlassOverlayRoute<T> extends PopupRoute<T> {
             Offset.zero & trigger.size,
           )
         : anchor;
-    final surface = GlassOverlayTransition(
+    final material = GlassOverlayTransition(
       animation: animation,
       kind: kind,
       reduceMotion: reduceMotion,
@@ -1563,6 +1833,7 @@ class _GlassOverlayRoute<T> extends PopupRoute<T> {
               ),
             ),
     );
+    final surface = surfaceWrapper?.call(material) ?? material;
     return themes.wrap(
       GlassAppearance(
         blur: appearance.blur,
@@ -1593,7 +1864,12 @@ class _GlassOverlayRoute<T> extends PopupRoute<T> {
                     width: width,
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxHeight: height),
-                      child: surface,
+                      child: heightFactor == null
+                          ? surface
+                          : SizedBox(
+                              height: math.min(760, height * heightFactor!),
+                              child: surface,
+                            ),
                     ),
                   ),
                 ],

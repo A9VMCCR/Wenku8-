@@ -1,6 +1,5 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -35,7 +34,8 @@ void _expectBookmarkCentred(WidgetTester tester, ReadingPosition saved) {
   final rect = tester.getRect(paragraph);
   final viewport = tester.getRect(find.byKey(const ValueKey('reader-scroll')));
   final media = MediaQuery.of(tester.element(paragraph));
-  final top = media.padding.top + FrostedHeader.toolbarHeight + 12;
+  final top =
+      media.viewPadding.top + FrostedHeader.toolbarHeight + 12 - viewport.top;
   final bottom =
       _article(tester).position.viewportDimension - media.padding.bottom - 96;
   final point = rect.height <= bottom - top
@@ -124,12 +124,12 @@ void main({
       state.readerSettingsChanges.addListener(() => notifications++);
       await settings(tester);
       tester
-          .widget<CupertinoSlider>(
+          .widget<AppGlassSlider>(
             find.byKey(const ValueKey('reader-font-slider')),
           )
           .onChangeStart!(19);
       for (var index = 0; index < 120; index++) {
-        final slider = tester.widget<CupertinoSlider>(
+        final slider = tester.widget<AppGlassSlider>(
           find.byKey(const ValueKey('reader-font-slider')),
         );
         slider.onChanged!(15 + index % 13);
@@ -151,14 +151,14 @@ void main({
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.containsKey('readerFontSize'), isFalse);
       tester
-          .widget<CupertinoSlider>(
+          .widget<AppGlassSlider>(
             find.byKey(const ValueKey('reader-font-slider')),
           )
           .onChanged!(23);
       await tester.pump();
       await shot(tester, 'reader-font-live-preview');
       tester
-          .widget<CupertinoSlider>(
+          .widget<AppGlassSlider>(
             find.byKey(const ValueKey('reader-font-slider')),
           )
           .onChangeEnd!(23);
@@ -171,7 +171,7 @@ void main({
             .transparent,
         isFalse,
       );
-      final line = tester.widget<CupertinoSlider>(
+      final line = tester.widget<AppGlassSlider>(
         find.byKey(const ValueKey('reader-line-height-slider')),
       );
       line.onChangeStart!(line.value);
@@ -191,6 +191,14 @@ void main({
       expect(state.lineHeight, 1.95);
       expect(prefs.getDouble('readerLineHeight'), 1.95);
       await shot(tester, 'reader-tools-layout');
+      await tester.scrollUntilVisible(
+        find.text('恢复默认排版'),
+        140,
+        scrollable: find.descendant(
+          of: find.byKey(const ValueKey('reader-settings-scroll')),
+          matching: find.byType(Scrollable),
+        ),
+      );
       await tester.tap(find.text('恢复默认排版'));
       await _io(tester);
       expect(state.fontSize, 19);
@@ -332,9 +340,11 @@ void main({
       tester.view.physicalSize = const Size(390, 760);
       tester.view.devicePixelRatio = 1;
       tester.view.padding = const FakeViewPadding(top: 28, bottom: 24);
+      tester.view.viewPadding = const FakeViewPadding(top: 28, bottom: 24);
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewPadding);
       await reader(tester);
       _article(tester).position.jumpTo(1600);
       await tester.pumpAndSettle();
@@ -372,7 +382,7 @@ void main({
     (tester) async {
       await reader(tester);
       await settings(tester);
-      final progress = tester.widget<CupertinoSlider>(
+      final progress = tester.widget<AppGlassSlider>(
         find.byKey(const ValueKey('reader-progress-slider')),
       );
       progress.onChangeStart!(progress.value);
@@ -385,6 +395,14 @@ void main({
       expect(_article(tester).position.pixels, greaterThan(0));
       expect(state.positionFor(71)!.fraction, closeTo(.65, .02));
       await settings(tester);
+      await tester.scrollUntilVisible(
+        find.text('跳至章末'),
+        160,
+        scrollable: find.descendant(
+          of: find.byKey(const ValueKey('reader-settings-scroll')),
+          matching: find.byType(Scrollable),
+        ),
+      );
       await tester.tap(find.text('跳至章末'));
       await tester.pumpAndSettle();
       final scroll = _article(tester).position;

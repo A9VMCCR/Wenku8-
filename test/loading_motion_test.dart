@@ -9,6 +9,8 @@ import 'package:wenku8_flutter/catalog.dart';
 import 'package:wenku8_flutter/library_state.dart';
 import 'package:wenku8_flutter/main.dart';
 import 'package:wenku8_flutter/pages.dart';
+import 'package:wenku8_flutter/reader_paged_view.dart';
+import 'package:wenku8_flutter/reader_preferences.dart';
 
 double _revealProgress(WidgetTester tester, String key) => tester
     .renderObject<ArchiveRevealRender>(
@@ -22,6 +24,49 @@ double _revealProgress(WidgetTester tester, String key) => tester
     .progress;
 
 void main() {
+  testWidgets(
+    'vertical mode keeps vertical skeletons while waiting for chapter data and pagination',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final state = await LibraryState.load();
+      addTearDown(state.dispose);
+      await state.setReaderPreferences(
+        state.readerPreferences.copyWith(mode: ReaderMode.vertical),
+      );
+      final repository = _PendingContent();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: novelTheme(Brightness.light),
+          home: ReaderPage(
+            novel: demoNovels.first,
+            state: state,
+            repository: repository,
+            initialChapter: 0,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.byType(ReaderPageSkeleton), findsOneWidget);
+      expect(
+        tester.widget<ReaderSkeleton>(find.byType(ReaderSkeleton)).vertical,
+        isTrue,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is LoadingSkeleton &&
+              widget.layout == SkeletonLayout.reader,
+        ),
+        findsNothing,
+      );
+      repository.content.complete('竖排正文等待排版。\n\n第二段正文。');
+      await tester.pumpAndSettle();
+      expect(find.byType(ReaderPagedView), findsOneWidget);
+      expect(find.byType(ReaderPageSkeleton), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('library loading is a static skeleton without a loader', (
     tester,
   ) async {

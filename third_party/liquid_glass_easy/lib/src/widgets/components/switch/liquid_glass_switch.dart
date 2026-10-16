@@ -170,6 +170,9 @@ class LiquidGlassSwitch extends StatefulWidget {
   /// less for cheaper captures, `0.0` for the device pixel ratio.
   final double pixelRatio;
 
+  /// Keep direct manipulation, without spring or morph interpolation.
+  final bool reduceMotion;
+
   const LiquidGlassSwitch({
     super.key,
     required this.value,
@@ -183,6 +186,7 @@ class LiquidGlassSwitch extends StatefulWidget {
     this.style,
     this.reserveSwellRoom = false,
     this.pixelRatio = 1.0,
+    this.reduceMotion = false,
   });
 
   /// The tuned default thumb glass: a clear pill — refraction and rim
@@ -376,9 +380,22 @@ class _LiquidGlassSwitchState extends State<LiquidGlassSwitch>
         _ensureTicking();
       }
     }
+    if (widget.reduceMotion && !oldWidget.reduceMotion) _ensureTicking();
   }
 
   void _ensureTicking() {
+    if (widget.reduceMotion) {
+      _ticker?.stop();
+      _thumbCX = _targetThumbCX;
+      _thumbVel = 0;
+      _thumbSpringTarget = null;
+      _morph = _morphTarget = _pointerDown ? 1 : 0;
+      _morphVel = 0;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncCapture(_morph != 0);
+      });
+      return;
+    }
     final ticker = _ticker;
     if (ticker != null && !ticker.isActive) {
       _tickerLast = null;
@@ -463,7 +480,7 @@ class _LiquidGlassSwitchState extends State<LiquidGlassSwitch>
       // The view's per-frame listener may already have run by the time
       // this fires, which would push its first capture a frame past the
       // glass. The one-shot lands it at the end of THIS frame either way.
-      _viewController.captureOnce();
+      if (!_impellerGlass) _viewController.captureOnce();
     } else {
       _viewController.stopRealtimeCapture();
     }
@@ -666,7 +683,9 @@ class _LiquidGlassSwitchState extends State<LiquidGlassSwitch>
               left: padX,
               top: trackTop,
               child: TweenAnimationBuilder<double>(
-                duration: const Duration(milliseconds: 250),
+                duration: widget.reduceMotion
+                    ? Duration.zero
+                    : const Duration(milliseconds: 250),
                 curve: Curves.easeInOut,
                 tween: Tween<double>(end: _isOn ? 1.0 : 0.0),
                 builder: (context, t, _) => LiquidGlassSwitchTrack(

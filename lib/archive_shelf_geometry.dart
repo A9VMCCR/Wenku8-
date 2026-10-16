@@ -2,6 +2,9 @@ import 'package:flutter/painting.dart';
 
 /// The loaded solids and their static placeholders use one set of dimensions.
 abstract final class ArchiveShelfGeometry {
+  // A physical bank, not a full-window banner. Keep the same projection and
+  // book proportions on phones, tablets and retained browsing panes.
+  static const maxViewportWidth = 520.0;
   static const depthX = .66, depthY = -.30, rowStep = 2.5;
   static double spineFor(double width) => (width * .043).clamp(14.0, 18.0);
   static double pitchFor(double width) => spineFor(width) + 11;

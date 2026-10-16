@@ -28,10 +28,13 @@ Future<void> captureReview(
 ) async {
   const output = String.fromEnvironment('REVIEW_ARTIFACTS');
   if (output.isEmpty) return;
+  // The Skia package capture invalidates its lens at the end of the frame.
+  // Flush that paint without advancing the animation being inspected.
+  final render =
+      key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+  if (render.debugNeedsPaint) tester.binding.rootPipelineOwner.flushPaint();
+  final image = render.toImageSync(pixelRatio: 1);
   await tester.runAsync(() async {
-    final render =
-        key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
-    final image = await render.toImage(pixelRatio: 1);
     final data = await image.toByteData(format: ui.ImageByteFormat.png);
     await Directory(output).create(recursive: true);
     await File('$output/$name.png').writeAsBytes(data!.buffer.asUint8List());

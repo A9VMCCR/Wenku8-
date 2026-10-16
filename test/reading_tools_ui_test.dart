@@ -536,7 +536,7 @@ void main({
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('dock-tab-2')));
+      await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
       await tester.pumpAndSettle();
       final settingsScroll = find.byKey(const PageStorageKey('settings'));
       await tester.scrollUntilVisible(

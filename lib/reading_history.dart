@@ -56,19 +56,17 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
   Widget build(BuildContext context) => Scaffold(
     body: Atmosphere(
       child: GlassHeaderLayout(
-        header: Row(
-          children: [
-            GlassIconButton(
-              icon: CupertinoIcons.back,
-              label: '返回',
-              onPressed: () => Navigator.pop(context),
-            ),
-            const Expanded(
-              child: ArchiveRouteTitle(
-                title: '阅读历史',
-                code: 'ARCHIVE / READING LOG',
-              ),
-            ),
+        header: ArchiveHeaderBar(
+          leading: GlassIconButton(
+            icon: CupertinoIcons.back,
+            label: '返回',
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: const ArchiveRouteTitle(
+            title: '阅读历史',
+            code: 'ARCHIVE / READING LOG',
+          ),
+          actions: [
             GlassMenuAnchor(
               child: Builder(
                 builder: (anchor) => GlassIconButton(
@@ -142,6 +140,9 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
                           )
                         : LoadedContentItem(
                             index: index - 1,
+                            placeholder: const LoadingSkeleton(
+                              layout: SkeletonLayout.history,
+                            ),
                             child: _row(context, id, known ?? snapshot.data),
                           ),
                   ),

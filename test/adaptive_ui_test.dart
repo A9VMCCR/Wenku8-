@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -226,10 +225,25 @@ void main({AdaptiveCapture? capture, bool native = false}) {
       await tester.pumpAndSettle();
       await snapshot('shelf');
       await tester.tapAt(
-        tester.getCenter(find.byKey(const ValueKey('dock-tab-2'))),
+        tester.getCenter(find.byKey(const ValueKey('dock-tab-3'))),
       );
       await tester.pumpAndSettle();
       await snapshot('settings');
+      await tester.scrollUntilVisible(
+        find.text('跟随系统'),
+        180,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const PageStorageKey('settings')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await Scrollable.ensureVisible(
+        tester.element(find.text('跟随系统')),
+        alignment: .5,
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('跟随系统'));
       await tester.pumpAndSettle();
       onScreen(find.byType(GlassOverlaySurface));
@@ -318,7 +332,7 @@ void main({AdaptiveCapture? capture, bool native = false}) {
       final font = find.byKey(const ValueKey('reader-font-slider'));
       await Scrollable.ensureVisible(tester.element(font), alignment: .5);
       await tester.pumpAndSettle();
-      final fontControl = tester.widget<CupertinoSlider>(font);
+      final fontControl = tester.widget<AppGlassSlider>(font);
       final bounds = tester.getRect(font);
       final fraction =
           (fontControl.value - fontControl.min) /
@@ -370,13 +384,13 @@ void main({AdaptiveCapture? capture, bool native = false}) {
       output.positionEvents.add(const Duration(seconds: 30));
       await tester.pumpAndSettle();
       final rect = tester.getRect(slider);
-      final progress = tester.widget<CupertinoSlider>(slider).value;
+      final progress = tester.widget<AppGlassSlider>(slider).value;
       output.complete();
       await tester.runAsync(listeningMicrotasks);
       await tester.pumpAndSettle();
       expect(tester.getRect(slider), rect);
       expect(
-        tester.widget<CupertinoSlider>(slider).value,
+        tester.widget<AppGlassSlider>(slider).value,
         closeTo(progress, .00001),
       );
       await snapshot('listening');

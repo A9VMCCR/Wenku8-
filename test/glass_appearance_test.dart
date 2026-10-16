@@ -305,11 +305,11 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final slider = tester.widget<CupertinoSlider>(blurFinder);
+      final slider = tester.widget<AppGlassSlider>(blurFinder);
       slider.onChanged!(8);
       slider.onChangeEnd!(8);
       await tester.pumpAndSettle();
-      final opacitySlider = tester.widget<CupertinoSlider>(
+      final opacitySlider = tester.widget<AppGlassSlider>(
         find.byKey(const ValueKey('glass-opacity-slider')),
       );
       opacitySlider.onChanged!(.42);

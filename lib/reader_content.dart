@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
+import 'local_book_media.dart';
 
 List<String> _splitParagraphs(String source) => source.split('\n\n');
 
@@ -32,6 +33,7 @@ String? readerIllustrationUrl(String paragraph) {
   }
   final raw = text.substring(marker.length, text.length - marker.length).trim();
   final uri = Uri.tryParse(raw);
+  if (uri != null && LocalBookMedia.valid(uri)) return uri.toString();
   if (uri == null ||
       !['https', 'http'].contains(uri.scheme) ||
       uri.userInfo.isNotEmpty ||
@@ -95,6 +97,36 @@ class ReaderParagraphRegistry {
     return clampToLast && rows.isNotEmpty
         ? (index: rows.last.index, fraction: 1)
         : null;
+  }
+
+  int? captureTextOffset(int index, double readingOffset) {
+    final row = _rows[index];
+    if (row == null || !row.attached || !row.hasSize) return null;
+    RenderParagraph? paragraph;
+    void visit(RenderObject node) {
+      if (node is RenderParagraph) {
+        paragraph ??= node;
+        return;
+      }
+      node.visitChildren(visit);
+    }
+
+    visit(row);
+    final text = paragraph;
+    final viewport = RenderAbstractViewport.maybeOf(row);
+    if (text == null || viewport == null) return null;
+    final top = viewport.getOffsetToReveal(row, 0).offset;
+    final textOrigin = text.localToGlobal(Offset.zero, ancestor: row);
+    final position = text.getPositionForOffset(
+      Offset(
+        0,
+        (readingOffset - top - textOrigin.dy).clamp(0.0, text.size.height),
+      ),
+    );
+    return (position.offset - row.textOffset).clamp(
+      0,
+      text.text.toPlainText().length - row.textOffset,
+    );
   }
 
   /// A visible anchor can be restored exactly. Otherwise use the nearest lazy
@@ -205,6 +237,8 @@ class ReaderParagraphRegistry {
     final viewport = RenderAbstractViewport.maybeOf(row);
     if (paragraph == null || viewport == null) return null;
     final length = paragraph.text.toPlainText().length;
+    start += row.textOffset;
+    end += row.textOffset;
     if (start < 0 || start >= length || end <= start) return null;
     final boxes = paragraph.getBoxesForSelection(
       TextSelection(baseOffset: start, extentOffset: end.clamp(start, length)),
@@ -232,34 +266,42 @@ class ReaderParagraph extends SingleChildRenderObjectWidget {
     super.key,
     required this.registry,
     required this.index,
+    this.textOffset = 0,
     required super.child,
   });
   final ReaderParagraphRegistry registry;
   final int index;
+  final int textOffset;
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _ReaderParagraphRender(registry, index);
+      _ReaderParagraphRender(registry, index, textOffset);
 
   @override
   void updateRenderObject(
     BuildContext context,
     covariant RenderProxyBox renderObject,
   ) {
-    (renderObject as _ReaderParagraphRender).update(registry, index);
+    (renderObject as _ReaderParagraphRender).update(
+      registry,
+      index,
+      textOffset,
+    );
   }
 }
 
 class _ReaderParagraphRender extends RenderProxyBox {
-  _ReaderParagraphRender(this.registry, this.index);
+  _ReaderParagraphRender(this.registry, this.index, this.textOffset);
   ReaderParagraphRegistry registry;
   int index;
+  int textOffset;
 
   void _remove() {
     if (identical(registry._rows[index], this)) registry._rows.remove(index);
   }
 
-  void update(ReaderParagraphRegistry value, int number) {
+  void update(ReaderParagraphRegistry value, int number, int prefix) {
+    textOffset = prefix;
     if (registry == value && index == number) return;
     _remove();
     registry = value;

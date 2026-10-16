@@ -60,6 +60,8 @@ class OfflineCacheStore extends ChangeNotifier {
   Future<void> _writes = Future.value();
   Future<void>? _loading;
   bool _disposed = false;
+  bool _loaded = false;
+  bool get loaded => _loaded;
 
   static Future<OfflineCacheStore> forApp() async {
     final support = await getApplicationSupportDirectory();
@@ -144,6 +146,7 @@ class OfflineCacheStore extends ChangeNotifier {
     _books
       ..clear()
       ..addAll(found);
+    _loaded = true;
     _changed();
   }
 
@@ -175,7 +178,17 @@ class OfflineCacheStore extends ChangeNotifier {
         if (cid is! int || cid <= 0 || title is! String || !ids.add(cid)) {
           return null;
         }
-        chapters.add(NovelChapter(title, '', id: cid));
+        chapters.add(
+          NovelChapter(
+            title,
+            '',
+            id: cid,
+            volumeId: value['volumeId'] is int ? value['volumeId'] as int : 0,
+            volumeTitle: value['volumeTitle'] is String
+                ? value['volumeTitle'] as String
+                : '',
+          ),
+        );
       }
       return meta.withChapters(List.unmodifiable(chapters));
     } on FileSystemException {
@@ -232,7 +245,13 @@ class OfflineCacheStore extends ChangeNotifier {
         'novel': stored.toSnapshot(),
         'chapters': [
           for (final chapter in stored.chapters)
-            {'id': chapter.id, 'title': chapter.title},
+            {
+              'id': chapter.id,
+              'title': chapter.title,
+              if (chapter.volumeId != 0) 'volumeId': chapter.volumeId,
+              if (chapter.volumeTitle.isNotEmpty)
+                'volumeTitle': chapter.volumeTitle,
+            },
         ],
       };
       final encoded = stored.chapters.length > 300

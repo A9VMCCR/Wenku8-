@@ -4,7 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'catalog.dart';
+import 'book_identity.dart';
 import 'performance_preferences.dart';
+import 'local_book_media.dart';
+import 'reader_preferences.dart';
 
 final backupPreferenceKeys = <String>{
   'theme',
@@ -14,17 +17,21 @@ final backupPreferenceKeys = <String>{
   'glassBlur',
   'glassOpacity',
   'readerKeepScreenOn',
+  'readerPreferences',
   'checkAppUpdates',
   'appTypeface',
   'shelfSort',
   'shelfFilter',
+  'shelfLayout',
+  'adaptWhenOffline',
+  'localReaderMode',
   PerformancePreferences.modeKey,
   ...PerformanceEffect.values.map((effect) => effect.preferenceKey),
 };
 const _listKeys = {'shelf', 'reading_history_hidden', 'recentSearches'};
 const restoreJournalKey = 'library_restore_journal';
 final _recordKey = RegExp(
-  r'^(chapter|shelf_added|novel_meta|reading_position|reader_bookmarks)_([1-9][0-9]{0,9})$',
+  r'^(chapter|shelf_added|novel_meta|reading_position|reader_bookmarks|book_merge)_([1-9][0-9]{0,9})$',
 );
 
 bool isLibraryRecordKey(String key) =>
@@ -39,7 +46,9 @@ class LibraryBackup {
   static const maxBytes = 4 * 1024 * 1024;
   final int createdAt;
   final Map<String, Object> records;
-  int get shelfCount => (records['shelf'] as List<String>? ?? const []).length;
+  int get shelfCount => (records['shelf'] as List<String>? ?? const [])
+      .where((id) => !isLocalBook(int.parse(id)))
+      .length;
   int get positionCount =>
       records.keys.where((key) => key.startsWith('reading_position_')).length;
   int get bookmarkCount => records.entries
@@ -115,7 +124,28 @@ Map<String, Object> _validateRecords(Map<String, dynamic> input) {
     final key = entry.key;
     final value = entry.value;
     if (!isLibraryRecordKey(key)) throw const FormatException('备份包含未识别的记录');
-    if (_listKeys.contains(key)) {
+    if (key.startsWith('book_merge_')) {
+      if (value is! List ||
+          value.length > 20000 ||
+          value.any((v) => v is! String || v.length > 512)) {
+        throw const FormatException('分卷阅读记录格式有误');
+      }
+      final receipts = <String>{};
+      for (final receipt in value.cast<String>()) {
+        final parts = receipt.split('/');
+        final id = int.tryParse(
+          parts.first == 'm' && parts.length >= 3 ? parts[1] : receipt,
+        );
+        if (id == null ||
+            id <= 0 ||
+            id > 0x7fffffff ||
+            RegExp(r'[\x00-\x1f]').hasMatch(receipt)) {
+          throw const FormatException('分卷阅读记录格式有误');
+        }
+        receipts.add(receipt);
+      }
+      output[key] = receipts.toList()..sort();
+    } else if (_listKeys.contains(key)) {
       if (value is! List ||
           value.length > (key == 'recentSearches' ? 12 : 10000) ||
           value.any((item) => item is! String)) {
@@ -144,6 +174,7 @@ Map<String, Object> _validateRecords(Map<String, dynamic> input) {
       final valid = switch (key) {
         'theme' => ['system', 'light', 'dark'].contains(value),
         'shelfSort' => ['recentRead', 'recentAdded', 'title'].contains(value),
+        'shelfLayout' => ['shelf', 'list'].contains(value),
         'shelfFilter' => [
           'all',
           'unread',
@@ -152,10 +183,13 @@ Map<String, Object> _validateRecords(Map<String, dynamic> input) {
         ].contains(value),
         'reduceMotion' ||
         'readerKeepScreenOn' ||
+        'adaptWhenOffline' ||
+        'localReaderMode' ||
         'checkAppUpdates' => value is bool,
         'appTypeface' => value == 'system' || value == 'sourceHanSerif',
         'readerFontSize' => _number(value, 15, 27),
         'readerLineHeight' => _number(value, 1.3, 2.2),
+        'readerPreferences' => _validReaderPreferences(value),
         'glassBlur' => _number(value, 0, 24),
         'glassOpacity' => _number(value, 0, 1),
         _ =>
@@ -205,7 +239,9 @@ Map<String, Object> _validateRecords(Map<String, dynamic> input) {
         final url = novel.coverUrl == null
             ? null
             : Uri.tryParse(novel.coverUrl!);
-        if (url != null && !['http', 'https'].contains(url.scheme)) {
+        if (url != null &&
+            !['http', 'https'].contains(url.scheme) &&
+            !(LocalBookMedia.valid(url) && url.host == '${novel.id}')) {
           throw const FormatException('封面地址格式有误');
         }
         final colors = record['colors'];
@@ -230,7 +266,7 @@ Map<String, Object> _validateRecords(Map<String, dynamic> input) {
           if (mark is! Map ||
               mark['id'] is! String ||
               (mark['id'] as String).isEmpty ||
-              (mark['id'] as String).length > 128 ||
+              (mark['id'] as String).length > 256 ||
               !seen.add(mark['id']) ||
               mark['chapterTitle'] is! String ||
               (mark['chapterTitle'] as String).length > 2048) {
@@ -247,6 +283,16 @@ Map<String, Object> _validateRecords(Map<String, dynamic> input) {
 
 bool _number(Object? value, double min, double max) =>
     value is num && value.isFinite && value >= min && value <= max;
+bool _validReaderPreferences(Object? value) {
+  if (value is! String || value.length > 4096) return false;
+  try {
+    ReaderPreferences.fromJson(jsonDecode(value));
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 void _validatePosition(Object? record) {
   if (record is! Map ||
       record['chapter'] is! int ||
@@ -264,11 +310,17 @@ void _validatePosition(Object? record) {
       (record['textScale'] != null && !_number(record['textScale'], .5, 5)) ||
       (record['typeface'] != null &&
           !const {'system', 'sourceHanSerif'}.contains(record['typeface'])) ||
+      (record['layout'] != null &&
+          (record['layout'] is! String ||
+              (record['layout'] as String).length > 128)) ||
       (record['paragraphIndex'] != null &&
           (record['paragraphIndex'] is! int ||
               !_number(record['paragraphIndex'], 0, 1000000))) ||
       (record['paragraphFraction'] != null &&
-          !_number(record['paragraphFraction'], 0, 1))) {
+          !_number(record['paragraphFraction'], 0, 1)) ||
+      (record['textOffset'] != null &&
+          (record['textOffset'] is! int ||
+              !_number(record['textOffset'], 0, 100000000)))) {
     throw const FormatException('阅读位置格式有误');
   }
 }

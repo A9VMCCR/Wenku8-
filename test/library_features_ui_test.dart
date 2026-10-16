@@ -91,7 +91,7 @@ Future<LibraryState> _mount(
   _Repository repository, {
   Map<String, Object> prefs = const {},
 }) async {
-  SharedPreferences.setMockInitialValues(prefs);
+  SharedPreferences.setMockInitialValues({'shelfLayout': 'list', ...prefs});
   final state = await LibraryState.load();
   await tester.pumpWidget(NovelApp(state: state, repository: repository));
   await tester.pumpAndSettle();
@@ -192,7 +192,7 @@ void main() {
   testWidgets(
     'shelf and settings remain available when the recent list fails',
     (tester) async {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({'shelfLayout': 'list'});
       final state = await LibraryState.load();
       await state.toggleShelf(5000, novel: _book(5000));
       await state.setChapter(5000, 1);
@@ -205,7 +205,7 @@ void main() {
       expect(find.byKey(const ValueKey('shelf-book-5000')), findsOneWidget);
       expect(find.text('2/2'), findsOneWidget);
       expect(repository.findCalls, 0);
-      await tester.tap(find.byKey(const ValueKey('dock-tab-2')));
+      await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
       await tester.pumpAndSettle();
       expect(find.byType(SettingsPage), findsOneWidget);
       expect(find.text('书籍加载失败'), findsNothing);

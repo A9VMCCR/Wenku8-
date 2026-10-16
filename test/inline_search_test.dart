@@ -199,7 +199,14 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.byType(SearchSkeleton), findsOneWidget);
-      expect(find.byType(LoadingSkeleton), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(SearchSkeleton),
+          matching: find.byType(BookCollectionSkeleton),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(BookRowSkeleton), findsAtLeastNWidgets(6));
       await tester.enterText(_input, 'first');
       await tester.pump(const Duration(milliseconds: 300));
       await tester.enterText(_input, 'second');

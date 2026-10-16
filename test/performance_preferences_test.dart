@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -163,7 +162,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       final glass = find.byKey(const ValueKey('performanceGlass'));
-      expect(tester.widget<CupertinoSwitch>(glass).value, false);
+      expect(tester.widget<AppGlassSwitch>(glass).value, false);
       await tester.tap(glass);
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),

@@ -374,7 +374,11 @@ void main() {
   test(
     'shelf sort/filter persist and restored added time is retained by undo',
     () async {
-      await state.setShelfView(sort: 'title', filter: 'reading');
+      await state.setShelfView(
+        sort: 'title',
+        filter: 'reading',
+        layout: 'list',
+      );
       await state.setShelfMembership(71, true, restoredAddedAt: 123);
       final revision = state.shelfRevision(71);
       await state.setShelfMembership(71, false);
@@ -383,8 +387,13 @@ void main() {
       final reloaded = await LibraryState.load();
       addTearDown(reloaded.dispose);
       expect(
-        [reloaded.shelfSort, reloaded.shelfFilter, reloaded.addedAt(71)],
-        ['title', 'reading', 123],
+        [
+          reloaded.shelfSort,
+          reloaded.shelfFilter,
+          reloaded.shelfLayout,
+          reloaded.addedAt(71),
+        ],
+        ['title', 'reading', 'list', 123],
       );
     },
   );

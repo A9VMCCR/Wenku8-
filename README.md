@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/app-icon.svg" width="96" alt="Wenku8 Flutter" />
+  <img src="assets/branding/app-icon.png" width="96" alt="Wenku8 Flutter" />
 </p>
 
 <h1 align="center">Wenku8 Flutter</h1>
@@ -7,10 +7,10 @@
 <p align="center">基于 Flutter 的 Android 轻小说阅读客户端</p>
 
 <p align="center">
-  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases"><img src="https://img.shields.io/github/v/release/mikufoxxx/Wenku8_Flutter?style=flat-square&color=60786B" alt="Release" /></a>
+  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases"><img src="https://img.shields.io/github/v/release/mikufoxxx/Wenku8_Flutter?style=flat-square&color=555555" alt="Release" /></a>
   <a href="https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml"><img src="https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml/badge.svg?branch=master" alt="Build" /></a>
-  <img src="https://img.shields.io/badge/Platform-Android-60786B?style=flat-square" alt="Android" />
-  <a href="assets/licenses/GPL-3.0.txt"><img src="https://img.shields.io/badge/License-GPL--3.0-60786B?style=flat-square" alt="GPL 3.0" /></a>
+  <img src="https://img.shields.io/badge/Platform-Android-555555?style=flat-square" alt="Android" />
+  <a href="assets/licenses/GPL-3.0.txt"><img src="https://img.shields.io/badge/License-GPL--3.0-555555?style=flat-square" alt="GPL 3.0" /></a>
 </p>
 
 <p align="center">
@@ -38,18 +38,22 @@ Wenku8 Flutter 是轻小说文库客户端的 Flutter 重构版本，面向 Andr
 
 - **书籍发现**：分类、排行、书名与作者搜索、出版文库。
 - **立体书架**：循环轮播、惯性滚动、吸附定位与触觉反馈。
-- **阅读排版**：字号、行距、深浅主题、系统字体与内置思源宋体，支持实时预览。
-- **阅读工具**：章节目录、书签定位与高亮、章内查找、插图查看与分享。
+- **阅读排版**：上下滚动、横排翻页与竖排翻页，大屏对页；阅读配色、字号、行距、页边距、段落间距、缩进与对齐，系统字体与内置思源宋体，支持实时预览。
+- **阅读工具**：可展开的分卷目录、书签定位与高亮、章内查找、插图查看、分区点按与音量键翻页、自动滚动。
 - **离线阅读**：章节缓存、缓存管理、阅读历史、进度续读与本地备份。
-- **在线听书**：中文音色、语速调节、段落跟随、睡眠定时、后台与锁屏控制。
+- **本地书库**：多选导入 TXT、EPUB，同系列分卷合并，保留目录、插图与阅读记录；支持分类整理、OpenList／WebDAV 与夸克网盘导入，以及系统云文档同步。
+- **在线听书**：中文音色、自定义 Microsoft SSML 接口、语速调节、段落跟随、睡眠定时、后台与锁屏控制。
 - **账号与社区**：文库账号、云书架、书评与回复。
 - **性能设置**：低性能设备模式，可独立调整玻璃折射、模糊、动效与立体书架。
+- **使用方式**：离线时隐藏发现、书架只显示已缓存收藏；阅读器模式只保留本地与设置。
 
 ## 下载
 
 从 [GitHub Releases](https://github.com/mikufoxxx/Wenku8_Flutter/releases) 下载 APK。提供 `arm64-v8a`、`armeabi-v7a` 与 `x86_64` 三种架构，常见 Android 手机请选择 **arm64-v8a**。
 
 安装后，可在 **设置 → 关于轻小说文库** 查看版本信息、更新说明并检查更新。
+
+阅读与自定义语音见 [阅读器与本地书库](docs/READER.md)，网盘连接见 [网盘导入指南](docs/CLOUD_IMPORT.md)，标签与关键词用法见 [搜索指南](docs/SEARCH.md)。
 
 ## 构建
 

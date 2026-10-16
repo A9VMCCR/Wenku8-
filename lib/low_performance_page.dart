@@ -36,20 +36,16 @@ class _LowPerformancePageState extends State<LowPerformancePage> {
       return Scaffold(
         body: Atmosphere(
           child: GlassHeaderLayout(
-            header: Row(
-              children: [
-                GlassIconButton(
-                  icon: CupertinoIcons.back,
-                  label: '返回设置',
-                  onPressed: () => Navigator.pop(context),
-                ),
-                const Expanded(
-                  child: ArchiveRouteTitle(
-                    title: '低性能设备模式',
-                    code: 'SYSTEM / PERFORMANCE',
-                  ),
-                ),
-              ],
+            header: ArchiveHeaderBar(
+              leading: GlassIconButton(
+                icon: CupertinoIcons.back,
+                label: '返回设置',
+                onPressed: () => Navigator.pop(context),
+              ),
+              title: const ArchiveRouteTitle(
+                title: '低性能设备模式',
+                code: 'SYSTEM / PERFORMANCE',
+              ),
             ),
             body: ListView(
               key: const ValueKey('performance-options-scroll'),
@@ -152,10 +148,10 @@ class _LowPerformancePageState extends State<LowPerformancePage> {
       const SizedBox(width: 12),
       Semantics(
         label: title,
-        child: CupertinoSwitch(
+        child: AppControls.toggle(
+          context,
           key: ValueKey(switchKey),
           value: value,
-          activeTrackColor: Theme.of(context).colorScheme.primary,
           onChanged: onChanged,
         ),
       ),

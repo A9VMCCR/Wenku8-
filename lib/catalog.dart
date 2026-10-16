@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'book_search.dart';
 
 /// A source-neutral book model shared by the Android legacy API and local tests.
 class Novel {
@@ -83,11 +84,52 @@ class Novel {
 }
 
 class NovelChapter {
-  const NovelChapter(this.title, this.content, {this.id = 0});
+  const NovelChapter(
+    this.title,
+    this.content, {
+    this.id = 0,
+    this.volumeId = 0,
+    this.volumeTitle = '',
+  });
 
   final String title;
   final String content;
   final int id;
+  final int volumeId;
+  final String volumeTitle;
+}
+
+/// Contiguous volume ranges keep the original, flat chapter indices stable.
+/// Old directories without volume metadata remain a plain chapter list.
+class NovelVolume {
+  const NovelVolume(this.key, this.title, this.start, this.end);
+  final String key, title;
+  final int start, end;
+  int get length => end - start;
+
+  static List<NovelVolume> of(List<NovelChapter> chapters) {
+    final result = <NovelVolume>[];
+    var start = 0;
+    while (start < chapters.length) {
+      final chapter = chapters[start];
+      var end = start + 1;
+      while (end < chapters.length &&
+          chapters[end].volumeId == chapter.volumeId &&
+          chapters[end].volumeTitle == chapter.volumeTitle) {
+        end++;
+      }
+      result.add(
+        NovelVolume(
+          '${chapter.volumeId}:$start',
+          chapter.volumeTitle,
+          start,
+          end,
+        ),
+      );
+      start = end;
+    }
+    return result;
+  }
 }
 
 abstract class NovelRepository {
@@ -185,12 +227,15 @@ class DemoNovelRepository extends NovelRepository {
 
   @override
   Future<List<Novel>> search(String query) async {
-    final needle = query.trim().toLowerCase();
-    if (needle.isEmpty) return demoNovels;
+    final pattern = BookSearch(query);
     return demoNovels.where((novel) {
-      return '${novel.title} ${novel.author} ${novel.genre} ${novel.summary}'
-          .toLowerCase()
-          .contains(needle);
+      return pattern.matches(
+        title: novel.title,
+        author: novel.author,
+        tags: novel.genre,
+        summary: novel.summary,
+        id: '${novel.id}',
+      );
     }).toList();
   }
 

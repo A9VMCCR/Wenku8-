@@ -13,12 +13,24 @@ class GlassDockItem {
     this.enabled = true,
     this.semanticLabel,
     this.selectableOnDrag = true,
+    this.id,
   });
   final IconData icon;
   final String label;
   final bool enabled;
   final String? semanticLabel;
   final bool selectableOnDrag;
+  final Object? id;
+  Object get identity => id ?? (icon, label);
+}
+
+class _DockSlot {
+  _DockSlot(this.item, this.fromWidth, this.present);
+  GlassDockItem item;
+  double fromWidth;
+  bool present;
+  double width(double progress) =>
+      fromWidth + ((present ? 184 / 3 : 0) - fromWidth) * progress;
 }
 
 /// The touch preview is local to the dock: pages only change on release.
@@ -33,7 +45,7 @@ class GlassDock extends StatefulWidget {
       GlassDockItem(CupertinoIcons.book, '书架'),
       GlassDockItem(CupertinoIcons.settings, '设置'),
     ],
-  }) : assert(items.length == 3);
+  }) : assert(items.length >= 2 && items.length <= 4);
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
@@ -55,10 +67,17 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
   late final AnimationController _stretch = AnimationController.unbounded(
     vsync: this,
   );
+  late final _membership = AnimationController(
+    vsync: this,
+    duration: NovelMotion.enter,
+    value: 1,
+  );
+  late List<_DockSlot> _slots;
   late final Listenable _motion = Listenable.merge([
     _position,
     _press,
     _stretch,
+    _membership,
   ]);
   late int _targetIndex = widget.selectedIndex;
   double _segmentWidth = 1;
@@ -71,10 +90,17 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
   bool _pointerCancelled = false;
 
   @override
+  void initState() {
+    super.initState();
+    _slots = [for (final item in widget.items) _DockSlot(item, 184 / 3, true)];
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _reduceMotion =
         widget.reduceMotion || MediaQuery.disableAnimationsOf(context);
+    if (_reduceMotion && _membership.isAnimating) _membership.value = 1;
   }
 
   @override
@@ -82,12 +108,69 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
     super.didUpdateWidget(oldWidget);
     _reduceMotion =
         widget.reduceMotion || MediaQuery.disableAnimationsOf(context);
-    if (widget.selectedIndex != _targetIndex) {
+    final membershipChanged =
+        oldWidget.items.length != widget.items.length ||
+        oldWidget.items.indexed.any(
+          (entry) => entry.$2.identity != widget.items[entry.$1].identity,
+        );
+    if (membershipChanged) {
+      _restTimer?.cancel();
+      _pointer = null;
+      _pointerCancelled = true;
+      _dragging = false;
+      _position.stop();
+      _press.stop();
+      _stretch.stop();
+      _targetIndex = widget.selectedIndex;
+      _position.value = widget.selectedIndex.toDouble();
+      _press.value = _stretch.value = 0;
+      final progress = NovelMotion.ease.transform(_membership.value);
+      _slots = [
+        for (final slot in _slots)
+          if (slot.width(progress) > .001)
+            _DockSlot(slot.item, slot.width(progress), false),
+      ];
+      for (var index = 0; index < widget.items.length; index++) {
+        final item = widget.items[index];
+        final existing = _slots.indexWhere(
+          (slot) => slot.item.identity == item.identity,
+        );
+        if (existing >= 0) {
+          _slots[existing]
+            ..item = item
+            ..present = true;
+        } else {
+          // Insert before the next surviving destination: retained controls
+          // travel with the opening capsule instead of cross-fading as a row.
+          final following = widget.items.skip(index + 1).map((i) => i.identity);
+          final before = _slots.indexWhere(
+            (slot) => following.contains(slot.item.identity),
+          );
+          _slots.insert(
+            before < 0 ? _slots.length : before,
+            _DockSlot(item, 0, true),
+          );
+        }
+      }
+      if (_reduceMotion) {
+        _membership.value = 1;
+      } else {
+        _membership.forward(from: 0);
+      }
+    } else if (widget.selectedIndex != _targetIndex) {
       _settlePosition(widget.selectedIndex);
+    }
+    if (!membershipChanged) {
+      for (final slot in _slots.where((slot) => slot.present)) {
+        slot.item = widget.items.firstWhere(
+          (item) => item.identity == slot.item.identity,
+        );
+      }
     }
     if (_reduceMotion) {
       _press.value = 0;
       _stretch.value = 0;
+      _membership.value = 1;
     }
   }
 
@@ -97,10 +180,12 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
     _position.dispose();
     _press.dispose();
     _stretch.dispose();
+    _membership.dispose();
     super.dispose();
   }
 
-  double _fingerPosition(double x) => (x / _segmentWidth - .5).clamp(0.0, 2.0);
+  double _fingerPosition(double x) =>
+      (x / _segmentWidth - .5).clamp(0.0, (widget.items.length - 1).toDouble());
 
   Future<void> _spring(
     AnimationController controller,
@@ -215,7 +300,11 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
     final velocity = (details.primaryVelocity ?? 0) / _segmentWidth;
     final projected =
         _fingerPosition(_lastX) + (velocity * .055).clamp(-.22, .22);
-    _commit(projected.round().clamp(0, 2), velocity: velocity, fromDrag: true);
+    _commit(
+      projected.round().clamp(0, widget.items.length - 1),
+      velocity: velocity,
+      fromDrag: true,
+    );
   }
 
   void _cancel() {
@@ -226,17 +315,19 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
   }
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    // The phone Gallery's three-item capsule is about 187 x 52 logical pixels.
-    // Keep a similarly compact footprint, with a 48px inner touch target.
-    height: 54,
-    width: 196,
-    child: AnimatedBuilder(
-      animation: _motion,
-      builder: (context, child) {
-        final pressure = _reduceMotion ? 0.0 : _press.value.clamp(0.0, 1.0);
-        final flow = _reduceMotion ? 0.0 : _stretch.value;
-        return Transform.translate(
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _motion,
+    builder: (context, child) {
+      final progress = NovelMotion.ease.transform(_membership.value);
+      final width = _membership.isCompleted
+          ? widget.items.length * (184 / 3) + 12
+          : _slots.fold<double>(12, (sum, slot) => sum + slot.width(progress));
+      final pressure = _reduceMotion ? 0.0 : _press.value.clamp(0.0, 1.0);
+      final flow = _reduceMotion ? 0.0 : _stretch.value;
+      return SizedBox(
+        height: 54,
+        width: width,
+        child: Transform.translate(
           offset: Offset(flow * .16, -pressure * .6),
           child: Transform.scale(
             key: const ValueKey('dock-whole-capsule-transform'),
@@ -252,7 +343,13 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
                       radius: 27,
                       thickness: 16 + pressure * 2,
                       activation: pressure,
-                      touchPosition: (_position.value.clamp(0.0, 2.0) + .5) / 3,
+                      touchPosition:
+                          (_position.value.clamp(
+                                0.0,
+                                (widget.items.length - 1).toDouble(),
+                              ) +
+                              .5) /
+                          widget.items.length,
                       elevated: false,
                       child: const SizedBox.expand(),
                     ),
@@ -267,38 +364,37 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
                       ),
                       child: LayoutBuilder(
                         builder: (context, constraints) {
-                          _segmentWidth = constraints.maxWidth / 3;
-                          return Listener(
-                            onPointerDown: _down,
-                            onPointerUp: (event) {
-                              if (event.pointer == _pointer) _release();
-                            },
-                            onPointerCancel: (event) {
-                              if (event.pointer == _pointer) {
-                                _pointerCancelled = true;
-                                _cancel();
-                              }
-                            },
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTapUp: (details) {
-                                if (!_dragging && !_pointerCancelled) {
-                                  _commit(
-                                    _fingerPosition(
-                                      details.localPosition.dx,
-                                    ).round().clamp(0, 2),
-                                  );
+                          _segmentWidth =
+                              constraints.maxWidth / widget.items.length;
+                          return IgnorePointer(
+                            ignoring: _membership.isAnimating,
+                            child: Listener(
+                              onPointerDown: _down,
+                              onPointerUp: (event) {
+                                if (event.pointer == _pointer) _release();
+                              },
+                              onPointerCancel: (event) {
+                                if (event.pointer == _pointer) {
+                                  _pointerCancelled = true;
+                                  _cancel();
                                 }
                               },
-                              onHorizontalDragStart: _dragStart,
-                              onHorizontalDragUpdate: _dragUpdate,
-                              onHorizontalDragEnd: _dragEnd,
-                              onHorizontalDragCancel: _cancel,
-                              child: Row(
-                                children: [
-                                  for (var index = 0; index < 3; index++)
-                                    _nav(index, widget.items[index]),
-                                ],
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTapUp: (details) {
+                                  if (!_dragging && !_pointerCancelled) {
+                                    _commit(
+                                      _fingerPosition(details.localPosition.dx)
+                                          .round()
+                                          .clamp(0, widget.items.length - 1),
+                                    );
+                                  }
+                                },
+                                onHorizontalDragStart: _dragStart,
+                                onHorizontalDragUpdate: _dragUpdate,
+                                onHorizontalDragEnd: _dragEnd,
+                                onHorizontalDragCancel: _cancel,
+                                child: _foreground(progress),
                               ),
                             ),
                           );
@@ -310,10 +406,47 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
               ],
             ),
           ),
-        );
-      },
-    ),
+        ),
+      );
+    },
   );
+
+  Widget _foreground(double progress) {
+    var left = 0.0;
+    final children = <Widget>[];
+    for (final slot in _slots) {
+      final width = slot.width(progress);
+      if (width <= .001) continue;
+      children.add(
+        Positioned(
+          key: ValueKey(slot.item.identity),
+          left: left,
+          top: 0,
+          bottom: 0,
+          width: width,
+          child: ClipRect(
+            clipBehavior: width >= 184 / 3 - .001 ? Clip.none : Clip.hardEdge,
+            child: OverflowBox(
+              alignment: Alignment.centerRight,
+              minWidth: 184 / 3,
+              maxWidth: 184 / 3,
+              child: ExcludeSemantics(
+                excluding: !slot.present,
+                child: _nav(
+                  widget.items.indexWhere(
+                    (item) => item.identity == slot.item.identity,
+                  ),
+                  slot.item,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      left += width;
+    }
+    return Stack(clipBehavior: Clip.none, children: children);
+  }
 
   Widget _nav(int index, GlassDockItem item) {
     final proximity = (1 - (_position.value - index).abs()).clamp(0.0, 1.0);
@@ -321,14 +454,17 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
     final color = !item.enabled && index != widget.selectedIndex
         ? scheme.onSurfaceVariant.withValues(alpha: .4)
         : Color.lerp(scheme.onSurfaceVariant, scheme.primary, proximity);
-    return Expanded(
+    return SizedBox(
+      width: 184 / 3,
       child: Semantics(
-        key: ValueKey('dock-tab-$index'),
+        key: ValueKey(
+          index < 0 ? 'dock-outgoing-${item.identity}' : 'dock-tab-$index',
+        ),
         button: item.enabled,
         enabled: item.enabled,
         selected: widget.selectedIndex == index,
         label: item.semanticLabel ?? item.label,
-        onTap: item.enabled ? () => _commit(index) : null,
+        onTap: item.enabled && index >= 0 ? () => _commit(index) : null,
         child: ExcludeSemantics(
           child: SizedBox(
             height: 48,

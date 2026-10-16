@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 
 import 'catalog.dart';
 import 'offline_cache.dart';
+import 'local_books.dart';
+import 'network_status.dart';
 import 'reader_content.dart'
     show readerHasMissingIllustrations, readerIllustrationUrl;
 import 'ui_notifiers.dart';
@@ -57,12 +59,23 @@ class _ChapterRequest {
 /// Download notifications are independent of appearance/reader state updates.
 class OfflineNovelRepository extends FrameChangeNotifier
     implements NovelRepository {
-  OfflineNovelRepository({required this.remote, required this.cache}) {
+  OfflineNovelRepository({
+    required this.remote,
+    required this.cache,
+    this.local,
+    this.network,
+  }) {
     cache.addListener(_cacheChanged);
+    local?.addListener(_cacheChanged);
   }
 
   final NovelRepository remote;
   final OfflineCacheStore cache;
+  final LocalBookStore? local;
+  final NetworkStatus? network;
+  bool get offline => network?.offline ?? false;
+  bool availableOffline(int id) =>
+      local?.book(id) != null || (cache.book(id)?.cachedCount ?? 0) > 0;
   final Map<int, Novel> _known = {};
   final Set<int> _offlineDirectories = {};
   final Map<(int, int, CacheEpoch), _ChapterRequest> _requests = {};
@@ -132,6 +145,7 @@ class OfflineNovelRepository extends FrameChangeNotifier
   }) => remote.searchPage(query, page: page, refresh: refresh);
 
   Future<Novel?> cachedBook(int id) async {
+    if (isLocalBook(id)) return local?.book(id);
     final book = cache.book(id)?.novel ?? await cache.readBook(id);
     if (book != null) _known.putIfAbsent(id, () => book);
     return book;
@@ -140,6 +154,8 @@ class OfflineNovelRepository extends FrameChangeNotifier
   /// Explicitly refresh old bodies that predate illustration support. A failed
   /// request keeps the previous offline body; no cache purge is necessary.
   Future<String> refreshChapterContent(int id, NovelChapter chapter) async {
+    if (isLocalBook(id)) return _localContent(id, chapter);
+    if (offline) throw const FormatException('当前无网络连接，请联网后刷新插图');
     final epoch = cache.epochFor(id);
     final request = _retainRequest(id, chapter.id, epoch);
     try {
@@ -178,7 +194,7 @@ class OfflineNovelRepository extends FrameChangeNotifier
     int id,
     NovelChapter chapter,
   ) async {
-    if (chapter.id <= 0) return null;
+    if (chapter.id <= 0 || offline) return null;
     final epoch = cache.epochFor(id);
     final request = _retainRequest(id, chapter.id, epoch);
     try {
@@ -202,6 +218,8 @@ class OfflineNovelRepository extends FrameChangeNotifier
 
   @override
   Future<Novel?> find(int id) async {
+    if (isLocalBook(id)) return local?.book(id);
+    if (offline) return cachedBook(id);
     try {
       final book = await remote.find(id);
       if (book != null) {
@@ -218,6 +236,11 @@ class OfflineNovelRepository extends FrameChangeNotifier
 
   @override
   Future<Novel> detail(Novel novel) async {
+    if (isLocalBook(novel.id)) {
+      return local?.book(novel.id) ??
+          (throw const FormatException('本地原书不存在，请重新导入'));
+    }
+    if (offline) return await cachedBook(novel.id) ?? novel;
     try {
       final loaded = await remote.detail(novel);
       _known[novel.id] = loaded;
@@ -231,6 +254,18 @@ class OfflineNovelRepository extends FrameChangeNotifier
 
   @override
   Future<List<NovelChapter>> chapters(int id) async {
+    if (isLocalBook(id)) {
+      return local?.book(id)?.chapters ??
+          (throw const FormatException('本地原书不存在，请重新导入'));
+    }
+    if (offline) {
+      final saved = await cachedBook(id);
+      if (saved == null || saved.chapters.isEmpty) {
+        throw const FormatException('当前无网络连接，本书目录尚未缓存');
+      }
+      _offlineDirectories.add(id);
+      return saved.chapters;
+    }
     final epoch = cache.epochFor(id);
     try {
       final chapters = await remote.chapters(id);
@@ -253,6 +288,7 @@ class OfflineNovelRepository extends FrameChangeNotifier
   }
 
   Future<void> rememberDirectory(Novel novel) async {
+    if (isLocalBook(novel.id)) return;
     _known[novel.id] = novel;
     final saved = cache.book(novel.id)?.novel;
     if (saved != null &&
@@ -272,7 +308,10 @@ class OfflineNovelRepository extends FrameChangeNotifier
     if (identical(a, b)) return true;
     if (a.length != b.length) return false;
     for (var index = 0; index < a.length; index++) {
-      if (a[index].id != b[index].id || a[index].title != b[index].title) {
+      if (a[index].id != b[index].id ||
+          a[index].title != b[index].title ||
+          a[index].volumeId != b[index].volumeId ||
+          a[index].volumeTitle != b[index].volumeTitle) {
         return false;
       }
     }
@@ -310,6 +349,7 @@ class OfflineNovelRepository extends FrameChangeNotifier
     NovelChapter chapter,
     _ChapterRequest request,
   ) => request.response ??= () async {
+    if (offline) throw const FormatException('当前无网络连接，这一章尚未缓存');
     final text = await remote.chapterContent(id, chapter);
     if (text.trim().isEmpty) throw const FormatException('章节正文为空');
     return text;
@@ -317,6 +357,7 @@ class OfflineNovelRepository extends FrameChangeNotifier
 
   @override
   Future<String> chapterContent(int novelId, NovelChapter chapter) async {
+    if (isLocalBook(novelId)) return _localContent(novelId, chapter);
     // Inline/demo chapters have no remote stable ID and stay source-owned.
     if (chapter.id <= 0) return remote.chapterContent(novelId, chapter);
     final epoch = cache.epochFor(novelId);
@@ -335,6 +376,7 @@ class OfflineNovelRepository extends FrameChangeNotifier
   }
 
   void download(Novel novel, {Set<int>? chapterIds}) {
+    if (isLocalBook(novel.id)) return;
     if (_disposed || jobFor(novel.id)?.active == true) return;
     final job = ChapterDownload(
       novel,
@@ -387,6 +429,7 @@ class OfflineNovelRepository extends FrameChangeNotifier
     try {
       job.phase = DownloadPhase.preparing;
       _changed(job.novel.id);
+      if (offline) throw const FormatException('当前无网络连接，联网后可继续缓存');
       // Refresh through the same legacy calls before an explicit book download.
       final meta = await remote.detail(job.novel);
       if (!_current(job)) return;
@@ -479,9 +522,15 @@ class OfflineNovelRepository extends FrameChangeNotifier
       if (job.active) job.phase = DownloadPhase.cancelled;
     }
     cache.removeListener(_cacheChanged);
+    local?.removeListener(_cacheChanged);
     for (final observer in _bookChanges.values) {
       observer.dispose();
     }
     super.dispose();
+  }
+
+  Future<String> _localContent(int id, NovelChapter chapter) async {
+    if (local == null) throw const FormatException('本地书库未就绪');
+    return local!.chapterContent(id, chapter);
   }
 }

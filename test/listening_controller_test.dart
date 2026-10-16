@@ -17,6 +17,24 @@ Novel speechBook(List<String> paragraphs, {String? nextChapter}) =>
       if (nextChapter != null) NovelChapter('下一章', nextChapter),
     ]);
 
+class _DelayedSpeechRepository extends DemoNovelRepository {
+  _DelayedSpeechRepository(this.book, {this.directoryGate, this.contentGate});
+  final Novel book;
+  final Completer<void>? directoryGate, contentGate;
+
+  @override
+  Future<List<NovelChapter>> chapters(int id) async {
+    await directoryGate?.future;
+    return book.chapters;
+  }
+
+  @override
+  Future<String> chapterContent(int novelId, NovelChapter chapter) async {
+    await contentGate?.future;
+    return chapter.content;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late ListeningController controller;
@@ -419,6 +437,100 @@ void main() {
     expect(output.initialPosition, Duration.zero);
   });
   test(
+    'switching voice during directory or chapter loading does not strand it',
+    () async {
+      for (final directory in [true, false]) {
+        final store = controller.store;
+        await controller.dispose();
+        await output.dispose();
+        output = FakeListeningOutput();
+        audio = FakeSpeechAudio();
+        final gate = Completer<void>();
+        final book = speechBook(['正文还在加载。', '加载后继续朗读。']);
+        controller = ListeningController(
+          repository: _DelayedSpeechRepository(
+            book,
+            directoryGate: directory ? gate : null,
+            contentGate: directory ? null : gate,
+          ),
+          audio: audio,
+          store: store,
+          outputFactory: (_) async => output,
+        );
+        final loading = controller.start(
+          directory ? book.withChapters([]) : book,
+          chapter: 0,
+        );
+        try {
+          await listeningMicrotasks();
+          expect(controller.snapshot.value.current, isNull);
+          expect(controller.snapshot.value.phase, ListeningPhase.preparing);
+          // Choose a different voice in both iterations, including persisted settings.
+          final voice =
+              controller.snapshot.value.voice.id == defaultEdgeVoice.id
+              ? alternateEdgeVoice
+              : defaultEdgeVoice;
+          await controller.setVoice(voice);
+          gate.complete();
+          await loading;
+          expect(controller.snapshot.value.phase, ListeningPhase.playing);
+          expect(controller.snapshot.value.voice.id, voice.id);
+          expect(
+            audio.preparedVoices.every((item) => item.id == voice.id),
+            true,
+          );
+          expect(output.playing, true);
+        } finally {
+          if (!gate.isCompleted) gate.complete();
+          await loading;
+        }
+      }
+    },
+  );
+  test(
+    'advancing consumes the prepared clip and protects repeated-text audio',
+    () async {
+      final book = speechBook(['同一句话。', '同一句话。', '接下来的一段。']);
+      await controller.start(book, chapter: 0);
+      await listeningMicrotasks();
+      final currentPath = output.loaded.single.path;
+      expect(audio.prepared.where((part) => part.paragraph == 1).length, 1);
+      expect(audio.protected, contains(currentPath));
+      output.complete();
+      await listeningMicrotasks();
+      expect(controller.snapshot.value.current!.paragraph, 1);
+      expect(output.loaded.last.path, currentPath);
+      expect(audio.prepared.where((part) => part.paragraph == 1).length, 1);
+      expect(audio.protected, contains(currentPath));
+      await controller.stop();
+      expect(audio.protected, isEmpty);
+    },
+  );
+  test(
+    'a prefetched clip that fails decoding is regenerated before skipping',
+    () async {
+      final book = speechBook(['第一段。', '缓存损坏的一段。', '第三段。']);
+      final key = speechSegments(['缓存损坏的一段。']).single.key(defaultEdgeVoice);
+      var failures = 0;
+      output.loadHook = (file, _) async {
+        if (file.path.contains(key) && failures++ == 0) {
+          throw StateError('corrupt prefetched audio');
+        }
+        return const Duration(seconds: 30);
+      };
+      await controller.start(book, chapter: 0);
+      await listeningMicrotasks();
+      output.complete();
+      await listeningMicrotasks();
+      expect(controller.snapshot.value.current!.paragraph, 1);
+      expect(controller.snapshot.value.phase, ListeningPhase.playing);
+      expect(controller.snapshot.value.skippedSegments, 0);
+      expect(audio.invalidated.length, 1);
+      expect(audio.prepared.where((part) => part.paragraph == 1).length, 2);
+      expect(audio.protected, contains(output.loaded.last.path));
+    },
+  );
+  test(
     'failure can retry; position ticks never rebuild snapshot subscribers',
     () async {
       audio.fail = true;
@@ -544,8 +656,8 @@ void main() {
     () async {
       final gate = Completer<void>();
       try {
-        await controller.start(speechBook(['甲。', '乙。', '丙。']), chapter: 0);
         audio.gateFor = (segment) => segment.paragraph == 1 ? gate : null;
+        await controller.start(speechBook(['甲。', '乙。', '丙。']), chapter: 0);
         output.complete();
         await listeningMicrotasks();
         expect(controller.snapshot.value.phase, ListeningPhase.preparing);
@@ -586,8 +698,8 @@ void main() {
       );
       final gate = Completer<void>();
       try {
-        await controller.start(speechBook(['甲。', '乙。']), chapter: 0);
         audio.gateFor = (segment) => segment.paragraph == 1 ? gate : null;
+        await controller.start(speechBook(['甲。', '乙。']), chapter: 0);
         output.complete();
         await Future<void>.delayed(const Duration(milliseconds: 25));
         expect(

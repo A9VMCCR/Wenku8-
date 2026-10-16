@@ -279,7 +279,7 @@ void main() {
       NovelApp(state: state, repository: const DemoNovelRepository()),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('dock-tab-2')));
+    await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
     await tester.pumpAndSettle();
     final trigger = find.text('跟随系统');
     final anchorOpacity = find
@@ -348,7 +348,7 @@ void main() {
       NovelApp(state: state, repository: const DemoNovelRepository()),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('dock-tab-2')));
+    await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
     await tester.pumpAndSettle();
     for (var i = 0; i < 3; i++) {
       await tester.tap(find.text('跟随系统'));

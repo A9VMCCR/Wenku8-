@@ -4,9 +4,11 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/updates/app_updates.dart';
+import 'package:wenku8_flutter/updates/update_page.dart';
 
 const _repo = 'example/reader';
 Map<String, dynamic> _json({
@@ -39,8 +41,14 @@ class _Platform implements UpdatePlatform {
   String result = 'opened';
   String? failure;
   int installs = 0;
+  int reads = 0;
+  InstalledApp current = _installed;
   @override
-  Future<InstalledApp> installedApp() async => _installed;
+  Future<InstalledApp> installedApp() async {
+    reads++;
+    return current;
+  }
+
   @override
   Future<String> install(File apk, String version) async {
     installs++;
@@ -238,21 +246,83 @@ void main() {
     await temp.delete(recursive: true);
   });
   test(
-    'automatic checks throttle and respect opt-out; manual retry is immediate',
+    'each foreground check ignores the old six-hour timestamp and respects opt-out',
     () async {
+      await updates.preferences.setInt(
+        'lastAppUpdateCheck',
+        now.millisecondsSinceEpoch,
+      );
       await updates.check(automatic: true);
-      await updates.check(automatic: true);
-      expect(source.checks, 1);
-      expect(updates.available, true);
-      now = now.add(const Duration(hours: 7));
       await updates.check(automatic: true);
       expect(source.checks, 2);
+      expect(updates.available, true);
       await updates.setAutoCheck(false);
-      now = now.add(const Duration(hours: 7));
       await updates.check(automatic: true);
       expect(source.checks, 2);
       await updates.check();
       expect(source.checks, 3);
+    },
+  );
+  testWidgets(
+    'launch and real background returns check once, transient inactive does not',
+    (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      Widget monitor() =>
+          AppUpdateMonitor(updates: updates, child: const SizedBox());
+      await tester.pumpWidget(monitor());
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(source.checks, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(seconds: 2));
+      expect(source.checks, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(source.checks, 2);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(monitor());
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(
+        source.checks,
+        3,
+      ); // A new launch inside the former six-hour window.
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  test(
+    'manual check refreshes an installed version cached before an APK update',
+    () async {
+      await updates.check();
+      expect(updates.available, isTrue);
+      platform.current = const InstalledApp(
+        version: '0.3.0',
+        build: 7,
+        abis: ['arm64-v8a'],
+      );
+      await updates.check();
+      expect(updates.installed!.build, 7);
+      expect(updates.available, isFalse);
+      expect(platform.reads, 2);
+    },
+  );
+  test(
+    'installation re-reads package metadata and rejects a stale downloaded APK',
+    () async {
+      await updates.check();
+      await updates.download();
+      platform.current = const InstalledApp(
+        version: '0.3.0',
+        build: 7,
+        abis: ['arm64-v8a'],
+      );
+      await updates.install();
+      expect(platform.installs, 0);
+      expect(updates.downloaded, isNull);
+      expect(updates.error, contains('已安装 0.3.0（7）'));
     },
   );
   test('no release and network failure remain recoverable', () async {

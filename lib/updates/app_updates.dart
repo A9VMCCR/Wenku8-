@@ -12,10 +12,24 @@ const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: 'mikufoxxx/Wenku8_Flutter',
 );
-const currentAppVersion = '0.2.4';
-const currentAppBuild = 6;
+const currentAppVersion = '0.3.0';
+const currentAppBuild = 28;
 const currentReleaseNotes = '''
-修复从书籍、设置及弹层返回时键盘意外弹出，保留搜索内容和正常输入。
+阅读器支持上下滚动、横排翻页与竖排翻页，大屏自动对页阅读。
+新增阅读配色、段落排版、分区点按、音量键翻页与自动滚动，字号和行距支持透明预览。
+翻页逐段／逐列进入；横排对页先左后右，竖排由右向左。切换排版及折叠／展开保留阅读位置。
+隐藏／显示控件时增量调整正文，边缘模糊平滑退场；修复翻页闪字、按钮重叠和状态栏遮挡。
+目录按卷展开，支持章节搜索与定位；书签回到段落中部并高亮，系统侧边返回增加退出确认。
+新增独立本地书库，支持多选导入 TXT／EPUB、分类和书籍信息编辑；EPUB 支持至 256 MiB。
+同系列分卷统一确认合并，可调整卷序、追加新卷或恢复独立，保留插图、进度与书签。
+本地原书与合订本只显示在「本地」，不加入书架；旧数据自动整理，原书和阅读记录保留。
+新增 OpenList／WebDAV 与实验性夸克网盘导入，通过系统云文档入口手动合并同步书籍和阅读记录。
+新增自定义 Microsoft SSML 兼容语音接口；优化听书切段、章级进度、段落高亮与悬浮跟随入口。
+新增离线适配与阅读器模式，支持书架「立体书架＋列表／仅列表」切换及标签、分类搜索。
+平板采用等宽浏览／详情双栏与多列列表，骨架屏同步适配；优化宽屏详情进退与封面返回落点。
+统一液态玻璃开关、滑杆、菜单和阅读配色，修复亮边、Dock 裁切、二级标题及按钮布局。
+优化骨架与内容的连续过渡、书评骨架；轻提示自动消失并避开 Dock。
+更新奶白剪影图标与中性深灰深色模式，修复分类登录刷新和版本信息缓存，每次打开应用检查更新。
 ''';
 
 class ReleaseVersion implements Comparable<ReleaseVersion> {
@@ -378,7 +392,6 @@ class AppUpdates extends ChangeNotifier {
   bool _disposed = false;
   UpdateDownload? _download;
   Future<InstalledApp>? _loadingInfo;
-  DateTime? _lastAttempt;
   bool get autoCheck => preferences.getBool('checkAppUpdates') ?? true;
   bool get available =>
       release != null && installed != null && release!.isNewerThan(installed!);
@@ -395,12 +408,16 @@ class AppUpdates extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> loadInstalled() async {
-    if (_disposed || installed != null) return;
+  Future<void> loadInstalled({bool refresh = false}) async {
+    if (_disposed || (!refresh && installed != null)) return;
     try {
       final value = await (_loadingInfo ??= platform.installedApp());
       if (!_disposed) {
         installed = value;
+        if (release != null && !available) {
+          downloaded = null;
+          needsPermission = false;
+        }
         _notify();
       }
     } finally {
@@ -411,22 +428,12 @@ class AppUpdates extends ChangeNotifier {
   Future<void> check({bool automatic = false}) async {
     if (_disposed || checking || downloading) return;
     final now = _clock();
-    final stored = preferences.getInt('lastAppUpdateCheck');
-    final last =
-        _lastAttempt ??
-        (stored == null ? null : DateTime.fromMillisecondsSinceEpoch(stored));
-    if (automatic &&
-        (!autoCheck ||
-            (last != null &&
-                now.difference(last) < const Duration(hours: 6)))) {
-      return;
-    }
+    if (automatic && !autoCheck) return;
     checking = true;
     error = null;
-    _lastAttempt = now;
     _notify();
     try {
-      await loadInstalled();
+      await loadInstalled(refresh: true);
       final candidate = await source.latest();
       if (_disposed) return;
       if (candidate?.tag != release?.tag) {
@@ -495,6 +502,11 @@ class AppUpdates extends ChangeNotifier {
     installing = true;
     _notify();
     try {
+      await loadInstalled(refresh: true);
+      if (!available) {
+        error = '本机已安装 ${installed!.version}（${installed!.build}），无需重复安装';
+        return;
+      }
       final result = await platform.install(apk, release!.version.name);
       needsPermission = result == 'permission';
       error = null;
@@ -504,8 +516,8 @@ class AppUpdates extends ChangeNotifier {
       error = '无法打开安装程序，请重试';
     } finally {
       installing = false;
+      _notify();
     }
-    _notify();
   }
 
   @override

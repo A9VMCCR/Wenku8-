@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart' show CupertinoSlider;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
@@ -13,6 +12,8 @@ import 'package:wenku8_flutter/listening/store.dart';
 import 'package:wenku8_flutter/listening/widgets.dart';
 import 'package:wenku8_flutter/pages.dart';
 import 'package:wenku8_flutter/reader_chrome.dart';
+import 'package:wenku8_flutter/reader_paged_view.dart';
+import 'package:wenku8_flutter/reader_preferences.dart';
 
 import 'support/listening_fixture.dart';
 import 'support/visual_review.dart';
@@ -79,6 +80,97 @@ void main() {
   }
 
   testWidgets(
+    'clip handoffs retain preference controls and unaffected paragraph planes',
+    (tester) async {
+      final book = demoNovels.first;
+      const segments = [
+        SpeechSegment(0, 0, 4, '第一句。'),
+        SpeechSegment(0, 4, 8, '第二句。'),
+        SpeechSegment(1, 0, 4, '下一段。'),
+      ];
+      void state(int segment, ListeningPhase phase) {
+        controller.snapshot.value = ListeningSnapshot(
+          novel: book,
+          chapter: 0,
+          segments: segments,
+          segment: segment,
+          phase: phase,
+          playRequested: phase != ListeningPhase.paused,
+        );
+      }
+
+      state(0, ListeningPhase.playing);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: novelTheme(Brightness.light),
+          home: Scaffold(
+            body: Column(
+              children: [
+                for (var paragraph = 0; paragraph < 2; paragraph++)
+                  ListeningParagraphHighlight(
+                    controller: controller,
+                    novelId: book.id,
+                    chapter: 0,
+                    paragraph: paragraph,
+                    child: Text('段落 $paragraph'),
+                  ),
+                Expanded(
+                  child: ListeningPanel(
+                    controller: controller,
+                    novel: book,
+                    chapter: 0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      CustomPainter? plane(int paragraph) => tester
+          .widget<CustomPaint>(
+            find.byKey(ValueKey('listening-highlight-$paragraph')),
+          )
+          .painter;
+      final current = plane(0), other = plane(1);
+      final slider = tester.widget<AppGlassSlider>(
+        find.byKey(const ValueKey('listening-speed')),
+      );
+      state(1, ListeningPhase.preparing);
+      await tester.pump();
+      state(1, ListeningPhase.playing);
+      await tester.pump();
+      expect(identical(plane(0), current), true);
+      expect(identical(plane(1), other), true);
+      expect(
+        identical(
+          tester.widget<AppGlassSlider>(
+            find.byKey(const ValueKey('listening-speed')),
+          ),
+          slider,
+        ),
+        true,
+      );
+      state(1, ListeningPhase.paused);
+      await tester.pump();
+      expect(identical(plane(1), other), true);
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is Semantics && widget.properties.hint == '双击继续朗读',
+        ),
+        findsOneWidget,
+      );
+      state(2, ListeningPhase.playing);
+      await tester.pump();
+      expect(identical(plane(0), current), false);
+      expect(identical(plane(1), other), false);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await disposeFixture(tester);
+    },
+  );
+
+  testWidgets(
     'chapter progress does not reset or move the panel at a clip boundary',
     (tester) async {
       tester.view.physicalSize = const Size(412, 915);
@@ -115,13 +207,13 @@ void main() {
       await tester.ensureVisible(slider);
       output.positionEvents.add(const Duration(seconds: 30));
       await tester.pumpAndSettle();
-      final value = tester.widget<CupertinoSlider>(slider).value;
+      final value = tester.widget<AppGlassSlider>(slider).value;
       final y = tester.getCenter(slider).dy;
       await captureReview(tester, boundary, 'listening-chapter-progress');
       output.complete();
       await io(tester);
       expect(
-        tester.widget<CupertinoSlider>(slider).value,
+        tester.widget<AppGlassSlider>(slider).value,
         closeTo(value, .00001),
       );
       expect(tester.getCenter(slider).dy, closeTo(y, .5));
@@ -147,6 +239,7 @@ void main() {
     WidgetTester tester, {
     bool follow = true,
     bool longParagraph = false,
+    GlobalKey? captureKey,
   }) async {
     await tester.runAsync(() => library.setReduceMotion(false));
     final book = demoNovels.first.withChapters([
@@ -165,11 +258,14 @@ void main() {
         theme: novelTheme(Brightness.light),
         builder: (context, child) =>
             ListeningScope(controller: controller, child: child!),
-        home: ReaderPage(
-          novel: book,
-          state: library,
-          repository: const DemoNovelRepository(),
-          initialChapter: 0,
+        home: RepaintBoundary(
+          key: captureKey,
+          child: ReaderPage(
+            novel: book,
+            state: library,
+            repository: const DemoNovelRepository(),
+            initialChapter: 0,
+          ),
         ),
       ),
     );
@@ -350,6 +446,104 @@ void main() {
     },
   );
   testWidgets(
+    'floating follow action lands smoothly, survives hidden chrome and never restarts audio',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final capture = GlobalKey();
+      final book = await followReader(
+        tester,
+        follow: false,
+        captureKey: capture,
+      );
+      final starting = controller.start(book, chapter: 0, paragraph: 12);
+      await flushIo(tester);
+      await starting;
+      await tester.pumpAndSettle();
+      final button = find.byKey(const ValueKey('reader-enable-follow'));
+      expect(button, findsOneWidget);
+      final mainDock = tester.getRect(
+        find.byKey(const ValueKey('reader-liquid-dock')),
+      );
+      expect(tester.getRect(button).bottom, lessThan(mainDock.top));
+      await captureReview(tester, capture, 'reader-follow-visible-chrome');
+      final plays = output.plays;
+      final before = articlePosition(tester).pixels;
+      await tester.tap(control('reader-enable-follow'));
+      await flushIo(tester);
+      expect(controller.snapshot.value.follow, true);
+      await tester.pump(const Duration(milliseconds: 120));
+      final middle = articlePosition(tester).pixels;
+      expect(middle, greaterThan(before));
+      await tester.pumpAndSettle();
+      expect(articlePosition(tester).pixels, greaterThan(middle));
+      expect(button, findsNothing);
+      expect(output.plays, plays);
+
+      await tester.drag(
+        find.byKey(const ValueKey('reader-scroll')),
+        const Offset(0, -180),
+      );
+      await flushIo(tester);
+      await tester.pumpAndSettle();
+      expect(controller.snapshot.value.follow, false);
+      expect(button, findsOneWidget);
+      await tester.tapAt(const Offset(195, 230));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(chrome(tester), 0);
+      expect(button, findsOneWidget);
+      expect(tester.getRect(button).bottom, greaterThan(mainDock.bottom));
+      await captureReview(tester, capture, 'reader-follow-hidden-chrome');
+      await controller.stop();
+      await tester.pumpAndSettle();
+      expect(button, findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await disposeFixture(tester);
+    },
+  );
+  for (final mode in [ReaderMode.paged, ReaderMode.vertical]) {
+    testWidgets(
+      'floating follow returns to the spoken fragment in ${mode.name}',
+      (tester) async {
+        await tester.runAsync(
+          () => library.setReaderPreferences(ReaderPreferences(mode: mode)),
+        );
+        final book = await followReader(tester, follow: false);
+        final starting = controller.start(book, chapter: 0, paragraph: 12);
+        await flushIo(tester);
+        await starting;
+        await tester.pumpAndSettle();
+        final pages = tester
+            .widget<ReaderPagedView>(find.byType(ReaderPagedView))
+            .controller;
+        expect(pages.ready, true);
+        expect(pages.page, 0);
+        await tester.tap(control('reader-enable-follow'));
+        await flushIo(tester);
+        await tester.pumpAndSettle();
+        expect(controller.snapshot.value.follow, true);
+        expect(pages.page, greaterThan(0));
+        expect(
+          pages.debugLeaf!.fragments.any(
+            (fragment) => fragment.paragraph == 12 && fragment.start == 0,
+          ),
+          true,
+        );
+        expect(
+          find.byKey(const ValueKey('reader-enable-follow')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await disposeFixture(tester);
+      },
+    );
+  }
+  testWidgets(
     'backgrounding stops follow; returning starts a fresh smooth landing',
     (tester) async {
       addTearDown(
@@ -411,7 +605,7 @@ void main() {
       expect(controller.snapshot.value.phase, ListeningPhase.playing);
       expect(chrome(tester), before);
       // A single tap still hides controls. Double tap remains available in focus
-      // mode without removing the permanent scroll-edge blur.
+      // mode; the hidden controls and scroll-edge blur have no active paint.
       await tester.tap(find.byKey(const ValueKey('paragraph-2')));
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
@@ -419,7 +613,7 @@ void main() {
       await doubleTap(tester, find.byKey(const ValueKey('paragraph-2')));
       expect(controller.snapshot.value.phase, ListeningPhase.paused);
       expect(chrome(tester), 0);
-      expect(find.byType(ReaderEdgeBlur), findsOneWidget);
+      expect(find.byType(ReaderEdgeBlur), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await disposeFixture(tester);

@@ -135,7 +135,7 @@ void main() {
         expect(find.byType(ArchiveRouteTitle), findsOneWidget);
         await tester.tapAt(const Offset(400, 260));
         await tester.pumpAndSettle();
-        expect(find.byType(ReaderEdgeBlur), findsOneWidget);
+        expect(find.byType(ReaderEdgeBlur), findsNothing);
         expect(tester.takeException(), isNull);
         expect(tester.binding.transientCallbackCount, 0);
         await tester.pumpWidget(const SizedBox.shrink());

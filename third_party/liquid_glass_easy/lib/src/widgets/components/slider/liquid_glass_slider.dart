@@ -173,6 +173,8 @@ class LiquidGlassSlider extends StatefulWidget {
 
   /// Capture resolution for the inner view.
   final double pixelRatio;
+  final bool reduceMotion;
+  final double minimumTouchHeight;
 
   const LiquidGlassSlider({
     super.key,
@@ -194,6 +196,8 @@ class LiquidGlassSlider extends StatefulWidget {
     this.maximumIcon,
     this.style,
     this.pixelRatio = 1.0,
+    this.reduceMotion = false,
+    this.minimumTouchHeight = 0,
   });
 
   @override
@@ -320,6 +324,7 @@ class _LiquidGlassSliderState extends State<LiquidGlassSlider>
   void initState() {
     super.initState();
     _thumbCX = _targetThumbCX;
+    _gestureValue = widget.value;
     _ticker = createTicker(_onTick);
   }
 
@@ -340,12 +345,20 @@ class _LiquidGlassSliderState extends State<LiquidGlassSlider>
     final double oldWidth = _layout.width;
     _layout = _resolveLayout();
     if (_pointerDown) return;
+    final controlledValueChanged = _gestureValue != widget.value;
+    _gestureValue = widget.value;
+    if (widget.reduceMotion && !oldWidget.reduceMotion) {
+      _ensureTicking();
+      return;
+    }
     if (_thumbSpringTarget != null) {
       // A glide is in flight. If the value (or geometry) changed under
       // it — typically the parent's echo of the gesture's final value
       // landing a frame after the release — retarget the running
       // spring instead of letting it finish at a stale position.
-      if (oldWidget.value != widget.value || oldWidth != _layout.width) {
+      if (controlledValueChanged ||
+          oldWidget.value != widget.value ||
+          oldWidth != _layout.width) {
         _thumbSpringTarget = _targetThumbCX;
         _ensureTicking();
       }
@@ -357,6 +370,14 @@ class _LiquidGlassSliderState extends State<LiquidGlassSlider>
   }
 
   void _ensureTicking() {
+    if (widget.reduceMotion) {
+      _ticker?.stop();
+      if (!_pointerDown) _thumbCX = _centerForValue(_gestureValue);
+      _thumbSpringTarget = null;
+      _rubber = _rubberVel = 0;
+      _rubberSettling = false;
+      return;
+    }
     final ticker = _ticker;
     if (ticker != null && !ticker.isActive) {
       _tickerLast = null;
@@ -452,9 +473,9 @@ class _LiquidGlassSliderState extends State<LiquidGlassSlider>
     // Expand immediately, tap or drag alike; the pill starts its own
     // motion tracking on activation.
     _thumbActive = true;
-    // A frame of head start on the pill's own signal: the glass appears
-    // one tick later, over a capture that is already fresh.
-    _viewController.startRealtimeCapture();
+    // The pill's visibility owns the capture lease. A touch can start and end
+    // before its active widget is ever built; eagerly starting here would then
+    // leave a Skia capture pump running with no visible glass to stop it.
     _ensureTicking();
     widget.onChangeStart?.call(widget.value);
     setState(() {});
@@ -586,7 +607,9 @@ class _LiquidGlassSliderState extends State<LiquidGlassSlider>
     // Only the START is bounded. The pointer is captured once the drag
     // is under way, so carrying the finger off the track — and past
     // either end into the rubber band — still works exactly as before.
-    final hitHeight = math.max(_trackHeight, _contractedH);
+    final hitHeight = math
+        .max(widget.minimumTouchHeight, math.max(_trackHeight, _contractedH))
+        .clamp(0.0, _viewHeight);
     final hitTop = centerY - hitHeight / 2;
 
     final gestureSurface = RawGestureDetector(
@@ -688,6 +711,7 @@ class _LiquidGlassSliderState extends State<LiquidGlassSlider>
                 child: LiquidGlassMotionPill(
                   center: Offset(_thumbCX, centerY),
                   active: _thumbActive,
+                  reduceMotion: widget.reduceMotion,
                   restSize: Size(_contractedW, _contractedH),
                   activeSize: Size(_expandedW, _expandedH),
                   // The contact shadow rides in the style's appearance; the

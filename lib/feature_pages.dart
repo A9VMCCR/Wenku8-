@@ -8,6 +8,7 @@ import 'app_interactions.dart';
 import 'app_ui.dart';
 import 'catalog.dart';
 import 'library_state.dart';
+import 'library_workspace.dart';
 import 'novel_feed_controller.dart';
 import 'pages.dart' show DiscoverPage, openDetail;
 import 'publication_catalog.dart';
@@ -65,23 +66,21 @@ class ArchiveFeaturePage extends StatelessWidget {
   final List<Widget> actions;
   final bool canPop;
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: Atmosphere(
-      child: GlassHeaderLayout(
-        header: Row(
-          children: [
-            GlassIconButton(
+  Widget build(BuildContext context) => LibraryWorkspace(
+    child: Scaffold(
+      body: Atmosphere(
+        child: GlassHeaderLayout(
+          header: ArchiveHeaderBar(
+            leading: GlassIconButton(
               icon: CupertinoIcons.back,
               label: '返回',
               onPressed: canPop ? () => Navigator.pop(context) : null,
             ),
-            Expanded(
-              child: ArchiveRouteTitle(title: title, code: code),
-            ),
-            ...actions,
-          ],
+            title: ArchiveRouteTitle(title: title, code: code),
+            actions: actions,
+          ),
+          body: child,
         ),
-        body: child,
       ),
     ),
   );
@@ -661,10 +660,38 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
   PublicationLibrary? _selected;
   NovelFeedController? _feed;
   String? _error;
+  late int _accountRevision;
+  late bool _authenticated;
   @override
   void initState() {
     super.initState();
+    _accountRevision = widget.account?.sessionRevision ?? 0;
+    _authenticated = widget.account?.authenticated ?? false;
+    widget.account?.addListener(_accountChanged);
     unawaited(_load());
+  }
+
+  void _accountChanged() {
+    final account = widget.account;
+    if (account == null || !mounted) return;
+    if (_accountRevision == account.sessionRevision &&
+        _authenticated == account.authenticated) {
+      return;
+    }
+    _accountRevision = account.sessionRevision;
+    _authenticated = account.authenticated;
+    final library = _selected;
+    if (library != null) _select(library, force: true);
+  }
+
+  @override
+  void didUpdateWidget(PublicationLibraryPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.account != widget.account) {
+      oldWidget.account?.removeListener(_accountChanged);
+      widget.account?.addListener(_accountChanged);
+      _accountChanged();
+    }
   }
 
   Future<void> _load() async {
@@ -682,8 +709,8 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
     }
   }
 
-  void _select(PublicationLibrary library) {
-    if (_selected?.id == library.id) return;
+  void _select(PublicationLibrary library, {bool force = false}) {
+    if (!force && _selected?.id == library.id) return;
     _feed?.dispose();
     setState(() {
       _selected = library;
@@ -692,28 +719,33 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
         initialItems: 60,
       );
     });
-    _feed!.loadInitial();
+    if (force) {
+      unawaited(_feed!.refresh());
+    } else {
+      _feed!.loadInitial();
+    }
   }
 
   Future<void> _choose(BuildContext anchor) async {
     final selected = await showGlassMenu<PublicationLibrary>(
       context: anchor,
       reduceMotion: widget.state.reduceMotion,
-      builder: (menuContext) => SizedBox(
-        width: 260,
-        height: MediaQuery.sizeOf(menuContext).height * .6,
-        child: ListView.builder(
-          padding: const EdgeInsets.all(8),
-          itemCount: _libraries.length,
-          itemBuilder: (context, index) => GlassTextButton(
-            onPressed: () => Navigator.pop(menuContext, _libraries[index]),
-            child: Row(
-              children: [
-                Expanded(child: Text(_libraries[index].name)),
-                if (_selected?.id == _libraries[index].id)
-                  const Icon(CupertinoIcons.checkmark, size: 16),
-              ],
-            ),
+      builder: (menuContext) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(menuContext).height * .62,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final (index, library) in _libraries.indexed)
+                GlassMenuItem(
+                  order: index,
+                  label: library.name,
+                  selected: _selected?.id == library.id,
+                  onPressed: () => Navigator.pop(menuContext, library),
+                ),
+            ],
           ),
         ),
       ),
@@ -743,9 +775,11 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
         widget.account != null) {
       return ContentNotice(
         icon: CupertinoIcons.person_crop_circle,
-        title: '此分类需要文库账号',
-        message: '文库服务要求登录后读取出版分类。最近更新、排行榜和搜索仍可直接使用。',
-        actionLabel: '登录账号',
+        title: widget.account!.authenticated ? '分类暂未读取成功' : '此分类需要文库账号',
+        message: widget.account!.authenticated
+            ? '你已登录，但分类服务未接受本次请求。可在账号页重新验证登录后重试。'
+            : '登录后可读取出版分类。最近更新、排行榜和搜索仍可直接使用。',
+        actionLabel: widget.account!.authenticated ? '检查账号并重试' : '登录账号',
         onRetry: _loginForLibrary,
       );
     }
@@ -764,6 +798,7 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
 
   @override
   void dispose() {
+    widget.account?.removeListener(_accountChanged);
     _feed?.dispose();
     super.dispose();
   }

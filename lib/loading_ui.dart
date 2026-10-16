@@ -4,13 +4,17 @@ import 'package:flutter/material.dart';
 
 import 'archive_design.dart';
 import 'archive_shelf_geometry.dart';
+import 'book_collection_layout.dart';
 
 enum SkeletonLayout {
   library,
   search,
   detail,
   reader,
+  readerVertical,
   bookRow,
+  review,
+  reviewThread,
   history,
   actions,
   inline,
@@ -37,16 +41,18 @@ class LoadingSkeleton extends StatelessWidget {
     liveRegion: true,
     child: IgnorePointer(
       child: ExcludeSemantics(
-        child: RepaintBoundary(
-          child: CustomPaint(
-            key: ValueKey('skeleton-${layout.name}'),
-            painter: _SkeletonPainter(
-              layout: layout,
-              top: topInset,
-              ink: Theme.of(context).colorScheme.onSurface,
-              dark: Theme.of(context).brightness == Brightness.dark,
+        child: ClipRect(
+          child: RepaintBoundary(
+            child: CustomPaint(
+              key: ValueKey('skeleton-${layout.name}'),
+              painter: _SkeletonPainter(
+                layout: layout,
+                top: topInset,
+                ink: Theme.of(context).colorScheme.onSurface,
+                dark: Theme.of(context).brightness == Brightness.dark,
+              ),
+              child: const SizedBox.expand(),
             ),
-            child: const SizedBox.expand(),
           ),
         ),
       ),
@@ -87,6 +93,27 @@ class _SkeletonPainter extends CustomPainter {
       block(71, 64, (size.width - 93) * .55, 10);
       return;
     }
+    if (layout == SkeletonLayout.review ||
+        layout == SkeletonLayout.reviewThread) {
+      final thread = layout == SkeletonLayout.reviewThread;
+      block(0, 4, size.width * .76, 15);
+      if (thread) {
+        final lines = math.max(1, ((size.height - 72) / 24).floor());
+        for (var line = 0; line < lines; line++) {
+          block(
+            0,
+            36 + line * 24,
+            size.width * (line == lines - 1 ? .62 : .96),
+            10,
+          );
+        }
+      } else {
+        block(0, 35, size.width * .92, 10);
+      }
+      block(0, math.max(56, size.height - 32), size.width * .44, 8);
+      if (!thread) block(0, size.height - 8, size.width * .58, 8);
+      return;
+    }
     if (layout == SkeletonLayout.inline) {
       block(0, (size.height - 8) / 2, size.width * .78, 8);
       return;
@@ -105,6 +132,20 @@ class _SkeletonPainter extends CustomPainter {
       return;
     }
     if (layout == SkeletonLayout.history || layout == SkeletonLayout.actions) {
+      if (size.height < 40) {
+        block(
+          0,
+          math.max(0, (size.height - 8) / 2),
+          size.width * .72,
+          math.min(8, size.height),
+        );
+        return;
+      }
+      if (size.height < 72) {
+        block(0, 6, size.width * .78, 10);
+        block(0, 28, size.width * .51, 8);
+        return;
+      }
       block(16, 19, (size.width - 32) * .78, 15);
       block(16, 48, (size.width - 32) * .51, 10);
       if (layout == SkeletonLayout.history) {
@@ -125,8 +166,24 @@ class _SkeletonPainter extends CustomPainter {
       }
       return;
     }
+    if (layout == SkeletonLayout.readerVertical) {
+      for (var column = 0; column * 28 < size.width - 10; column++) {
+        final x = size.width - 11 - column * 28;
+        final inset = column % 4 == 0 ? 24.0 : 0.0;
+        block(
+          x,
+          inset,
+          11,
+          (size.height * (column % 4 == 3 ? .65 : .94) - inset).clamp(
+            0,
+            size.height,
+          ),
+        );
+      }
+      return;
+    }
     if (layout == SkeletonLayout.reader) {
-      for (var i = 0; i < 12; i++) {
+      for (var i = 0; i * 25 < size.height; i++) {
         block(
           i % 4 == 0 ? 24 : 0,
           i * 25,
@@ -143,32 +200,42 @@ class _SkeletonPainter extends CustomPainter {
       block(left, y, 66, 7);
       block(left, y + 19, 90, 18);
       y += 58;
-      final cover = ArchiveShelfGeometry.coverFor(content);
+      final bankWidth = math.min(
+        content,
+        ArchiveShelfGeometry.maxViewportWidth,
+      );
+      final bankLeft = left + (content - bankWidth) / 2;
+      final cover = ArchiveShelfGeometry.coverFor(bankWidth);
       final rowHeight = ArchiveShelfGeometry.rowHeight(
         cover,
         ArchiveShelfGeometry.bodyHeight(cover),
       );
       canvas.save();
-      canvas.translate(left, y);
+      canvas.translate(bankLeft, y);
       _ArchiveShelfSkeletonPainter(
         dark: dark,
         ink: ink,
-      ).paint(canvas, Size(content, rowHeight));
+      ).paint(canvas, Size(bankWidth, rowHeight));
       canvas.restore();
       y += rowHeight + 16;
-      block(left, y, content * .65, 15);
-      block(left, y + 29, content * .43, 10);
-      block(left, y + 65, content * .5, 7);
+      block(bankLeft, y, bankWidth * .65, 15);
+      block(bankLeft, y + 29, bankWidth * .43, 10);
+      block(bankLeft, y + 65, bankWidth * .5, 7);
       y += 104;
     }
     block(left, y, 66, 7);
     block(left, y + 19, 90, 18);
     y += 54;
+    final columns = BookCollectionLayout.columnsFor(content);
+    final cell = (content - (columns - 1) * BookCollectionLayout.gap) / columns;
     for (var i = 0; i < 6 && y < size.height - 74; i++) {
-      block(left, y, 56, 76, ArchiveDesign.coverRadius);
-      block(left + 74, y + 9, (content - 74) * .8, 15);
-      block(left + 74, y + 35, (content - 74) * .5, 10);
-      block(left + 74, y + 57, (content - 74) * .94, 10);
+      for (var column = 0; column < columns; column++) {
+        final x = left + column * (cell + BookCollectionLayout.gap);
+        block(x, y, 56, 76, ArchiveDesign.coverRadius);
+        block(x + 71, y + 7, 65, 7);
+        block(x + 71, y + 22, (cell - 93) * .87, 15);
+        block(x + 71, y + 51, (cell - 93) * .55, 10);
+      }
       y += 101;
     }
   }
@@ -182,46 +249,41 @@ class _SkeletonPainter extends CustomPainter {
 }
 
 class LibrarySkeleton extends StatelessWidget {
-  const LibrarySkeleton({super.key, this.header});
+  const LibrarySkeleton({super.key, this.header, this.featured = true});
   final Widget? header;
+  final bool featured;
   @override
   Widget build(BuildContext context) => Semantics(
     label: '正在翻开文库',
     liveRegion: true,
     container: true,
     explicitChildNodes: true,
-    child: ClipRect(
-      child: OverflowBox(
-        alignment: Alignment.topCenter,
-        maxHeight: double.infinity,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            24,
-            MediaQuery.paddingOf(context).top + 76,
-            24,
-            0,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              header ??
-                  const SizedBox(
-                    height: 44,
-                    child: LoadingSkeleton(layout: SkeletonLayout.actions),
-                  ),
-              const SizedBox(height: 14),
-              const ArchiveShelfSkeleton(),
-              const SizedBox(height: 32),
+    child: SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        MediaQuery.paddingOf(context).top + 76,
+        24,
+        MediaQuery.paddingOf(context).bottom + 120,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          header ??
               const SizedBox(
                 height: 44,
                 child: LoadingSkeleton(layout: SkeletonLayout.actions),
               ),
-              const SizedBox(height: 8),
-              for (var i = 0; i < 3; i++) const BookRowSkeleton(),
-            ],
+          const SizedBox(height: 14),
+          if (featured) const ArchiveShelfSkeleton(),
+          const SizedBox(height: 32),
+          const SizedBox(
+            height: 44,
+            child: LoadingSkeleton(layout: SkeletonLayout.actions),
           ),
-        ),
+          const SizedBox(height: 8),
+          const BookCollectionSkeleton(),
+        ],
       ),
     ),
   );
@@ -234,38 +296,47 @@ class ArchiveShelfSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => IgnorePointer(
     child: ExcludeSemantics(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final cover = ArchiveShelfGeometry.coverFor(constraints.maxWidth);
-          final height = ArchiveShelfGeometry.bodyHeight(cover);
-          final scale = MediaQuery.textScalerOf(context).scale(17) / 17;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RepaintBoundary(
-                child: CustomPaint(
-                  key: const ValueKey('archive-shelf-skeleton'),
-                  painter: _ArchiveShelfSkeletonPainter(
-                    dark: Theme.of(context).brightness == Brightness.dark,
-                    ink: Theme.of(context).colorScheme.onSurface,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: ArchiveShelfGeometry.maxViewportWidth,
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final cover = ArchiveShelfGeometry.coverFor(constraints.maxWidth);
+              final height = ArchiveShelfGeometry.bodyHeight(cover);
+              final scale = MediaQuery.textScalerOf(context).scale(17) / 17;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RepaintBoundary(
+                    child: CustomPaint(
+                      key: const ValueKey('archive-shelf-skeleton'),
+                      painter: _ArchiveShelfSkeletonPainter(
+                        dark: Theme.of(context).brightness == Brightness.dark,
+                        ink: Theme.of(context).colorScheme.onSurface,
+                      ),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: ArchiveShelfGeometry.rowHeight(cover, height),
+                      ),
+                    ),
                   ),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: ArchiveShelfGeometry.rowHeight(cover, height),
+                  SizedBox(
+                    height: 16 + 17 * 1.35 * 2 * scale + 12 * 1.4 * scale,
+                    child: const LoadingSkeleton(
+                      layout: SkeletonLayout.actions,
+                    ),
                   ),
-                ),
-              ),
-              SizedBox(
-                height: 16 + 17 * 1.35 * 2 * scale + 12 * 1.4 * scale,
-                child: const LoadingSkeleton(layout: SkeletonLayout.actions),
-              ),
-              const SizedBox(
-                height: 40,
-                child: LoadingSkeleton(layout: SkeletonLayout.inline),
-              ),
-            ],
-          );
-        },
+                  const SizedBox(
+                    height: 40,
+                    child: LoadingSkeleton(layout: SkeletonLayout.inline),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     ),
   );
@@ -364,10 +435,64 @@ class _ArchiveShelfSkeletonPainter extends CustomPainter {
 class SearchSkeleton extends StatelessWidget {
   const SearchSkeleton({super.key});
   @override
-  Widget build(BuildContext context) => LoadingSkeleton(
-    layout: SkeletonLayout.search,
-    topInset: MediaQuery.paddingOf(context).top + 76,
+  Widget build(BuildContext context) => Semantics(
     label: '正在找故事',
+    liveRegion: true,
+    child: ClipRect(
+      child: OverflowBox(
+        alignment: Alignment.topCenter,
+        maxHeight: double.infinity,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            22,
+            MediaQuery.paddingOf(context).top + 76,
+            22,
+            0,
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                height: 54,
+                child: LoadingSkeleton(layout: SkeletonLayout.actions),
+              ),
+              BookCollectionSkeleton(rows: 6),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class BookCollectionSkeleton extends StatelessWidget {
+  const BookCollectionSkeleton({
+    super.key,
+    this.rows = 3,
+    this.label = '正在载入书籍',
+  });
+  final int rows;
+  final String label;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = BookCollectionLayout.columnsFor(constraints.maxWidth);
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var row = 0; row < rows; row++)
+            Row(
+              children: [
+                for (var column = 0; column < columns; column++) ...[
+                  if (column != 0)
+                    const SizedBox(width: BookCollectionLayout.gap),
+                  Expanded(child: BookRowSkeleton(label: label)),
+                ],
+              ],
+            ),
+        ],
+      );
+    },
   );
 }
 
@@ -402,12 +527,16 @@ class InlineSkeleton extends StatelessWidget {
 }
 
 class ReaderSkeleton extends StatelessWidget {
-  const ReaderSkeleton({super.key});
+  const ReaderSkeleton({super.key, this.vertical = false, this.expand = false});
+  final bool vertical, expand;
   @override
-  Widget build(BuildContext context) => const SizedBox(
-    height: 300,
+  Widget build(BuildContext context) => SizedBox(
+    height: expand ? double.infinity : 300,
     width: double.infinity,
-    child: LoadingSkeleton(layout: SkeletonLayout.reader, label: '正在加载正文'),
+    child: LoadingSkeleton(
+      layout: vertical ? SkeletonLayout.readerVertical : SkeletonLayout.reader,
+      label: '正在加载正文',
+    ),
   );
 }
 

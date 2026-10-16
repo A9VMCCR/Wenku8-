@@ -145,7 +145,13 @@ RenderObject? liquidGlassFilterSubpassAncestor(RenderObject from) {
     // only while the filter is actually enabled, which is what decides
     // whether the subpass is there at all.
     // ignore: invalid_use_of_protected_member
-    if (node.layer is ImageFilterLayer) return node;
+    final layer = node.layer;
+    if (layer is ImageFilterLayer ||
+        layer is OpacityLayer &&
+            (layer.alpha ?? 255) < 255 &&
+            (layer.alpha ?? 0) > 0) {
+      return node;
+    }
   }
   return null;
 }
@@ -168,9 +174,7 @@ Rect? liquidGlassLayerClipBounds(Layer layer) {
     return layer.clipBehavior == Clip.none ? null : layer.clipRRect?.outerRect;
   }
   if (layer is ClipPathLayer) {
-    return layer.clipBehavior == Clip.none
-        ? null
-        : layer.clipPath?.getBounds();
+    return layer.clipBehavior == Clip.none ? null : layer.clipPath?.getBounds();
   }
   return null;
 }

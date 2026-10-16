@@ -2,10 +2,13 @@ import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'catalog.dart';
+import 'book_identity.dart';
+import 'reader_preferences.dart';
 import 'library_backup.dart';
 import 'performance_preferences.dart';
 import 'app_typography.dart';
@@ -22,8 +25,10 @@ class ReadingPosition {
     this.lineHeight = 1.72,
     this.paragraphIndex,
     this.paragraphFraction = 0,
+    this.textOffset,
     this.textScale = 1,
     this.typeface = 'system',
+    this.layout = '',
   });
   final int chapter;
   final int chapterId;
@@ -35,8 +40,12 @@ class ReadingPosition {
   final double lineHeight;
   final int? paragraphIndex;
   final double paragraphFraction;
+
+  /// UTF-16 position inside the original paragraph, independent of layout.
+  final int? textOffset;
   final double textScale;
   final String typeface;
+  final String layout;
 
   Map<String, Object> toJson() => {
     'chapter': chapter,
@@ -49,8 +58,10 @@ class ReadingPosition {
     'lineHeight': lineHeight,
     'paragraphIndex': ?paragraphIndex,
     'paragraphFraction': paragraphFraction,
+    'textOffset': ?textOffset,
     'textScale': textScale,
     'typeface': typeface,
+    if (layout.isNotEmpty) 'layout': layout,
   };
 
   factory ReadingPosition.fromJson(Map<String, dynamic> value) {
@@ -75,10 +86,14 @@ class ReadingPosition {
           ? value['paragraphIndex']
           : null,
       paragraphFraction: number('paragraphFraction', 0).clamp(0, 1),
+      textOffset: value['textOffset'] is int && value['textOffset'] >= 0
+          ? value['textOffset']
+          : null,
       textScale: number('textScale', 1).clamp(.5, 5),
       typeface: value['typeface'] == 'sourceHanSerif'
           ? 'sourceHanSerif'
           : 'system',
+      layout: value['layout'] is String ? value['layout'] : '',
     );
   }
 }
@@ -122,7 +137,7 @@ class LibraryState extends ChangeNotifier {
               : const <String>[])
           .map(int.tryParse)
           .whereType<int>()
-          .where((id) => id > 0),
+          .where((id) => id > 0 && !isLocalBook(id)),
     );
     _hiddenHistory.addAll(
       ((_prefs.get('reading_history_hidden') is List<String>)
@@ -218,6 +233,9 @@ class LibraryState extends ChangeNotifier {
     _glassBlur = preference('glassBlur', 8, 0, 24);
     _glassOpacity = preference('glassOpacity', .87, 0, 1);
     _keepScreenOn = _prefs.get('readerKeepScreenOn') == true;
+    _readerPreferences = ReaderPreferences.fromRecord(
+      _prefs.get('readerPreferences'),
+    );
     _shelfSort = switch (_prefs.get('shelfSort')) {
       'recentAdded' => 'recentAdded',
       'title' => 'title',
@@ -229,6 +247,9 @@ class LibraryState extends ChangeNotifier {
       'finished' => 'finished',
       _ => 'all',
     };
+    _shelfLayout = _prefs.get('shelfLayout') == 'list' ? 'list' : 'shelf';
+    _adaptWhenOffline = _prefs.get('adaptWhenOffline') != false;
+    _localReaderMode = _prefs.get('localReaderMode') == true;
     final recent = _prefs.get('recentSearches');
     if (recent is List<String>) {
       final seen = <String>{};
@@ -254,6 +275,7 @@ class LibraryState extends ChangeNotifier {
   final _searchChanges = ChangeNotifier();
   final _shelfViewChanges = ChangeNotifier();
   final _readerBehaviorChanges = ChangeNotifier();
+  final _navigationChanges = ChangeNotifier();
   final Set<int> _shelf = {};
   final Set<int> _hiddenHistory = {};
   final Map<int, Novel> _known = {};
@@ -266,7 +288,10 @@ class LibraryState extends ChangeNotifier {
   List<String> _recentSearches = const [];
   String _shelfSort = 'recentRead';
   String _shelfFilter = 'all';
+  String _shelfLayout = 'shelf';
   bool _keepScreenOn = false;
+  bool _adaptWhenOffline = true, _localReaderMode = false;
+  ReaderPreferences _readerPreferences = const ReaderPreferences();
   int _metadataEncodes = 0;
   Future<void> _positionWrites = Future.value();
   Completer<void>? _restoreBarrier;
@@ -284,7 +309,17 @@ class LibraryState extends ChangeNotifier {
   static Future<LibraryState> load() async {
     final prefs = await SharedPreferences.getInstance();
     await recoverLibraryRestore(prefs);
-    return LibraryState(prefs);
+    final state = LibraryState(prefs);
+    final storedShelf = prefs.get('shelf');
+    if (storedShelf is List<String> &&
+        storedShelf.map(int.tryParse).whereType<int>().any(isLocalBook)) {
+      // Migrate only membership. Originals, metadata, positions and bookmarks
+      // remain available to the local library and cross-device sync.
+      await state._commitLibraryRecords({
+        'shelf': state._shelf.map((id) => '$id').toList(),
+      });
+    }
+    return state;
   }
 
   Set<int> get shelf => Set.unmodifiable(_shelf);
@@ -298,10 +333,15 @@ class LibraryState extends ChangeNotifier {
   Listenable get searchChanges => _searchChanges;
   Listenable get shelfViewChanges => _shelfViewChanges;
   Listenable get readerBehaviorChanges => _readerBehaviorChanges;
+  Listenable get navigationChanges => _navigationChanges;
+  bool get adaptWhenOffline => _adaptWhenOffline;
+  bool get localReaderMode => _localReaderMode;
   List<String> get recentSearches => List.unmodifiable(_recentSearches);
   String get shelfSort => _shelfSort;
   String get shelfFilter => _shelfFilter;
+  String get shelfLayout => _shelfLayout;
   bool get keepScreenOn => _keepScreenOn;
+  ReaderPreferences get readerPreferences => _readerPreferences;
   ThemeMode get theme => _theme;
   double get fontSize => _fontSize;
   double get lineHeight => _lineHeight;
@@ -388,10 +428,14 @@ class LibraryState extends ChangeNotifier {
     });
   }
 
-  Future<void> setShelfView({String? sort, String? filter}) async {
+  Future<void> setShelfView({
+    String? sort,
+    String? filter,
+    String? layout,
+  }) async {
     if (_restoreBarrier case final barrier?) {
       return barrier.future.then(
-        (_) => setShelfView(sort: sort, filter: filter),
+        (_) => setShelfView(sort: sort, filter: filter, layout: layout),
       );
     }
     await _queuePositionWrite(() async {
@@ -402,13 +446,20 @@ class LibraryState extends ChangeNotifier {
           ['all', 'unread', 'reading', 'finished'].contains(filter)
           ? filter!
           : _shelfFilter;
+      final nextLayout = ['shelf', 'list'].contains(layout)
+          ? layout!
+          : _shelfLayout;
       await _commitLibraryRecords({
         'shelfSort': nextSort,
         'shelfFilter': nextFilter,
+        'shelfLayout': nextLayout,
       });
-      if (nextSort != _shelfSort || nextFilter != _shelfFilter) {
+      if (nextSort != _shelfSort ||
+          nextFilter != _shelfFilter ||
+          nextLayout != _shelfLayout) {
         _shelfSort = nextSort;
         _shelfFilter = nextFilter;
+        _shelfLayout = nextLayout;
         if (!_disposed) _shelfViewChanges.notifyListeners();
       }
     });
@@ -428,6 +479,60 @@ class LibraryState extends ChangeNotifier {
         }
       }
     });
+  }
+
+  Future<void> setNavigationMode({
+    bool? adaptWhenOffline,
+    bool? localReaderMode,
+  }) async {
+    if (_restoreBarrier case final barrier?) {
+      return barrier.future.then(
+        (_) => setNavigationMode(
+          adaptWhenOffline: adaptWhenOffline,
+          localReaderMode: localReaderMode,
+        ),
+      );
+    }
+    await _queuePositionWrite(() async {
+      final offline = adaptWhenOffline ?? _adaptWhenOffline;
+      final local = localReaderMode ?? _localReaderMode;
+      if (offline == _adaptWhenOffline && local == _localReaderMode) return;
+      await _commitLibraryRecords({
+        'adaptWhenOffline': offline,
+        'localReaderMode': local,
+      });
+      _adaptWhenOffline = offline;
+      _localReaderMode = local;
+      if (!_disposed) {
+        _navigationChanges.notifyListeners();
+        _settings.notifyListeners();
+      }
+    });
+  }
+
+  Future<void> setReaderPreferences(
+    ReaderPreferences value, {
+    bool persist = true,
+  }) async {
+    if (_restoreBarrier case final barrier?) {
+      return barrier.future.then(
+        (_) => setReaderPreferences(value, persist: persist),
+      );
+    }
+    final record = jsonEncode(value.toJson());
+    ReaderPreferences.fromJson(jsonDecode(record));
+    if (persist) {
+      await _queuePositionWrite(
+        () => writeLibraryPreference(_prefs, 'readerPreferences', record),
+      );
+    }
+    if (jsonEncode(_readerPreferences.toJson()) == record) return;
+    _readerPreferences = value;
+    if (!_disposed) {
+      _readerSettings.notifyListeners();
+      _readerBehaviorChanges.notifyListeners();
+      _settings.notifyListeners();
+    }
   }
 
   List<int> get readingHistoryIds {
@@ -655,7 +760,7 @@ class LibraryState extends ChangeNotifier {
   /// One transactional merge/notification rather than rebuilding the shelf
   /// once per imported cloud/legacy ID. Reading records are never overwritten.
   Future<void> addShelfIds(Iterable<int> values) async {
-    final ids = values.where((id) => id > 0 && id <= 0x7fffffff).toSet();
+    final ids = values.where((id) => id > 0 && !isLocalBook(id)).toSet();
     if (_restoreBarrier case final barrier?) {
       await barrier.future;
       return addShelfIds(ids);
@@ -695,6 +800,7 @@ class LibraryState extends ChangeNotifier {
       );
     }
     if (id <= 0) return;
+    present = present && !isLocalBook(id);
     await _queuePositionWrite(() async {
       final changedMembership = contains(id) != present;
       final shelf = {..._shelf};
@@ -731,6 +837,176 @@ class LibraryState extends ChangeNotifier {
     });
   }
 
+  /// Copy records through explicit chapter identities without deleting the
+  /// source records. Receipts make repeated reconciliation safe after a restart
+  /// and prevent removed series bookmarks from being copied back again.
+  Future<void> combineBookRecords({
+    required Novel target,
+    required Map<Novel, Map<int, int>> sources,
+    bool? onShelf,
+    bool revealTarget = true,
+  }) async {
+    if (_restoreBarrier case final barrier?) {
+      await barrier.future;
+      return combineBookRecords(
+        target: target,
+        sources: sources,
+        onShelf: onShelf,
+        revealTarget: revealTarget,
+      );
+    }
+    await _queuePositionWrite(() async {
+      final receiptKey = 'book_merge_${target.id}';
+      final receipts = {...?_prefs.getStringList(receiptKey)};
+      final indices = {for (final (i, c) in target.chapters.indexed) c.id: i};
+      ReadingPosition? move(
+        ReadingPosition value,
+        Map<int, int> mapping,
+        Novel source,
+      ) {
+        final index = chapterForPosition(source, value);
+        if (index == null) return null;
+        final chapterId = mapping[source.chapters[index].id];
+        final next = indices[chapterId];
+        return next == null
+            ? null
+            : ReadingPosition.fromJson({
+                ...value.toJson(),
+                'chapter': next,
+                'chapterId': chapterId,
+              });
+      }
+
+      final identity = {for (final c in target.chapters) c.id: c.id};
+      var position = _positions[target.id];
+      if (position != null) {
+        position = move(position, identity, target) ?? position;
+      }
+      int? legacyChapter = _chapters[target.id];
+      final bookmarks = <ReaderBookmark>[
+        for (final mark in _bookmarks[target.id] ?? const <ReaderBookmark>[])
+          ReaderBookmark(
+            id: mark.id,
+            chapterTitle: mark.chapterTitle,
+            position: move(mark.position, identity, target) ?? mark.position,
+          ),
+      ];
+      final markIds = bookmarks.map((m) => m.id).toSet();
+      final fingerprints = bookmarks.map(_bookmarkFingerprint).toSet();
+      for (final entry in sources.entries) {
+        final source = entry.key;
+        if (source.id == target.id) continue;
+        receipts.add('${source.id}');
+        final old = _positions[source.id];
+        final moved = old == null ? null : move(old, entry.value, source);
+        if (moved != null &&
+            (position == null || moved.updatedAt > position.updatedAt)) {
+          position = moved;
+        }
+        if (legacyChapter == null &&
+            hasRead(source.id) &&
+            source.chapters.isNotEmpty) {
+          final oldIndex = chapterForNovel(source);
+          legacyChapter = indices[entry.value[source.chapters[oldIndex].id]];
+        }
+        for (final mark in _bookmarks[source.id] ?? const <ReaderBookmark>[]) {
+          final mapped = move(mark.position, entry.value, source);
+          if (mapped == null) continue;
+          if (!receipts.add('m/${source.id}/${mark.id}')) continue;
+          final id = '${source.id}/${mark.id}';
+          final copied = ReaderBookmark(
+            id: id,
+            chapterTitle: target.chapters[mapped.chapter].title,
+            position: mapped,
+          );
+          if (fingerprints.add(_bookmarkFingerprint(copied)) &&
+              markIds.add(id)) {
+            bookmarks.add(copied);
+          }
+        }
+      }
+      if (bookmarks.length > 1000) {
+        throw const FormatException('合并后超过 1000 个书签，请先整理书签；原阅读记录仍保留');
+      }
+      bookmarks.sort(
+        (a, b) => b.position.updatedAt.compareTo(a.position.updatedAt),
+      );
+      final memberIds = sources.keys
+          .map((b) => b.id)
+          .where((id) => id != target.id)
+          .toSet();
+      final present =
+          !isLocalBook(target.id) &&
+          (onShelf ?? (contains(target.id) || memberIds.any(contains)));
+      final shelf = {..._shelf}..removeAll(memberIds);
+      if (present) {
+        shelf.add(target.id);
+      } else {
+        shelf.remove(target.id);
+      }
+      final hidden = {..._hiddenHistory, ...memberIds.where(hasRead)};
+      if (revealTarget && (position != null || legacyChapter != null)) {
+        hidden.remove(target.id);
+      }
+      final chapter = position?.chapter ?? legacyChapter;
+      final sourceAdded =
+          memberIds.map((id) => _added[id]).whereType<int>().toList()..sort();
+      final added =
+          _added[target.id] ??
+          (sourceAdded.isEmpty
+              ? DateTime.now().millisecondsSinceEpoch
+              : sourceAdded.first);
+      final snapshot = jsonEncode(target.toSnapshot());
+      final records = <String, Object>{
+        receiptKey: receipts.toList()..sort(),
+        'shelf': shelf.map((id) => '$id').toList(),
+        'reading_history_hidden': hidden.map((id) => '$id').toList(),
+        'novel_meta_${target.id}': snapshot,
+        if (present) 'shelf_added_${target.id}': added,
+        'chapter_${target.id}': ?chapter,
+        if (position != null)
+          'reading_position_${target.id}': jsonEncode(position.toJson()),
+        if (bookmarks.isNotEmpty || _bookmarks.containsKey(target.id))
+          'reader_bookmarks_${target.id}': jsonEncode(
+            bookmarks.map((m) => m.toJson()).toList(),
+          ),
+      };
+      records.removeWhere((key, value) {
+        final old = _prefs.get(key);
+        return old == value ||
+            value is List<String> &&
+                old is List<String> &&
+                listEquals(value, old);
+      });
+      if (records.isNotEmpty) await _commitLibraryRecords(records);
+      final oldShelf = {..._shelf};
+      _shelf
+        ..clear()
+        ..addAll(shelf);
+      for (final id in {...oldShelf, ...shelf}) {
+        if (oldShelf.contains(id) != shelf.contains(id)) {
+          _shelfRevisions[id] = shelfRevision(id) + 1;
+        }
+      }
+      _hiddenHistory
+        ..clear()
+        ..addAll(hidden);
+      _known[target.id] = target;
+      _persistedNovels[target.id] = target;
+      if (present) _added[target.id] = added;
+      if (position != null) _positions[target.id] = position;
+      if (chapter != null) _chapters[target.id] = chapter;
+      if (bookmarks.isNotEmpty || _bookmarks.containsKey(target.id)) {
+        _bookmarks[target.id] = bookmarks;
+      }
+      if (!_disposed && records.isNotEmpty) {
+        _historyChanged();
+        _bookmarkChanges.notifyListeners();
+        notifyListeners();
+      }
+    });
+  }
+
   Future<void> setChapter(int id, int chapter) async {
     if (_restoreBarrier case final barrier?) {
       return barrier.future.then((_) => setChapter(id, chapter));
@@ -758,6 +1034,7 @@ class LibraryState extends ChangeNotifier {
     bool notify = true,
     int? paragraphIndex,
     double paragraphFraction = 0,
+    int? textOffset,
     double textScale = 1,
     String? typeface,
   }) {
@@ -772,6 +1049,7 @@ class LibraryState extends ChangeNotifier {
           notify: notify,
           paragraphIndex: paragraphIndex,
           paragraphFraction: paragraphFraction,
+          textOffset: textOffset,
           textScale: textScale,
           typeface: typeface,
         ),
@@ -800,8 +1078,10 @@ class LibraryState extends ChangeNotifier {
           ? paragraphIndex
           : null,
       paragraphFraction: paragraphFraction.clamp(0, 1),
+      textOffset: textOffset != null && textOffset >= 0 ? textOffset : null,
       textScale: textScale.clamp(.5, 5),
       typeface: AppTypeface.fromRecord(typeface ?? appTypeface.name).name,
+      layout: _readerPreferences.layoutKey,
     );
     _positions[novel.id] = position;
     final chapterChanged = _chapters[novel.id] != chapter;
@@ -983,6 +1263,10 @@ class LibraryState extends ChangeNotifier {
   }
 
   Map<String, Object> _backupRecords() => {
+    for (final key in _prefs.getKeys().where(
+      (k) => k.startsWith('book_merge_'),
+    ))
+      key: _prefs.getStringList(key) ?? <String>[],
     'shelf': _shelf.map((id) => '$id').toList(),
     'reading_history_hidden': _hiddenHistory.map((id) => '$id').toList(),
     'recentSearches': _recentSearches,
@@ -995,8 +1279,12 @@ class LibraryState extends ChangeNotifier {
     'glassBlur': _glassBlur,
     'glassOpacity': _glassOpacity,
     'readerKeepScreenOn': _keepScreenOn,
+    'readerPreferences': jsonEncode(_readerPreferences.toJson()),
     'shelfSort': _shelfSort,
     'shelfFilter': _shelfFilter,
+    'shelfLayout': _shelfLayout,
+    'adaptWhenOffline': _adaptWhenOffline,
+    'localReaderMode': _localReaderMode,
     for (final entry in _added.entries) 'shelf_added_${entry.key}': entry.value,
     for (final entry in _known.entries)
       'novel_meta_${entry.key}': jsonEncode(entry.value.toSnapshot()),
@@ -1038,7 +1326,9 @@ class LibraryState extends ChangeNotifier {
         final records = backup.records;
         final shelf = {
           ..._shelf,
-          ...(records['shelf'] as List<String>? ?? const []).map(int.parse),
+          ...(records['shelf'] as List<String>? ?? const [])
+              .map(int.parse)
+              .where((id) => !isLocalBook(id)),
         };
         final added = {..._added};
         final known = {..._known};
@@ -1052,7 +1342,12 @@ class LibraryState extends ChangeNotifier {
         final oldRead = {..._chapters.keys, ..._positions.keys};
         for (final entry in records.entries) {
           final key = entry.key;
-          if (key.startsWith('novel_meta_')) {
+          if (key.startsWith('book_merge_')) {
+            changed[key] = {
+              ...?_prefs.getStringList(key),
+              ...(entry.value as List<String>),
+            }.toList()..sort();
+          } else if (key.startsWith('novel_meta_')) {
             final id = int.parse(key.substring('novel_meta_'.length));
             if (!known.containsKey(id)) {
               known[id] = Novel.fromSnapshot(jsonDecode(entry.value as String));
@@ -1204,9 +1499,21 @@ class LibraryState extends ChangeNotifier {
           if (records['readerKeepScreenOn'] case final bool value) {
             _keepScreenOn = value;
           }
+          if (records['readerPreferences'] case final String value) {
+            _readerPreferences = ReaderPreferences.fromRecord(value);
+          }
           if (records['shelfSort'] case final String value) _shelfSort = value;
           if (records['shelfFilter'] case final String value) {
             _shelfFilter = value;
+          }
+          if (records['shelfLayout'] case final String value) {
+            _shelfLayout = value;
+          }
+          if (records['adaptWhenOffline'] case final bool value) {
+            _adaptWhenOffline = value;
+          }
+          if (records['localReaderMode'] case final bool value) {
+            _localReaderMode = value;
           }
         }
         if (!_disposed) {
@@ -1221,6 +1528,7 @@ class LibraryState extends ChangeNotifier {
             _readerSettings.notifyListeners();
             _readerBehaviorChanges.notifyListeners();
             _settings.notifyListeners();
+            _navigationChanges.notifyListeners();
           }
           notifyListeners();
         }
@@ -1274,6 +1582,7 @@ class LibraryState extends ChangeNotifier {
     _searchChanges.dispose();
     _shelfViewChanges.dispose();
     _readerBehaviorChanges.dispose();
+    _navigationChanges.dispose();
     super.dispose();
   }
 }

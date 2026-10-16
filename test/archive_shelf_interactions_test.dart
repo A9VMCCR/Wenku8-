@@ -288,6 +288,15 @@ void main() {
     _view(tester);
     await tester.pumpWidget(_app());
     await tester.pumpAndSettle();
+    for (final label in ['上一份档案', '下一份档案']) {
+      final arrow = tester.widget<IconButton>(
+        find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == label,
+        ),
+      );
+      expect((arrow.icon as Icon).size, 13);
+      expect(arrow.visualDensity, VisualDensity.compact);
+    }
     for (var i = 0; i < 3; i++) {
       await tester.tap(find.byTooltip('下一份档案'));
       await tester.pump(const Duration(milliseconds: 20));

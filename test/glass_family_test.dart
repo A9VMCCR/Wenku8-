@@ -50,7 +50,7 @@ void main() {
       final state = await _mount(tester);
       await state.setReduceMotion(true);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('dock-tab-2')));
+      await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('跟随系统'));
       await tester.pumpAndSettle();
@@ -87,7 +87,7 @@ void main() {
       await tester.pump();
       await tester.pump(NovelMotion.contact);
       await gesture.moveTo(
-        tester.getCenter(find.byKey(const ValueKey('dock-tab-2'))),
+        tester.getCenter(find.byKey(const ValueKey('dock-tab-3'))),
         timeStamp: const Duration(milliseconds: 220),
       );
       await tester.pump(const Duration(milliseconds: 20));
@@ -195,9 +195,11 @@ void main() {
     'theme dropdown is anchored glass with the shared overlay timeline',
     (tester) async {
       final state = await _mount(tester);
-      await tester.tap(find.byKey(const ValueKey('dock-tab-2')));
+      await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
       await tester.pumpAndSettle();
       final trigger = find.text('跟随系统');
+      await Scrollable.ensureVisible(tester.element(trigger), alignment: .2);
+      await tester.pumpAndSettle();
       final anchor = tester.getRect(
         find.ancestor(of: trigger, matching: find.byType(LiquidGlass)).first,
       );
@@ -267,7 +269,7 @@ void main() {
       await gesture.cancel();
       await tester.pumpAndSettle();
       expect(tester.getRect(surface), initialPlate);
-      final slider = tester.widget<CupertinoSlider>(
+      final slider = tester.widget<AppGlassSlider>(
         find.byKey(const ValueKey('reader-font-slider')),
       );
       slider.onChangeStart!(slider.value);

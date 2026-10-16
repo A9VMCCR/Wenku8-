@@ -136,6 +136,7 @@ class WenkuAccount extends ChangeNotifier {
   Future<void>? _initialization;
   bool _disposed = false;
   int _identity = 0;
+  int get sessionRevision => _identity;
   bool authenticated = false;
   bool busy = false;
   String? operation, error;
@@ -264,7 +265,7 @@ class WenkuAccount extends ChangeNotifier {
       final remote = CloudBook.parse(await _send('action=bookcase&t=0'));
       final remoteIds = remote.map((book) => book.id).toSet();
       final missing = localIds
-          .where((id) => id > 0 && !remoteIds.contains(id))
+          .where((id) => id > 0 && id < 0x60000000 && !remoteIds.contains(id))
           .toList();
       final uploaded = <int>[];
       Object? failure;

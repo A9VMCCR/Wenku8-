@@ -1,20 +1,40 @@
 // Run: flutter test tools/generate_app_icons.dart
-// SVG is the single source; no fonts, raster source assets or runtime package.
+// Keep the approved raster master unchanged; derive launcher sizes and masks.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xml/xml.dart';
 
 void main() {
-  test('export archive launcher icons from the vector source', () async {
-    final svg = XmlDocument.parse(
-      await File('assets/branding/app-icon.svg').readAsString(),
+  test('export launcher icons from the approved raster master', () async {
+    final config =
+        jsonDecode(
+              await File('assets/branding/design-source.json').readAsString(),
+            )
+            as Map<String, dynamic>;
+    final backgroundHex = config['background'] as String;
+    final background = ui.Color(
+      0xFF000000 | int.parse(backgroundHex.substring(1), radix: 16),
     );
-    final shapes = svg.findAllElements('path').toList();
-    const background = ui.Color(0xFFF4F3EF);
+    final codec = await ui.instantiateImageCodec(
+      await File('assets/branding/${config['foreground']}').readAsBytes(),
+    );
+    final source = (await codec.getNextFrame()).image;
+    codec.dispose();
+    final rgba = (await source.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    ))!.buffer.asUint8List();
+    // The mark is milk on charcoal. Only the charcoal becomes transparent;
+    // the approved highlights/texture remain the source's own pixels.
+    final mask = Uint8List.fromList(rgba);
+    for (var i = 0; i < mask.length; i += 4) {
+      final luminance =
+          .2126 * mask[i] + .7152 * mask[i + 1] + .0722 * mask[i + 2];
+      mask[i + 3] = ((luminance - 58) / (200 - 58) * 255).round().clamp(0, 255);
+    }
+    final mark = await _decodeRgba(mask, source.width, source.height);
     final res = Directory('android/app/src/main/res');
     Future<void> write(String path, String text) async {
       final file = File(path);
@@ -22,22 +42,20 @@ void main() {
       await file.writeAsString(text);
     }
 
-    String vector({bool monochrome = false}) =>
+    String bitmap({bool monochrome = false}) =>
         '''<?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp"
-    android:viewportWidth="108" android:viewportHeight="108">
-${shapes.asMap().entries.where((e) => !monochrome || e.key != 3).map((e) => '    <path android:fillColor="${monochrome ? '#000000' : e.value.getAttribute('fill')}" android:fillAlpha="${monochrome && e.key == 0 ? '.24' : e.value.getAttribute('fill-opacity') ?? '1'}" android:fillType="evenOdd" android:pathData="${e.value.getAttribute('d')}"/>').join('\n')}
-</vector>
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/ic_archive_mark" android:gravity="fill"
+    android:filter="true"${monochrome ? '\n    android:tint="#FF000000" android:tintMode="src_in"' : ''}/>
 ''';
-    await write('${res.path}/drawable/ic_archive_foreground.xml', vector());
+    await write('${res.path}/drawable/ic_archive_foreground.xml', bitmap());
     await write(
       '${res.path}/drawable/ic_archive_monochrome.xml',
-      vector(monochrome: true),
+      bitmap(monochrome: true),
     );
     await write(
       '${res.path}/values/archive_icon.xml',
-      '<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="archive_icon_background">#F4F3EF</color></resources>\n',
+      '<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="archive_icon_background">$backgroundHex</color></resources>\n',
     );
     for (final version in [26, 33]) {
       await write(
@@ -51,38 +69,44 @@ ${version >= 33 ? '    <monochrome android:drawable="@drawable/ic_archive_monoch
       );
     }
 
-    Future<Uint8List> render(int size) async {
+    Future<Uint8List> render(int size, {bool adaptive = false}) async {
       final recorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(recorder)
-        ..scale(size / 72)
-        ..translate(-18, -18);
-      canvas.drawColor(background, ui.BlendMode.src);
-      for (final shape in shapes) {
-        final color =
-            ui.Color(
-              0xFF000000 |
-                  int.parse(
-                    shape.getAttribute('fill')!.substring(1),
-                    radix: 16,
-                  ),
-            ).withValues(
-              alpha: double.parse(shape.getAttribute('fill-opacity') ?? '1'),
-            );
-        canvas.drawPath(
-          _path(shape.getAttribute('d')!),
-          ui.Paint()..color = color,
-        );
-      }
+      final canvas = ui.Canvas(recorder);
+      if (!adaptive) canvas.drawColor(background, ui.BlendMode.src);
+      final side = adaptive
+          ? size *
+                (config['adaptiveArtworkSide'] as num).toDouble() /
+                108 *
+                (config['artworkScale'] as num).toDouble()
+          : size * (config['artworkScale'] as num).toDouble();
+      final artworkImage = adaptive ? mark : source;
+      canvas.drawImageRect(
+        artworkImage,
+        ui.Rect.fromLTWH(
+          0,
+          0,
+          artworkImage.width.toDouble(),
+          artworkImage.height.toDouble(),
+        ),
+        ui.Rect.fromLTWH((size - side) / 2, (size - side) / 2, side, side),
+        ui.Paint()..filterQuality = ui.FilterQuality.high,
+      );
       final picture = recorder.endRecording();
       final image = await picture.toImage(size, size);
       final data = (await image.toByteData(
-        format: ui.ImageByteFormat.rawRgba,
+        format: adaptive ? ui.ImageByteFormat.png : ui.ImageByteFormat.rawRgba,
       ))!;
-      final png = _opaquePng(data.buffer.asUint8List(), size);
+      final png = adaptive
+          ? data.buffer.asUint8List()
+          : _opaquePng(data.buffer.asUint8List(), size);
       image.dispose();
       picture.dispose();
       return png;
     }
+
+    final adaptive = File('${res.path}/drawable-nodpi/ic_archive_mark.png');
+    await adaptive.parent.create(recursive: true);
+    await adaptive.writeAsBytes(await render(432, adaptive: true));
 
     final rendered = <int, Uint8List>{};
     Future<void> png(String path, int size) async {
@@ -110,30 +134,26 @@ ${version >= 33 ? '    <monochrome android:drawable="@drawable/ic_archive_monoch
       await png('$ios/${item['filename']}', (side * scale).round());
     }
     await png('flutter_screenshots/loading-polish/app-icon.png', 512);
+    await png('assets/branding/app-icon.png', 512);
+    mark.dispose();
+    source.dispose();
   });
 }
 
-ui.Path _path(String data) {
-  final tokens = RegExp(
-    r'[MLZ]|-?\d+(?:\.\d+)?',
-  ).allMatches(data).map((m) => m.group(0)!).toList();
-  final path = ui.Path()..fillType = ui.PathFillType.evenOdd;
-  for (var i = 0; i < tokens.length;) {
-    final command = tokens[i++];
-    if (command == 'Z') {
-      path.close();
-    } else {
-      final x = double.parse(tokens[i++]);
-      final y = double.parse(tokens[i++]);
-      if (command == 'M') {
-        path.moveTo(x, y);
-      } else {
-        assert(command == 'L');
-        path.lineTo(x, y);
-      }
-    }
-  }
-  return path;
+Future<ui.Image> _decodeRgba(Uint8List rgba, int width, int height) async {
+  final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
+  final descriptor = ui.ImageDescriptor.raw(
+    buffer,
+    width: width,
+    height: height,
+    pixelFormat: ui.PixelFormat.rgba8888,
+  );
+  final codec = await descriptor.instantiateCodec();
+  final image = (await codec.getNextFrame()).image;
+  codec.dispose();
+  descriptor.dispose();
+  buffer.dispose();
+  return image;
 }
 
 // RGB PNG: iOS app icons must not contain an alpha channel, even if opaque.

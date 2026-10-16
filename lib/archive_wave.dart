@@ -11,6 +11,7 @@ import 'archive_scroll_simulation.dart';
 import 'archive_shelf_geometry.dart';
 import 'catalog.dart';
 import 'performance_preferences.dart';
+import 'library_reflow.dart';
 
 /// Scroll position is the single clock for the continuous extraction wave.
 class ArchiveFileCarousel extends StatefulWidget {
@@ -174,172 +175,208 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
   Widget build(BuildContext context) {
     if (widget.books.isEmpty) return const SizedBox.shrink();
     if (!PerformanceScope.of(context).shelf3d) {
-      return _FlatArchiveCarousel(books: widget.books, onOpen: widget.onOpen);
+      return LibraryReflowPart(
+        id: this,
+        child: _FlatArchiveCarousel(books: widget.books, onOpen: widget.onOpen),
+      );
     }
     _reduced = widget.reduceMotion || MediaQuery.disableAnimationsOf(context);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final spine = _WavePose.spineFor(width);
-        final pitch = _WavePose.pitchFor(width);
-        final cover = _WavePose.coverFor(width);
-        final height = ArchiveShelfGeometry.bodyHeight(cover);
-        _pose.configure(width, pitch);
-        _scroll ??= ScrollController(
-          initialScrollOffset: _pose.logicalFocus * pitch,
-          // This state owns the unbounded lane. Nested discovery PageStorage
-          // must not restore vertical feed pixels into the horizontal bank.
-          keepScrollOffset: false,
-        )..addListener(_scrolled);
-        final rowHeight = ArchiveShelfGeometry.rowHeight(cover, height);
-        final dark = Theme.of(context).brightness == Brightness.dark;
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              height: rowHeight,
-              child: NotificationListener<ScrollNotification>(
-                onNotification: (notification) {
-                  if (notification is ScrollStartNotification &&
-                      notification.dragDetails != null) {
-                    _finishEntrance();
-                    _targetIndex = null;
-                    _command++;
-                    _hapticGesture = true;
-                    _lastDetent = _pose.logicalFocus.round();
-                  } else if (notification is ScrollStartNotification &&
-                      _targetIndex != null) {
-                    _hapticGesture = true;
-                  } else if (notification is ScrollEndNotification) {
-                    _hapticGesture = false;
-                  }
-                  return false;
-                },
-                child: Scrollable(
-                  key: const ValueKey('archive-file-carousel'),
-                  controller: _scroll,
-                  axisDirection: AxisDirection.right,
-                  physics: widget.books.length == 1
-                      ? const NeverScrollableScrollPhysics()
-                      : _ArchiveSnapPhysics(pose: _pose),
-                  viewportBuilder: (context, offset) => _ShelfRow(
-                    offset: offset,
-                    pose: _pose,
-                    spine: spine,
-                    cover: cover,
-                    height: height,
-                    dark: dark,
-                    children: [
-                      for (var i = 0; i < _pose.poolCount; i++)
-                        _volume(
-                          context,
-                          widget.books[_pose.bookIndex(i)],
-                          i,
-                          spine,
-                          cover,
-                          height,
-                        ),
-                    ],
+    return LibraryReflowPart(
+      id: this,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: ArchiveShelfGeometry.maxViewportWidth,
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final spine = _WavePose.spineFor(width);
+              final pitch = _WavePose.pitchFor(width);
+              final cover = _WavePose.coverFor(width);
+              final height = ArchiveShelfGeometry.bodyHeight(cover);
+              _pose.configure(width, pitch);
+              _scroll ??= ScrollController(
+                initialScrollOffset: _pose.logicalFocus * pitch,
+                // This state owns the unbounded lane. Nested discovery PageStorage
+                // must not restore vertical feed pixels into the horizontal bank.
+                keepScrollOffset: false,
+              )..addListener(_scrolled);
+              final rowHeight = ArchiveShelfGeometry.rowHeight(cover, height);
+              final dark = Theme.of(context).brightness == Brightness.dark;
+              return LoadingHandoff(
+                animation: _entrance,
+                end: .9,
+                placeholder: const ClipRect(
+                  child: OverflowBox(
+                    alignment: Alignment.topCenter,
+                    maxHeight: double.infinity,
+                    child: ArchiveShelfSkeleton(),
                   ),
                 ),
-              ),
-            ),
-            // Only labels change at index crossings. Never rebuild the bank for
-            // each scroll pixel, and never restart a separate extraction timer.
-            _entryLabel(
-              ValueListenableBuilder<int>(
-                valueListenable: _active,
-                builder: (context, index, _) {
-                  final book = widget.books[index % widget.books.length];
-                  final scale = MediaQuery.textScalerOf(context).scale(17) / 17;
-                  return SizedBox(
-                    height: 16 + 17 * 1.35 * 2 * scale + 12 * 1.4 * scale,
-                    child: JellyTapSurface(
-                      key: const ValueKey('archive-shelf-open'),
-                      onTap: () => _open(_pose.focus.round()),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    book.title,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 17,
-                                      height: 1.35,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${book.author} · ${book.isComplete ? '已完结' : '连载中'}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      height: 1.4,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            const Icon(CupertinoIcons.arrow_up_right, size: 20),
-                          ],
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      height: rowHeight,
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          if (notification is ScrollStartNotification &&
+                              notification.dragDetails != null) {
+                            _finishEntrance();
+                            _targetIndex = null;
+                            _command++;
+                            _hapticGesture = true;
+                            _lastDetent = _pose.logicalFocus.round();
+                          } else if (notification is ScrollStartNotification &&
+                              _targetIndex != null) {
+                            _hapticGesture = true;
+                          } else if (notification is ScrollEndNotification) {
+                            _hapticGesture = false;
+                          }
+                          return false;
+                        },
+                        child: Scrollable(
+                          key: const ValueKey('archive-file-carousel'),
+                          controller: _scroll,
+                          axisDirection: AxisDirection.right,
+                          physics: widget.books.length == 1
+                              ? const NeverScrollableScrollPhysics()
+                              : _ArchiveSnapPhysics(pose: _pose),
+                          viewportBuilder: (context, offset) => _ShelfRow(
+                            offset: offset,
+                            pose: _pose,
+                            spine: spine,
+                            cover: cover,
+                            height: height,
+                            dark: dark,
+                            children: [
+                              for (var i = 0; i < _pose.poolCount; i++)
+                                _volume(
+                                  context,
+                                  widget.books[_pose.bookIndex(i)],
+                                  i,
+                                  spine,
+                                  cover,
+                                  height,
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  );
-                },
-              ),
-              .52,
-            ),
-            _entryLabel(
-              ValueListenableBuilder<int>(
-                valueListenable: _active,
-                builder: (context, index, _) => Row(
-                  children: [
-                    const Spacer(),
-                    if (widget.books.length > 1) ...[
-                      IconButton(
-                        tooltip: '上一份档案',
-                        onPressed: () => _step(-1),
-                        icon: const Icon(CupertinoIcons.chevron_left, size: 13),
-                        visualDensity: VisualDensity.compact,
+                    // Only labels change at index crossings. Never rebuild the bank for
+                    // each scroll pixel, and never restart a separate extraction timer.
+                    _entryLabel(
+                      ValueListenableBuilder<int>(
+                        valueListenable: _active,
+                        builder: (context, index, _) {
+                          final book =
+                              widget.books[index % widget.books.length];
+                          final scale =
+                              MediaQuery.textScalerOf(context).scale(17) / 17;
+                          return SizedBox(
+                            height:
+                                16 + 17 * 1.35 * 2 * scale + 12 * 1.4 * scale,
+                            child: JellyTapSurface(
+                              key: const ValueKey('archive-shelf-open'),
+                              onTap: () => _open(_pose.focus.round()),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            book.title,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 17,
+                                              height: 1.35,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          Text(
+                                            '${book.author} · ${book.isComplete ? '已完结' : '连载中'}',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              height: 1.4,
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Icon(
+                                      CupertinoIcons.arrow_up_right,
+                                      size: 20,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                      Semantics(
-                        label:
-                            '第 ${index % widget.books.length + 1} 本，共 ${widget.books.length} 本，循环浏览',
-                        child: ArchiveCode(
-                          '${(index % widget.books.length + 1).toString().padLeft(2, '0')} / ${widget.books.length.toString().padLeft(2, '0')}',
+                      .52,
+                    ),
+                    _entryLabel(
+                      ValueListenableBuilder<int>(
+                        valueListenable: _active,
+                        builder: (context, index, _) => Row(
+                          children: [
+                            const Spacer(),
+                            if (widget.books.length > 1) ...[
+                              IconButton(
+                                tooltip: '上一份档案',
+                                onPressed: () => _step(-1),
+                                icon: const Icon(
+                                  CupertinoIcons.chevron_left,
+                                  size: 13,
+                                ),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              Semantics(
+                                label:
+                                    '第 ${index % widget.books.length + 1} 本，共 ${widget.books.length} 本，循环浏览',
+                                child: ArchiveCode(
+                                  '${(index % widget.books.length + 1).toString().padLeft(2, '0')} / ${widget.books.length.toString().padLeft(2, '0')}',
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: '下一份档案',
+                                onPressed: () => _step(1),
+                                icon: const Icon(
+                                  CupertinoIcons.chevron_right,
+                                  size: 13,
+                                ),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ],
+                          ],
                         ),
                       ),
-                      IconButton(
-                        tooltip: '下一份档案',
-                        onPressed: () => _step(1),
-                        icon: const Icon(
-                          CupertinoIcons.chevron_right,
-                          size: 13,
-                        ),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ],
+                      .72,
+                    ),
                   ],
                 ),
-              ),
-              .72,
-            ),
-          ],
-        );
-      },
+              );
+            },
+          ),
+        ),
+      ),
     );
   }
 
@@ -377,7 +414,7 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
               // Solid physical faces occlude other files; milk comes from shading,
               // not alpha that lets readable rear text bleed through the surface.
               backgroundColor: dark
-                  ? const Color(0xFF2D332D)
+                  ? ArchiveDesign.darkRaised
                   : const Color(0xFFF2F0E9),
               onTap: tap,
               child: MediaQuery.withNoTextScaling(
@@ -420,7 +457,7 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
               radius: 0,
               padding: const EdgeInsets.fromLTRB(10, 9, 10, 8),
               backgroundColor: dark
-                  ? const Color(0xFF292F29)
+                  ? ArchiveDesign.darkSurface
                   : ArchiveDesign.milk,
               onTap: tap,
               child: Column(
@@ -1263,7 +1300,7 @@ class ArchiveBoxDepthRender extends RenderBox
       Paint()
         ..shader = LinearGradient(
           colors: _dark
-              ? [const Color(0xFF41473D), const Color(0xFF2D332C)]
+              ? [ArchiveDesign.darkRaisedHigh, ArchiveDesign.darkRaised]
               : [const Color(0xFFE3DFD3), ArchiveDesign.milk],
         ).createShader(top.getBounds()),
     );
@@ -1272,7 +1309,7 @@ class ArchiveBoxDepthRender extends RenderBox
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = .4
-        ..color = (_dark ? ArchiveDesign.milk : const Color(0xFF9A927F))
+        ..color = (_dark ? ArchiveDesign.darkMilk : const Color(0xFF9A927F))
             .withValues(alpha: .24),
     );
     _spineLayer.layer = context.pushTransform(

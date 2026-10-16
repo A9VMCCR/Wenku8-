@@ -2,6 +2,7 @@ package org.mewx.wenku8_flutter
 
 import android.content.res.Configuration
 import android.os.Bundle
+import android.view.KeyEvent
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 
@@ -18,9 +19,13 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onPause() {
+        (flutterEngine?.plugins?.get(ReaderControlsPlugin::class.java) as? ReaderControlsPlugin)?.suspend()
         refreshRate?.stop()
         super.onPause()
     }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        (flutterEngine?.plugins?.get(ReaderControlsPlugin::class.java) as? ReaderControlsPlugin)?.dispatch(event) == true || super.dispatchKeyEvent(event)
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)

@@ -21,15 +21,42 @@ void _samePlane(PaperCoverPlane actual, PaperCoverPlane expected) {
   }
 }
 
-void main({Future<void> Function(WidgetTester, GlobalKey, String)? capture}) {
+AnimationController _flightClock(Animation<double> animation) {
+  Animation<double>? clock = animation;
+  while (clock is ProxyAnimation) {
+    clock = clock.parent;
+  }
+  expect(clock, isA<AnimationController>());
+  return clock! as AnimationController;
+}
+
+Future<AnimationController> _sampleFlight(
+  WidgetTester tester,
+  Animation<double> animation,
+  double value,
+) async {
+  final clock = _flightClock(animation)..stop();
+  clock.value = value;
+  await tester.pump();
+  return clock;
+}
+
+void main({
+  bool native = false,
+  Future<void> Function(WidgetTester, GlobalKey, String)? capture,
+}) {
   for (final mode in Brightness.values) {
     testWidgets(
       'archive cover ${mode.name} preserves projection, occlusion, portrait and loop identity in both flights',
       (tester) async {
         tester.view.physicalSize = const Size(390, 844);
         tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(top: 28, bottom: 24);
+        tester.view.viewPadding = tester.view.padding;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPadding);
+        addTearDown(tester.view.resetViewPadding);
         SharedPreferences.setMockInitialValues({});
         final state = await LibraryState.load();
         final bytes = (await tester.runAsync(coverFixtureBytes))!;
@@ -167,6 +194,7 @@ void main({Future<void> Function(WidgetTester, GlobalKey, String)? capture}) {
           await capture(tester, boundary, 'loop-${mode.name}-cover-takeoff');
         }
         await tester.pump(const Duration(milliseconds: 250));
+        if (native) await _sampleFlight(tester, flight.animation, .25);
         expect(
           render.debugPlane.horizontal.dy.abs(),
           lessThan(sourcePlane.horizontal.dy.abs()),
@@ -175,10 +203,12 @@ void main({Future<void> Function(WidgetTester, GlobalKey, String)? capture}) {
           await capture(tester, boundary, 'loop-${mode.name}-cover-flight');
         }
         await tester.pump(const Duration(milliseconds: 400));
+        if (native) await _sampleFlight(tester, flight.animation, .65);
         _samePlane(render.debugPlane, PaperCoverPlane.flat);
         if (capture != null) {
           await capture(tester, boundary, 'loop-${mode.name}-cover-contact');
         }
+        if (native) _flightClock(flight.animation).forward();
         await tester.pumpAndSettle();
         expect(find.byType(PaperCoverFlight), findsNothing);
         expect(tester.binding.transientCallbackCount, 0);
@@ -211,9 +241,61 @@ void main({Future<void> Function(WidgetTester, GlobalKey, String)? capture}) {
         _samePlane(returning.beginPlane, returnPlane);
         expect(returning.beginOcclusion, isNotNull);
         await tester.pump(const Duration(milliseconds: 690));
+        if (native) await _sampleFlight(tester, returning.animation, .18);
         if (capture != null) {
           await capture(tester, boundary, 'loop-${mode.name}-cover-return');
         }
+        AnimationController? held;
+        if (native) {
+          held = await _sampleFlight(tester, returning.animation, .008);
+        } else {
+          await tester.pump(const Duration(milliseconds: 140));
+        }
+        final returnRender = tester.renderObject<PaperCoverRender>(
+          find.byType(PaperCoverBend),
+        );
+        final targetFinder = find.descendant(
+          of: find.byType(ArchiveFileCarousel, skipOffstage: false),
+          matching: find.byType(Hero, skipOffstage: false),
+        );
+        final target = tester.renderObject<RenderBox>(targetFinder);
+        final finalMask = PaperCoverPlane.occlusionFromHero(
+          tester.element(targetFinder),
+        );
+        expect(finalMask, isNotNull);
+        expect(
+          (returning.beginOcclusion!.getBounds().topLeft -
+                  finalMask!.getBounds().topLeft)
+              .distance,
+          lessThan(.01),
+          reason:
+              'The return mask must not retain Cupertino secondary-route parallax.',
+        );
+        for (final uv in [
+          Offset.zero,
+          const Offset(1, 0),
+          const Offset(0, 1),
+        ]) {
+          final planePoint = returnRender.debugPlane.point(uv.dx, uv.dy);
+          final flightPoint = returnRender.localToGlobal(
+            Offset(
+              returnRender.size.width * planePoint.dx,
+              returnRender.size.height * planePoint.dy,
+            ),
+          );
+          final targetPoint = target.localToGlobal(
+            Offset(target.size.width * uv.dx, target.size.height * uv.dy),
+          );
+          expect(
+            (flightPoint - targetPoint).distance,
+            lessThan(1),
+            reason:
+                'The projected cover must land on its actual shelf face, '
+                'not the untransformed Hero origin ($uv).',
+          );
+        }
+        await capture?.call(tester, boundary, 'loop-${mode.name}-cover-landed');
+        held?.reverse();
         await tester.pumpAndSettle();
         expect(scene.debugFocus, closeTo(-1000, .0001));
         _samePlane(

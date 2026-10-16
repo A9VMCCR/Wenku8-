@@ -20,7 +20,24 @@ List<NovelChapter> _decodeChapters(String source) {
     for (final element in document.findAllElements('chapter'))
       if (int.tryParse(element.getAttribute('cid') ?? '') case final int id)
         if (id > 0 && ids.add(id))
-          NovelChapter(element.innerText.trim(), '', id: id),
+          NovelChapter(
+            element.innerText.trim(),
+            '',
+            id: id,
+            volumeId: element.parentElement?.name.local == 'volume'
+                ? int.tryParse(
+                        element.parentElement!.getAttribute('vid') ?? '',
+                      ) ??
+                      0
+                : 0,
+            volumeTitle: element.parentElement?.name.local == 'volume'
+                ? element.parentElement!.children
+                      .where((node) => node is XmlText || node is XmlCDATA)
+                      .map((node) => node.value ?? '')
+                      .join()
+                      .trim()
+                : '',
+          ),
   ]);
 }
 

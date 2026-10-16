@@ -206,19 +206,17 @@ class _OfflineCachePageState extends State<OfflineCachePage> {
   Widget build(BuildContext context) => Scaffold(
     body: Atmosphere(
       child: GlassHeaderLayout(
-        header: Row(
-          children: [
-            GlassIconButton(
-              icon: CupertinoIcons.back,
-              label: '返回',
-              onPressed: () => Navigator.pop(context),
-            ),
-            const Expanded(
-              child: ArchiveRouteTitle(
-                title: '离线缓存',
-                code: 'ARCHIVE / LOCAL STORAGE',
-              ),
-            ),
+        header: ArchiveHeaderBar(
+          leading: GlassIconButton(
+            icon: CupertinoIcons.back,
+            label: '返回',
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: const ArchiveRouteTitle(
+            title: '离线缓存',
+            code: 'ARCHIVE / LOCAL STORAGE',
+          ),
+          actions: [
             GlassMenuAnchor(
               child: Builder(
                 builder: (anchor) => GlassIconButton(

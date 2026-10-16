@@ -6,9 +6,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wenku8_flutter/listening/cache.dart';
 import 'package:wenku8_flutter/listening/edge_tts.dart';
 import 'package:wenku8_flutter/listening/models.dart';
+import 'package:wenku8_flutter/network_status.dart';
 
 class _EdgeFixture extends EdgeSpeechClient {
   int calls = 0;
+  int audioBytes = 300;
   final texts = <String>[];
   Completer<void>? gate;
   @override
@@ -22,7 +24,7 @@ class _EdgeFixture extends EdgeSpeechClient {
     final pending = gate;
     if (pending != null) await pending.future;
     cancellation.check();
-    return Uint8List(300)..[0] = 255;
+    return Uint8List(audioBytes)..[0] = 255;
   }
 }
 
@@ -42,6 +44,83 @@ void main() {
     await directory.delete(recursive: true);
   });
   const segment = SpeechSegment(0, 0, 2, '中文');
+  test(
+    'offline public speech reuses generated audio and rejects only an uncached clip',
+    () async {
+      final network = NetworkStatus(initial: NetworkReachability.online);
+      addTearDown(network.dispose);
+      cache = SpeechAudioCache(directory, edge, network: network);
+      final file = await cache.prepare(
+        segment,
+        defaultEdgeVoice,
+        SpeechCancellation(),
+      );
+      network.value = NetworkReachability.offline;
+      expect(
+        (await cache.prepare(
+          segment,
+          defaultEdgeVoice,
+          SpeechCancellation(),
+        )).path,
+        file.path,
+      );
+      await expectLater(
+        cache.prepare(
+          const SpeechSegment(1, 0, 3, '未缓存'),
+          defaultEdgeVoice,
+          SpeechCancellation(),
+        ),
+        throwsA(
+          isA<SpeechFailure>().having(
+            (error) => error.message,
+            'message',
+            contains('尚未缓存'),
+          ),
+        ),
+      );
+      expect(edge.calls, 1);
+    },
+  );
+  Future<File> oversized(String name) async {
+    final file = File('${directory.path}/$name.mp3');
+    final handle = await file.open(mode: FileMode.write);
+    await handle.truncate(100 * 1024 * 1024);
+    await handle.close();
+    await file.setLastModified(DateTime.utc(2020));
+    return file;
+  }
+
+  test(
+    'playback maintenance is throttled but explicit trim is immediate',
+    () async {
+      await cache.prepare(segment, defaultEdgeVoice, SpeechCancellation());
+      final old = await oversized('old');
+      await cache.trimForPlayback();
+      expect(await old.exists(), false);
+      final added = await oversized('added');
+      await cache.trimForPlayback();
+      expect(await added.exists(), true);
+      await cache.trim();
+      expect(await added.exists(), false);
+    },
+  );
+  test(
+    'new audio growth triggers maintenance without waiting for the timer',
+    () async {
+      await cache.trimForPlayback();
+      final old = await oversized('old');
+      edge.audioBytes = 2 * 1024 * 1024 + 1;
+      final fresh = await cache.prepare(
+        segment,
+        defaultEdgeVoice,
+        SpeechCancellation(),
+      );
+      cache.protect(fresh);
+      await cache.trimForPlayback();
+      expect(await old.exists(), false);
+      expect(await fresh.exists(), true);
+    },
+  );
   test('same phrase is deduplicated, atomically cached and reused', () async {
     final token = SpeechCancellation();
     final files = await Future.wait([

@@ -11,6 +11,7 @@ val releaseKeyFile = rootProject.file("key.properties")
 val releaseKeys = Properties().apply {
     if (releaseKeyFile.isFile) releaseKeyFile.inputStream().use { load(it) }
 }
+val readerPreview = providers.gradleProperty("wenkuReaderPreview").orNull == "true"
 
 android {
     namespace = "org.mewx.wenku8_flutter"
@@ -35,6 +36,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["wenkuAppLabel"] = "轻小说文库"
         testInstrumentationRunner = "org.mewx.wenku8_flutter.SessionFixtureInstrumentation"
     }
 
@@ -57,10 +59,14 @@ android {
             applicationIdSuffix = ".profile_probe"
         }
         release {
+            if (readerPreview) {
+                applicationIdSuffix = ".reader_preview"
+                manifestPlaceholders["wenkuAppLabel"] = "文库 · 阅读预览"
+            }
             // Local previews remain install-compatible. Public distributions
             // use an owner's untracked key.properties, never an embedded key.
             signingConfig = signingConfigs.getByName(
-                if (releaseKeyFile.isFile) "distribution" else "debug"
+                if (releaseKeyFile.isFile && !readerPreview) "distribution" else "debug"
             )
         }
     }

@@ -29,6 +29,13 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
   final _scroll = ScrollController();
   final _center = GlobalKey();
   late List<int> _matches = _filter('');
+  late final _volumes = NovelVolume.of(widget.novel.chapters);
+  late final Set<String> _expanded = {
+    for (final volume in _volumes)
+      if (widget.currentChapter >= volume.start &&
+          widget.currentChapter < volume.end)
+        volume.key,
+  };
 
   List<int> _filter(String query) {
     final chapters = widget.novel.chapters;
@@ -40,7 +47,9 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
     }
     return [
       for (var index = 0; index < chapters.length; index++)
-        if (chapters[index].title.toLowerCase().contains(text)) index,
+        if (chapters[index].title.toLowerCase().contains(text) ||
+            chapters[index].volumeTitle.toLowerCase().contains(text))
+          index,
     ];
   }
 
@@ -52,6 +61,12 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
   }
 
   void _locateCurrent() {
+    for (final volume in _volumes) {
+      if (widget.currentChapter >= volume.start &&
+          widget.currentChapter < volume.end) {
+        _expanded.add(volume.key);
+      }
+    }
     _search.clear();
     _filterChanged('');
     FocusScope.of(context).unfocus();
@@ -145,7 +160,27 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
     if (_matches.isEmpty) {
       return const Center(child: Text('没有匹配的章节'));
     }
-    final current = _matches.indexOf(widget.currentChapter);
+    final matches = _matches.toSet();
+    final rows = <({NovelVolume? volume, int? chapter})>[
+      for (final volume in _volumes)
+        if (Iterable.generate(
+          volume.length,
+          (i) => volume.start + i,
+        ).any(matches.contains)) ...[
+          if (volume.title.isNotEmpty) (volume: volume, chapter: null),
+          if (volume.title.isEmpty ||
+              _expanded.contains(volume.key) ||
+              _search.text.trim().isNotEmpty)
+            for (var i = volume.start; i < volume.end; i++)
+              if (matches.contains(i)) (volume: null, chapter: i),
+        ],
+    ];
+    Widget row(int index) => rows[index].volume != null
+        ? _volumeRow(context, rows[index].volume!)
+        : _row(context, rows[index].chapter!);
+    final current = rows.indexWhere(
+      (row) => row.chapter == widget.currentChapter,
+    );
     final origin = current < 0 ? 0 : current;
     return CustomScrollView(
       key: const ValueKey('reader-catalogue-scroll'),
@@ -156,16 +191,56 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
       slivers: [
         SliverList.builder(
           itemCount: origin,
-          itemBuilder: (context, index) =>
-              _row(context, _matches[origin - index - 1]),
+          itemBuilder: (context, index) => row(origin - index - 1),
         ),
         SliverList.builder(
           key: _center,
-          itemCount: _matches.length - origin,
-          itemBuilder: (context, index) =>
-              _row(context, _matches[origin + index]),
+          itemCount: rows.length - origin,
+          itemBuilder: (context, index) => row(origin + index),
         ),
       ],
+    );
+  }
+
+  Widget _volumeRow(BuildContext context, NovelVolume volume) {
+    final expanded =
+        _expanded.contains(volume.key) || _search.text.trim().isNotEmpty;
+    return Semantics(
+      expanded: expanded,
+      child: JellyTapSurface(
+        key: ValueKey('reader-volume-${volume.key}'),
+        onTap: () {
+          if (_search.text.trim().isNotEmpty) return;
+          setState(() {
+            if (!_expanded.add(volume.key)) _expanded.remove(volume.key);
+          });
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 18),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  volume.title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text('${volume.length} 章', style: const TextStyle(fontSize: 11)),
+              const SizedBox(width: 10),
+              Icon(
+                expanded
+                    ? CupertinoIcons.chevron_down
+                    : CupertinoIcons.chevron_right,
+                size: 12,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

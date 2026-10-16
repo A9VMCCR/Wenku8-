@@ -131,6 +131,68 @@ void main({FeatureCapture? capture}) {
   );
 
   testWidgets(
+    'publication refreshes when identity changes without leaving the page',
+    (tester) async {
+      final fixture = AccountFixture();
+      final state = await LibraryState.load();
+      var reads = 0;
+      final repository = LegacyWenkuRepository(
+        request: (_) async => '<metadata><item sort="1">文库甲</item></metadata>',
+        publicationRequest: (_) async {
+          reads++;
+          return fixture.session
+              ? '<result><page num="1"/><item aid="71"><data name="Title" value="作品 71"/></item></result>'
+              : '4';
+        },
+      );
+      await _pump(
+        tester,
+        PublicationLibraryPage(
+          catalog: repository,
+          repository: repository,
+          state: state,
+          account: fixture.account,
+        ),
+      );
+      expect(find.text('此分类需要文库账号'), findsOneWidget);
+      await fixture.login();
+      await tester.pumpAndSettle();
+      expect(reads, greaterThanOrEqualTo(2));
+      expect(find.text('此分类需要文库账号'), findsNothing);
+      expect(find.byType(ArchiveFileCarousel), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      fixture.account.dispose();
+      state.dispose();
+    },
+  );
+  testWidgets(
+    'a rejected category request does not mislabel an authenticated account as a guest',
+    (tester) async {
+      final fixture = AccountFixture();
+      await fixture.login();
+      final state = await LibraryState.load();
+      final repository = LegacyWenkuRepository(
+        request: (_) async => '<metadata><item sort="1">文库甲</item></metadata>',
+        publicationRequest: (_) async => '4',
+      );
+      await _pump(
+        tester,
+        PublicationLibraryPage(
+          catalog: repository,
+          repository: repository,
+          state: state,
+          account: fixture.account,
+        ),
+      );
+      expect(find.text('分类暂未读取成功'), findsOneWidget);
+      expect(find.text('此分类需要文库账号'), findsNothing);
+      expect(fixture.account.authenticated, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      fixture.account.dispose();
+      state.dispose();
+    },
+  );
+  testWidgets(
     'account login clears password and cloud import preserves local progress',
     (tester) async {
       final fixture = AccountFixture();

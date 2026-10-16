@@ -9,6 +9,7 @@ import '../reader_content.dart';
 import 'cache.dart';
 import 'models.dart';
 import 'store.dart';
+import 'custom_tts.dart';
 
 abstract interface class ListeningAudioOutput {
   Stream<Duration> get positions;
@@ -111,6 +112,7 @@ class ListeningController {
     required this.audio,
     required this.store,
     required this.outputFactory,
+    this.customSpeech,
     this.preparationTimeout = const Duration(seconds: 35),
     this.decoderTimeout = const Duration(seconds: 10),
   }) {
@@ -123,6 +125,7 @@ class ListeningController {
   final NovelRepository repository;
   final SpeechAudioSource audio;
   final ListeningStore store;
+  final CustomSpeechSettings? customSpeech;
   final Duration preparationTimeout, decoderTimeout;
   final Future<ListeningAudioOutput> Function(ListeningController controller)
   outputFactory;
@@ -140,6 +143,8 @@ class ListeningController {
   Future<void>? _voiceRefresh;
   Future<void>? _disposing;
   File? _currentFile, _nextFile;
+  (SpeechSegment, ListeningSource, String?, String)? _nextIdentity;
+  final _loadingFiles = <String, int>{};
   int _generation = 0;
   int _consecutiveFailures = 0;
   int _playEpoch = 0;
@@ -151,6 +156,42 @@ class ListeningController {
   List<int> _textOffsets = const [0];
   List<Duration> _timeOffsets = const [Duration.zero];
   Object? _timelineKey;
+  (SpeechSegment, ListeningSource, String?, String) _audioIdentity(
+    SpeechSegment segment,
+    SpeechVoice voice,
+  ) => (segment, voice.source, voice.engine, voice.id);
+
+  void _releaseFile(File? file) {
+    if (file != null &&
+        file.path != _currentFile?.path &&
+        file.path != _nextFile?.path &&
+        !_loadingFiles.containsKey(file.path)) {
+      audio.unprotect(file);
+    }
+  }
+
+  void _retainLoad(File file) {
+    _loadingFiles.update(file.path, (count) => count + 1, ifAbsent: () => 1);
+    audio.protect(file);
+  }
+
+  void _releaseLoad(File? file) {
+    if (file == null) return;
+    final count = _loadingFiles[file.path] ?? 0;
+    if (count <= 1) {
+      _loadingFiles.remove(file.path);
+    } else {
+      _loadingFiles[file.path] = count - 1;
+    }
+    _releaseFile(file);
+  }
+
+  void _dropPrefetch() {
+    final file = _nextFile;
+    _nextFile = null;
+    _nextIdentity = null;
+    _releaseFile(file);
+  }
 
   void _updateTimeline() {
     final state = snapshot.value;
@@ -328,6 +369,7 @@ class ListeningController {
     final saving = saveCursor();
     _cancel.cancel();
     _cancel = SpeechCancellation();
+    _dropPrefetch();
     final generation = ++_generation;
     _desiredPlaying = autoplay;
     _consecutiveFailures = 0;
@@ -471,15 +513,26 @@ class ListeningController {
       _playEpoch++;
       _emit(segment: index, phase: ListeningPhase.preparing);
       progress.value = const ListeningProgress();
-      File? protectedFile;
+      final prefetched = _nextIdentity == _audioIdentity(segment, state.voice)
+          ? _nextFile
+          : null;
+      if (prefetched != null) {
+        _nextFile = null;
+        _nextIdentity = null;
+        _retainLoad(prefetched);
+      }
+      File? protectedFile = prefetched;
       var decodeFailed = false;
       try {
-        final file = await _prepareAudio(segment, state.voice, token);
+        final file =
+            prefetched ?? await _prepareAudio(segment, state.voice, token);
         if (!_valid(generation)) return;
+        if (protectedFile == null) {
+          _retainLoad(file);
+          protectedFile = file;
+        }
         final output = await _ensureOutput();
         if (!_valid(generation)) return;
-        audio.protect(file);
-        protectedFile = file;
         Duration? duration;
         await _command(() async {
           if (!_valid(generation)) return;
@@ -521,15 +574,12 @@ class ListeningController {
           await output.setSpeed(snapshot.value.speed);
         });
         if (!_valid(generation)) return;
-        if (_currentFile != null && _currentFile!.path != file.path) {
-          audio.unprotect(_currentFile!);
-        }
-        if (_nextFile != null && _nextFile!.path != file.path) {
-          audio.unprotect(_nextFile!);
-        }
+        final previous = _currentFile, previousNext = _nextFile;
         _currentFile = file;
-        protectedFile = null;
         _nextFile = null;
+        _nextIdentity = null;
+        _releaseFile(previous);
+        _releaseFile(previousNext);
         _consecutiveFailures = 0;
         if (duration != null) {
           _clipDurations[segment] = duration!;
@@ -560,7 +610,8 @@ class ListeningController {
         if (!_valid(generation) || error is SpeechCancelled) return;
         if (decodeFailed && protectedFile != null) {
           final broken = protectedFile;
-          audio.unprotect(broken);
+          if (_currentFile?.path == broken.path) _currentFile = null;
+          _releaseLoad(broken);
           protectedFile = null;
           await audio.invalidate(broken);
           if (!_valid(generation)) return;
@@ -598,7 +649,7 @@ class ListeningController {
         restore = Duration.zero;
         seekFraction = null;
       } finally {
-        if (protectedFile != null) audio.unprotect(protectedFile);
+        _releaseLoad(protectedFile);
       }
     }
   }
@@ -652,10 +703,12 @@ class ListeningController {
         token,
       );
       if (!_valid(generation) || index != snapshot.value.segment + 1) return;
-      if (_nextFile != null) audio.unprotect(_nextFile!);
+      final previous = _nextFile;
       _nextFile = file;
+      _nextIdentity = _audioIdentity(state.segments[index], state.voice);
       audio.protect(file);
-      await audio.trim();
+      _releaseFile(previous);
+      await audio.trimForPlayback();
     } catch (_) {
       /* Playback reports a failure only if this segment is actually requested. */
     }
@@ -766,9 +819,11 @@ class ListeningController {
     await _command(() async {
       await _output?.stop();
     });
-    if (_currentFile != null) audio.unprotect(_currentFile!);
-    if (_nextFile != null) audio.unprotect(_nextFile!);
+    final previous = _currentFile, previousNext = _nextFile;
     _currentFile = _nextFile = null;
+    _nextIdentity = null;
+    _releaseFile(previous);
+    _releaseFile(previousNext);
   }
 
   Future<void> seek(Duration position) async {
@@ -910,6 +965,7 @@ class ListeningController {
     final saving = saveCursor();
     _cancel.cancel();
     _cancel = SpeechCancellation();
+    _dropPrefetch();
     final generation = ++_generation;
     _desiredPlaying = autoplay;
     _consecutiveFailures = 0;
@@ -938,21 +994,33 @@ class ListeningController {
       throw const SpeechFailure('系统离线语音待开发，请使用自然在线音色');
     }
     await store.saveVoice(voice);
-    final state = snapshot.value;
-    if (state.voice.id == voice.id && state.voice.engine == voice.engine) {
+    if (_disposed) return;
+    if (snapshot.value.voice.id == voice.id &&
+        snapshot.value.voice.engine == voice.engine &&
+        snapshot.value.voice.source == voice.source) {
       return;
     }
     await saveCursor();
+    if (_disposed) return;
+    final state = snapshot.value;
+    // Directory/content loading has not selected an audio segment yet. Let it
+    // finish under the new voice; cancelling its generation would strand it.
+    if (!state.active || state.current == null) {
+      _emit(voice: voice);
+      return;
+    }
     _cancel.cancel();
     _cancel = SpeechCancellation();
+    _dropPrefetch();
     final generation = ++_generation;
-    _emit(voice: voice);
-    if (state.active && state.current != null) {
-      await _command(() async {
-        await _output?.suspend();
-      });
-      await _loadSegment(state.segment, generation);
-    }
+    _playEpoch++;
+    _loading = true;
+    _consecutiveFailures = 0;
+    _emit(voice: voice, phase: ListeningPhase.preparing);
+    await _command(() async {
+      if (_valid(generation)) await _output?.suspend();
+    });
+    if (_valid(generation)) await _loadSegment(state.segment, generation);
   }
 
   Future<void> setSpeed(double speed) async {

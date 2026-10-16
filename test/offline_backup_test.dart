@@ -43,6 +43,8 @@ void main() {
               ('file', 'wenku8-offline-v1'),
               ('file', 'wenku8-illustrations-v1'),
               ('sharedpref', 'wenku_account_session.xml'),
+              ('sharedpref', 'cloud_sources_secure.xml'),
+              ('sharedpref', 'custom_speech_secure.xml'),
             },
           );
         }

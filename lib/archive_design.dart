@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'archive_motion.dart';
+import 'library_reflow.dart';
 
 /// The archive vocabulary is foreground geometry, not another filter layer.
 /// Codes, rules and registration marks are static and carry no idle ticker.
@@ -10,8 +11,14 @@ abstract final class ArchiveDesign {
   static const background = Color(0xFFF4F3EF);
   static const surface = Color(0xFFFDFCFA);
   static const milk = Color(0xFFFEFDF8);
-  static const darkBackground = Color(0xFF111312);
-  static const darkSurface = Color(0xFF191C1A);
+  static const darkBackground = Color(0xFF191919);
+  static const darkSurface = Color(0xFF242424);
+  static const darkRaised = Color(0xFF2D2D2D);
+  static const darkRaisedHigh = Color(0xFF3A3A3A);
+  static const darkOutline = Color(0xFF3C3C3C);
+  static const darkInk = Color(0xFFF2F2F2);
+  static const darkMuted = Color(0xFFB7B7B7);
+  static const darkMilk = Color(0xFFF6F6F6);
   static const panelRadius = 4.0;
   static const coverRadius = 3.0;
 
@@ -19,7 +26,7 @@ abstract final class ArchiveDesign {
   static Color glassTint(Brightness brightness, {required double opacity}) =>
       brightness == Brightness.dark
       // Keep white labels legible even at the user's opaque endpoint.
-      ? Color.lerp(milk, darkSurface, opacity.clamp(0.0, 1.0))!
+      ? Color.lerp(darkMilk, darkSurface, opacity.clamp(0.0, 1.0))!
       : milk;
 
   static TextStyle codeStyle(BuildContext context, {Color? color}) => TextStyle(
@@ -46,69 +53,72 @@ class ArchiveMasthead extends StatelessWidget {
   final bool brand;
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      if (brand) ...[
-        ExcludeSemantics(
-          child: Container(
-            width: 30,
-            height: 34,
-            alignment: Alignment.center,
-            color: Theme.of(context).colorScheme.onSurface,
-            child: Text(
-              'W8',
-              textScaler: TextScaler.noScaling,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.surface,
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-                letterSpacing: -.7,
+  Widget build(BuildContext context) => LibraryReflowPart(
+    child: Row(
+      children: [
+        if (brand) ...[
+          ExcludeSemantics(
+            child: Container(
+              width: 30,
+              height: 34,
+              alignment: Alignment.center,
+              color: Theme.of(context).colorScheme.onSurface,
+              child: Text(
+                'W8',
+                textScaler: TextScaler.noScaling,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.surface,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                  letterSpacing: -.7,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          // Keep the fixed 56 px toolbar usable with large system text, without
+          // shrinking any reading content or enlarging its pinned hitbox plane.
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Keep the navigation landmark immediately readable; the
+                  // archive address below it performs the terminal assembly.
+                  Text(
+                    title,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontSize: 23,
+                      height: 1.18,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -.7,
+                      shadows: [],
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  ArchivePart(start: .16, end: .88, child: ArchiveCode(code)),
+                ],
               ),
             ),
           ),
         ),
-        const SizedBox(width: 10),
       ],
-      Expanded(
-        // Keep the fixed 56 px toolbar usable with large system text, without
-        // shrinking any reading content or enlarging its pinned hitbox plane.
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Keep the navigation landmark immediately readable; the
-                // archive address below it performs the terminal assembly.
-                Text(
-                  title,
-                  maxLines: 1,
-                  style: const TextStyle(
-                    fontSize: 23,
-                    height: 1.18,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -.7,
-                    shadows: [],
-                  ),
-                ),
-                const SizedBox(height: 3),
-                ArchivePart(start: .16, end: .88, child: ArchiveCode(code)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ],
+    ),
   );
 }
 
 class ArchiveCode extends StatelessWidget {
-  const ArchiveCode(this.text, {super.key, this.inverse = false});
+  const ArchiveCode(this.text, {super.key, this.inverse = false, this.color});
   final String text;
   final bool inverse;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +130,7 @@ class ArchiveCode extends StatelessWidget {
       textScaler: TextScaler.noScaling,
       style: ArchiveDesign.codeStyle(
         context,
-        color: inverse ? scheme.surface : null,
+        color: color ?? (inverse ? scheme.surface : null),
       ),
     );
     return ExcludeSemantics(
@@ -149,68 +159,74 @@ class ArchiveSection extends StatelessWidget {
   final String subtitle;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      LayoutBuilder(
-        builder: (context, constraints) => Row(
-          children: [
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: math.max(0, constraints.maxWidth - 17),
-              ),
-              child: ArchivePart(start: .1, end: .68, child: ArchiveCode(code)),
-            ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: const ArchivePart(
-                start: 0,
-                end: .46,
-                child: ExcludeSemantics(
-                  child: Divider(height: 1, thickness: .6),
+  Widget build(BuildContext context) => LibraryReflowPart(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) => Row(
+            children: [
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: math.max(0, constraints.maxWidth - 17),
+                ),
+                child: ArchivePart(
+                  start: .1,
+                  end: .68,
+                  child: ArchiveCode(code),
                 ),
               ),
-            ),
-            const SizedBox(width: 5),
-            ExcludeSemantics(
-              child: SizedBox(
-                width: 3,
-                height: 3,
-                child: ColoredBox(
-                  color: Theme.of(context).colorScheme.onSurface,
+              const SizedBox(width: 9),
+              Expanded(
+                child: const ArchivePart(
+                  start: 0,
+                  end: .46,
+                  child: ExcludeSemantics(
+                    child: Divider(height: 1, thickness: .6),
+                  ),
                 ),
               ),
+              const SizedBox(width: 5),
+              ExcludeSemantics(
+                child: SizedBox(
+                  width: 3,
+                  height: 3,
+                  child: ColoredBox(
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 7),
+        ArchivePart(
+          start: .16,
+          end: .82,
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              height: 1.25,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -.3,
             ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 7),
-      ArchivePart(
-        start: .16,
-        end: .82,
-        child: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 18,
-            height: 1.25,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -.3,
           ),
         ),
-      ),
-      if (subtitle.isNotEmpty) ...[
-        const SizedBox(height: 5),
-        Text(
-          subtitle,
-          style: TextStyle(
-            fontSize: 12,
-            height: 1.5,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+        if (subtitle.isNotEmpty) ...[
+          const SizedBox(height: 5),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.5,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
-        ),
+        ],
       ],
-    ],
+    ),
   );
 }
 

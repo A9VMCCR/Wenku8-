@@ -11,12 +11,16 @@ import 'app_typography.dart';
 import 'catalog.dart';
 import 'legacy_wenku_repository.dart';
 import 'library_state.dart';
+import 'local_books.dart';
+import 'local_series_actions.dart';
 import 'listening/audio_output.dart';
 import 'listening/cache.dart';
 import 'listening/controller.dart';
 import 'listening/store.dart';
+import 'listening/custom_tts.dart';
 import 'listening/widgets.dart';
 import 'native_effects.dart';
+import 'network_status.dart';
 import 'offline_cache.dart';
 import 'offline_repository.dart';
 import 'pages.dart';
@@ -34,6 +38,8 @@ Future<void> main() async {
   // Do not hold the first frame while Android is applying window insets.
   unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
   final state = await LibraryState.load();
+  final network = NetworkStatus();
+  await network.start();
   if (state.performance.needsRuntimeEffects) await NativeEffects.prepare();
   final brightness = switch (state.theme) {
     ThemeMode.light => Brightness.light,
@@ -47,15 +53,28 @@ Future<void> main() async {
       ? OfflineNovelRepository(
           remote: remote,
           cache: await OfflineCacheStore.forApp(),
+          local: await LocalBookStore.forApp(),
+          network: network,
         )
       : const DemoNovelRepository();
+  if (repository is OfflineNovelRepository && repository.local != null) {
+    await reconcileLocalSeries(repository.local!, state);
+  }
   final features = defaultTargetPlatform == TargetPlatform.android
       ? WenkuFeatures(account: WenkuAccount(), publications: remote)
       : null;
+  final customSpeech = defaultTargetPlatform == TargetPlatform.android
+      ? CustomSpeechSettings()
+      : null;
+  await customSpeech?.load();
   final listening = defaultTargetPlatform == TargetPlatform.android
       ? ListeningController(
           repository: repository,
-          audio: await SpeechAudioCache.forApp(),
+          audio: await SpeechAudioCache.forApp(
+            customSpeech: customSpeech,
+            network: network,
+          ),
+          customSpeech: customSpeech,
           store: ListeningStore(await SharedPreferences.getInstance()),
           outputFactory: createListeningOutput,
         )
@@ -66,6 +85,7 @@ Future<void> main() async {
       repository: repository,
       features: features,
       listening: listening,
+      network: network,
       updates: defaultTargetPlatform == TargetPlatform.android
           ? AppUpdates(preferences: await SharedPreferences.getInstance())
           : null,
@@ -87,6 +107,7 @@ class NovelApp extends StatefulWidget {
     this.features,
     this.listening,
     this.updates,
+    this.network,
   });
 
   final LibraryState state;
@@ -94,6 +115,7 @@ class NovelApp extends StatefulWidget {
   final WenkuFeatures? features;
   final ListeningController? listening;
   final AppUpdates? updates;
+  final NetworkStatus? network;
   @override
   State<NovelApp> createState() => _NovelAppState();
 }
@@ -175,7 +197,13 @@ class _NovelAppState extends State<NovelApp> {
               if (MediaQuery.sizeOf(context).isEmpty) {
                 return const SizedBox.shrink();
               }
-              return HomeShell(state: state, repository: repository);
+              return RepaintBoundary(
+                child: HomeShell(
+                  state: state,
+                  repository: repository,
+                  network: widget.network,
+                ),
+              );
             },
           ),
         );
