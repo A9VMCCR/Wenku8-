@@ -223,6 +223,57 @@ void main() {
     },
   );
 
+  test(
+    'encoded build tags retain all APKs and reject mismatched URL segments',
+    () {
+      const tag = 'v0.3.0+29';
+      const name = 'wenku8-0.3.0-arm64-v8a.apk';
+      final encoded = _json(tag: tag);
+      for (final asset
+          in (encoded['assets'] as List).cast<Map<String, dynamic>>()) {
+        asset['browser_download_url'] =
+            (asset['browser_download_url'] as String).replaceFirst(
+              '/$tag/',
+              '/${Uri.encodeComponent(tag)}/',
+            );
+      }
+      final release = AppRelease.fromGithub(encoded, _repo)!;
+      expect(release.assets, hasLength(3));
+      for (final abi in ['armeabi-v7a', 'arm64-v8a', 'x86_64']) {
+        expect(release.assetFor([abi])!.name, 'wenku8-0.3.0-$abi.apk');
+      }
+      expect(
+        release.isNewerThan(
+          const InstalledApp(version: '0.3.0', build: 27, abis: ['arm64-v8a']),
+        ),
+        true,
+      );
+      for (final path in [
+        '/other/repo/releases/download/v0.3.0%2B29/$name',
+        '/$_repo/releases/download/v0.3.0%2B28/$name',
+        '/$_repo/releases/download/v0.3.0%252B29/$name',
+        '/example%2Freader/releases/download/v0.3.0%2B29/$name',
+        '/$_repo/releases/download/v0.3.0%2B29/extra/$name',
+        '/$_repo/releases/download/v0.3.0%2B29/wenku8-other-arm64-v8a.apk',
+      ]) {
+        final rejected = AppRelease.fromGithub(
+          _json(
+            tag: tag,
+            assets: [
+              {
+                'name': name,
+                'size': 16,
+                'browser_download_url': 'https://github.com$path',
+              },
+            ],
+          ),
+          _repo,
+        )!;
+        expect(rejected.assets, isEmpty, reason: path);
+      }
+    },
+  );
+
   late Directory temp;
   late _Source source;
   late _Platform platform;

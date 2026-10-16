@@ -12,9 +12,10 @@ const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: 'mikufoxxx/Wenku8_Flutter',
 );
-const currentAppVersion = '0.3.0';
-const currentAppBuild = 29;
+const currentAppVersion = '0.3.1';
+const currentAppBuild = 30;
 const currentReleaseNotes = '''
+修复检查到新版本却无法获取安装包的问题，兼容旧版客户端升级。
 阅读器支持上下滚动、横排翻页与竖排翻页，大屏自动对页阅读。
 新增阅读配色、段落排版、分区点按、音量键翻页与自动滚动，字号和行距支持透明预览。
 翻页逐段／逐列进入；横排对页先左后右，竖排由右向左。切换排版及折叠／展开保留阅读位置。
@@ -126,8 +127,13 @@ class AppRelease {
           url.host != 'github.com' ||
           url.userInfo.isNotEmpty ||
           url.port != 443 ||
-          !url.path.startsWith('/$repository/releases/download/$tag/') ||
-          url.pathSegments.last != name ||
+          !listEquals(url.pathSegments, [
+            ...repository.split('/'),
+            'releases',
+            'download',
+            tag,
+            name,
+          ]) ||
           size is! int ||
           size <= 0 ||
           size > 300 * 1024 * 1024) {

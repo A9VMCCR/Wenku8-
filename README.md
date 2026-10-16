@@ -50,15 +50,15 @@ Wenku8 Flutter 是面向 Android 手机与平板的轻小说阅读客户端，�
 
 ## 下载与更新
 
-当前正式版为 **[0.3.0 · build 29](https://github.com/mikufoxxx/Wenku8_Flutter/releases/tag/v0.3.0%2B29)**。本版重点升级阅读器、本地多选导入与分卷合并，完善平板布局、液态玻璃控件和听书交互。[查看完整更新说明](CHANGELOG.md)。
+当前正式版为 **[0.3.1 · build 30](https://github.com/mikufoxxx/Wenku8_Flutter/releases/tag/v0.3.1)**。本版重点升级阅读器、本地多选导入与分卷合并，完善平板布局、液态玻璃控件和听书交互。[查看完整更新说明](CHANGELOG.md)。
 
 常见 Android 手机与平板请选择 **ARM64**：
 
 | 设备 | 安装包 |
 | --- | --- |
-| 常见手机、平板（推荐） | [ARM64 · arm64-v8a](https://github.com/mikufoxxx/Wenku8_Flutter/releases/download/v0.3.0%2B29/wenku8-0.3.0-arm64-v8a.apk) |
-| 旧款 32 位 ARM 设备 | [ARMv7 · armeabi-v7a](https://github.com/mikufoxxx/Wenku8_Flutter/releases/download/v0.3.0%2B29/wenku8-0.3.0-armeabi-v7a.apk) |
-| x86_64 设备或模拟器 | [x86_64](https://github.com/mikufoxxx/Wenku8_Flutter/releases/download/v0.3.0%2B29/wenku8-0.3.0-x86_64.apk) |
+| 常见手机、平板（推荐） | [ARM64 · arm64-v8a](https://github.com/mikufoxxx/Wenku8_Flutter/releases/download/v0.3.1/wenku8-0.3.1-arm64-v8a.apk) |
+| 旧款 32 位 ARM 设备 | [ARMv7 · armeabi-v7a](https://github.com/mikufoxxx/Wenku8_Flutter/releases/download/v0.3.1/wenku8-0.3.1-armeabi-v7a.apk) |
+| x86_64 设备或模拟器 | [x86_64](https://github.com/mikufoxxx/Wenku8_Flutter/releases/download/v0.3.1/wenku8-0.3.1-x86_64.apk) |
 
 已安装旧版时，可在 **设置 → 关于轻小说文库 → 检查更新** 获取新版；开启自动检查后，应用会在检查到新版本时提示。正式版沿用同一签名，可直接覆盖安装。
 
