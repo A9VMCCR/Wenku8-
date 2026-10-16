@@ -65,8 +65,20 @@ void main() {
       repository.content.complete('竖排正文等待排版。\n\n第二段正文。');
       await tester.pumpAndSettle();
       expect(find.byType(ReaderPagedView), findsOneWidget);
+      final pages = tester.widget<ReaderPagedView>(
+        find.byType(ReaderPagedView),
+      );
+      // Pagination yields by wall-clock budget. A busy CI runner may leave
+      // a zero-delay continuation even after all scheduled frames settle.
+      for (var frame = 0; frame < 60 && !pages.controller.ready; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(pages.controller.ready, isTrue);
+      await tester.pumpAndSettle();
       expect(find.byType(ReaderPageSkeleton), findsNothing);
       expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
     },
   );
 
