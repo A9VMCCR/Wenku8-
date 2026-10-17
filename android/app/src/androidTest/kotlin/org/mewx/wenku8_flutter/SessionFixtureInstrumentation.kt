@@ -43,12 +43,17 @@ class SessionFixtureInstrumentation : Instrumentation() {
             check(!first.contains(fixture) && first.contains(":")); checks++
             store.write(fixture)
             check(preferences.getString("sealed", null) != first); checks++
+            val fullJar = ApiSessionCookies.fromStored(fixture)
+                .merge(listOf("jieqiUserInfo=fixture-reader; Path=/; HttpOnly"))
+            store.write(fullJar.stored())
+            check(ApiSessionCookies.fromStored(AccountSessionStore(context).read()!!) == fullJar); checks++
+            check(!preferences.getString("sealed", null)!!.contains("fixture-reader")); checks++
             check(preferences.edit().putString("sealed", "corrupt").commit())
             check(store.read() == null && !preferences.contains("sealed")); checks++
             store.write(fixture)
             store.write(null)
             check(AccountSessionStore(context).read() == null); checks++
-            results.putString("stream", "SESSION_FIXTURE_VERIFIED=empty,restore,sealed,nonce,corruption,logout\n")
+            results.putString("stream", "SESSION_FIXTURE_VERIFIED=empty,restore,sealed,nonce,full-cookie-jar,corruption,logout\n")
         } catch (failure: Throwable) {
             code = Activity.RESULT_CANCELED
             results.putString("stream", "SESSION_FIXTURE_FAILURE=${failure.javaClass.simpleName}\n")

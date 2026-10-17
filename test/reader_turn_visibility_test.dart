@@ -27,6 +27,7 @@ void main({
           addTearDown(tester.view.resetPhysicalSize);
           addTearDown(tester.view.resetDevicePixelRatio);
           const style = TextStyle(
+            fontFamily: 'Roboto',
             fontSize: 19,
             height: 1.72,
             color: Color(0xff36383b),

@@ -187,6 +187,11 @@ void main({FeatureCapture? capture}) {
       expect(find.text('分类暂未读取成功'), findsOneWidget);
       expect(find.text('此分类需要文库账号'), findsNothing);
       expect(fixture.account.authenticated, isTrue);
+      expect(find.text('检查账号并重试'), findsNothing);
+      await tester.tap(find.text('重新加载'));
+      await tester.pumpAndSettle();
+      expect(find.byType(WenkuAccountPage), findsNothing);
+      expect(find.text('分类暂未读取成功'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
       fixture.account.dispose();
       state.dispose();

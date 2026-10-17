@@ -302,16 +302,37 @@ class LegacyWenkuRepository extends NovelRepository
     String query, {
     int page = 1,
     bool refresh = false,
+  }) => _searchPage(query, page: page, refresh: refresh);
+
+  @override
+  Future<NovelPage> authorPage(
+    String author, {
+    int page = 1,
+    bool refresh = false,
+  }) => _searchPage(author, page: page, refresh: refresh, authorOnly: true);
+
+  Future<NovelPage> _searchPage(
+    String query, {
+    int page = 1,
+    bool refresh = false,
+    bool authorOnly = false,
   }) async {
     if (page < 1) throw ArgumentError.value(page, 'page');
     final term = query.trim();
-    if (term.isEmpty) return browse(page: page, refresh: refresh);
-    if (refresh && page == 1) {
-      _searchIds.remove(term);
-      _searchVersions[term] = (_searchVersions[term] ?? 0) + 1;
+    if (term.isEmpty) {
+      return authorOnly
+          ? NovelPage.fromItems(const [], page)
+          : browse(page: page, refresh: refresh);
     }
-    final version = _searchVersions[term] ?? 0;
-    final ids = _searchIds[term] ?? await _matchingIds(term, version);
+    final cacheKey = '${authorOnly ? 'author' : 'all'}:$term';
+    if (refresh && page == 1) {
+      _searchIds.remove(cacheKey);
+      _searchVersions[cacheKey] = (_searchVersions[cacheKey] ?? 0) + 1;
+    }
+    final version = _searchVersions[cacheKey] ?? 0;
+    final ids =
+        _searchIds[cacheKey] ??
+        await _matchingIds(term, version, cacheKey, authorOnly);
     final matches = ids.skip((page - 1) * 20).take(20).toList();
     final found = <Novel>[];
     for (var start = 0; start < matches.length; start += 4) {
@@ -327,11 +348,16 @@ class LegacyWenkuRepository extends NovelRepository
     );
   }
 
-  Future<List<int>> _matchingIds(String term, int version) async {
-    final key = (term, version);
+  Future<List<int>> _matchingIds(
+    String term,
+    int version,
+    String cacheKey,
+    bool authorOnly,
+  ) async {
+    final key = (cacheKey, version);
     final pending = _searchRequests[key];
     if (pending != null) return pending;
-    final request = _loadMatchingIds(term, version);
+    final request = _loadMatchingIds(term, version, cacheKey, authorOnly);
     _searchRequests[key] = request;
     try {
       return await request;
@@ -340,10 +366,16 @@ class LegacyWenkuRepository extends NovelRepository
     }
   }
 
-  Future<List<int>> _loadMatchingIds(String term, int version) async {
+  Future<List<int>> _loadMatchingIds(
+    String term,
+    int version,
+    String cacheKey,
+    bool authorOnly,
+  ) async {
     final encoded = Uri.encodeQueryComponent(term);
     final responses = await Future.wait([
-      _request('action=search&searchtype=articlename&searchkey=$encoded&t=0'),
+      if (!authorOnly)
+        _request('action=search&searchtype=articlename&searchkey=$encoded&t=0'),
       _request('action=search&searchtype=author&searchkey=$encoded&t=0'),
     ]);
     final ids = <int>{};
@@ -355,7 +387,9 @@ class LegacyWenkuRepository extends NovelRepository
       );
     }
     final result = List<int>.unmodifiable(ids);
-    if ((_searchVersions[term] ?? 0) == version) _searchIds[term] = result;
+    if ((_searchVersions[cacheKey] ?? 0) == version) {
+      _searchIds[cacheKey] = result;
+    }
     return result;
   }
 

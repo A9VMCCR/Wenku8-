@@ -231,6 +231,30 @@ class WenkuAccount extends ChangeNotifier {
   Future<void> refreshProfile() => _run('正在更新账号', () async {
     profile = WenkuProfile.parse(await _send('action=userinfo'));
   });
+
+  /// A classification refusal is not evidence that a working account expired.
+  /// Let userinfo validate/refresh the native jar, then retry this read once.
+  /// Passwords and cookie values never need to leave their existing owners.
+  Future<String> readPublication(String action) async {
+    await initialize();
+    if (!authenticated) throw const WenkuApiError(4);
+    final identity = _identity;
+    Future<String> read() async {
+      final response = await _request(action);
+      if (_disposed || identity != _identity) {
+        throw StateError('Account changed');
+      }
+      return response;
+    }
+
+    final first = await read();
+    if (wenkuResponseCode(first) != 4) return first;
+    // Only an explicit userinfo expiry can invalidate the stored account.
+    profile = WenkuProfile.parse(await _send('action=userinfo'));
+    _notify();
+    return read();
+  }
+
   Future<void> signIn() => _run('正在签到', () async {
     final reply = await _send('action=block&do=sign');
     requireWenkuSuccess(reply, accepted: const {1, 9});

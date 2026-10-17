@@ -6,6 +6,7 @@ import 'package:tategaki/tategaki.dart'
     show CharacterClassifier, RotationRules, KinsokuProcessor;
 import 'reader_content.dart';
 import 'reader_preferences.dart';
+import 'local_image_layout.dart';
 
 class ReaderTextAnchor {
   const ReaderTextAnchor(this.paragraph, this.offset);
@@ -128,6 +129,7 @@ Future<ReaderPagination?> paginateReader({
   required bool Function() current,
   ReaderTextAnchor? pageBreak,
   ReaderTextLayoutCache? cache,
+  Map<String, Size> localImageSizes = const {},
 }) async {
   final pages = <ReaderLeaf>[];
   var fragments = <ReaderPageFragment>[];
@@ -177,7 +179,59 @@ Future<ReaderPagination?> paginateReader({
     for (var index = 0; index < content.paragraphs.length; index++) {
       if (!current()) return null;
       final text = content.paragraphs[index];
-      if (readerIllustrationUrl(text) != null || text.trim() == '[插图]') {
+      final imageUrl = readerIllustrationUrl(text);
+      if (imageUrl?.startsWith('wenku-local:') == true &&
+          localImageSizes.containsKey(imageUrl)) {
+        final natural = localImageSizes[imageUrl]!;
+        final imageSize = LocalImageLayout.fromParagraph(
+          text,
+        ).resolve(natural: natural, available: size, fontSize: font);
+        if (!vertical) {
+          if (y + imageSize.height > size.height + .1 && fragments.isNotEmpty) {
+            flush();
+          }
+          fragments.add(
+            ReaderPageFragment(
+              paragraph: index,
+              start: 0,
+              end: text.length,
+              text: text,
+              rect: Rect.fromLTWH(
+                (size.width - imageSize.width) / 2,
+                y,
+                imageSize.width,
+                imageSize.height,
+              ),
+              image: true,
+            ),
+          );
+          y += imageSize.height + preferences.paragraphGap;
+        } else {
+          final width = math.max(
+            math.min(columnWidth, size.width),
+            imageSize.width,
+          );
+          if (right < width - .1 && fragments.isNotEmpty) flush();
+          fragments.add(
+            ReaderPageFragment(
+              paragraph: index,
+              start: 0,
+              end: text.length,
+              text: text,
+              rect: Rect.fromLTWH(
+                right - width + (width - imageSize.width) / 2,
+                0,
+                imageSize.width,
+                imageSize.height,
+              ),
+              image: true,
+            ),
+          );
+          right -= width + preferences.paragraphGap;
+        }
+        continue;
+      }
+      if (imageUrl != null || text.trim() == '[插图]') {
         flush();
         fragments.add(
           ReaderPageFragment(

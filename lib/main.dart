@@ -48,7 +48,12 @@ Future<void> main() async {
       WidgetsBinding.instance.platformDispatcher.platformBrightness,
   };
   SystemChrome.setSystemUIOverlayStyle(novelSystemUiStyle(brightness));
-  final remote = LegacyWenkuRepository();
+  final account = defaultTargetPlatform == TargetPlatform.android
+      ? WenkuAccount()
+      : null;
+  final remote = LegacyWenkuRepository(
+    publicationRequest: account?.readPublication,
+  );
   final repository = defaultTargetPlatform == TargetPlatform.android
       ? OfflineNovelRepository(
           remote: remote,
@@ -60,8 +65,8 @@ Future<void> main() async {
   if (repository is OfflineNovelRepository && repository.local != null) {
     await reconcileLocalSeries(repository.local!, state);
   }
-  final features = defaultTargetPlatform == TargetPlatform.android
-      ? WenkuFeatures(account: WenkuAccount(), publications: remote)
+  final features = account != null
+      ? WenkuFeatures(account: account, publications: remote)
       : null;
   final customSpeech = defaultTargetPlatform == TargetPlatform.android
       ? CustomSpeechSettings()

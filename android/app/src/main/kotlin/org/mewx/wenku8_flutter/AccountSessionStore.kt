@@ -30,14 +30,14 @@ internal class AccountSessionStore(context: Context) {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)))
             cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)).toString(Charsets.UTF_8)
-                .takeIf { Regex("[A-Za-z0-9,-]{8,256}").matches(it) }
+                .also { ApiSessionCookies.fromStored(it) }
         }
     } catch (_: Exception) {
         preferences.edit().clear().commit()
         null
     }
     fun write(cookie: String?) {
-        require(cookie == null || Regex("[A-Za-z0-9,-]{8,256}").matches(cookie))
+        cookie?.let { ApiSessionCookies.fromStored(it) }
         val editor = preferences.edit()
         if (cookie == null) editor.clear() else {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")

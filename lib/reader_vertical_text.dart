@@ -262,7 +262,20 @@ class RenderReaderVerticalText extends RenderBox
   int get debugTurnColumnCount => _turnColumns.length;
   @visibleForTesting
   double debugTurnColumnProgress(int index) =>
-      _turn?.progressFor(index, _turnColumns.length) ?? 1;
+      _turn?.progressFor(
+        index,
+        _turnColumns.length,
+        bounds: _turnBounds[index],
+      ) ??
+      1;
+  @visibleForTesting
+  Offset debugTurnColumnDisplacement(int index) =>
+      _turn?.displacementFor(
+        index,
+        _turnColumns.length,
+        bounds: _turnBounds[index],
+      ) ??
+      Offset.zero;
   Map<(int, int, int), ReaderVerticalGlyph> _oldGlyphs = const {};
   List<_ReaderReflowColumn> _columns = const [];
   static (int, int, int) _identity(ReaderVerticalGlyph glyph) =>
@@ -468,8 +481,12 @@ class RenderReaderVerticalText extends RenderBox
         final column = _turnColumns[index];
         final opacity = _turn!.opacityFor(index, _turnColumns.length);
         if (opacity == 0) continue;
-        final displacement = _turn!.displacementFor(index, _turnColumns.length);
         final bounds = _turnBounds[index];
+        final displacement = _turn!.displacementFor(
+          index,
+          _turnColumns.length,
+          bounds: bounds,
+        );
         if (opacity < 1) {
           canvas.saveLayer(
             bounds.shift(displacement).inflate(3),

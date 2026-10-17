@@ -14,15 +14,52 @@ class ReaderTurnScope extends InheritedWidget {
     this.enabled = true,
     this.slot = 0,
     this.slots = 1,
+    this.relay = false,
+    this.vertical = false,
+    this.leafSize = Size.zero,
   });
 
   final Animation<double> animation;
   final double direction;
   final bool outgoing, enabled;
   final int slot, slots;
+  final bool relay, vertical;
+  final Size leafSize;
 
-  double progressFor(int index, int count) {
+  double relayProgress(double rank) {
+    final start = (slot + .02 + .18 * rank.clamp(0.0, 1.0)) / slots;
+    return Interval(
+      start,
+      (start + .80 / slots).clamp(0.0, 1.0),
+      curve: Curves.easeInOutSine,
+    ).transform(animation.value.clamp(0.0, 1.0));
+  }
+
+  double progressFor(int index, int count, {Rect? bounds}) {
     if (!enabled) return 1;
+    if (relay) {
+      final order = count < 2 ? 0.0 : index / (count - 1);
+      final double rank;
+      if (vertical) {
+        // Columns travel horizontally too. Treat both leaves as one continuous
+        // strip: outgoing columns lead, incoming columns follow. The wave runs
+        // right-to-left going forward and reverses with a backward swipe, so
+        // moving columns never catch stationary neighbours or the other leaf.
+        final column = bounds == null
+            ? (direction < 0 ? order : 1 - order)
+            : direction < 0
+            ? 1 - (outgoing ? bounds.right : bounds.left) / leafSize.width
+            : (outgoing ? bounds.left : bounds.right) / leafSize.width;
+        rank = (outgoing ? 0 : .5) + .5 * column.clamp(0.0, 1.0);
+      } else {
+        // At every shared row the old paragraph leads the new one. Use spatial
+        // bounds, not paragraph counts, to keep unequal paragraphs separate.
+        rank = bounds == null
+            ? order
+            : (outgoing ? bounds.top : bounds.bottom) / leafSize.height;
+      }
+      return relayProgress(rank);
+    }
     if (outgoing) {
       return const Interval(
         0,
@@ -42,15 +79,24 @@ class ReaderTurnScope extends InheritedWidget {
     ).transform(animation.value.clamp(0.0, 1.0));
   }
 
-  Offset displacementFor(int index, int count) {
+  Offset displacementFor(int index, int count, {Rect? bounds}) {
     if (!enabled) return Offset.zero;
-    final t = progressFor(index, count);
+    final t = progressFor(index, count, bounds: bounds);
+    if (relay) {
+      // Translate complete paragraphs/columns, rather than wiping a diagonal
+      // through stationary glyphs. Both layers keep their original opacity.
+      final distance = outgoing ? -t : 1 - t;
+      return Offset(leafSize.width * direction * distance, 0);
+    }
     return outgoing
         ? Offset(-16 * direction, -4) * t
         : Offset(36 * direction, 8) * (1 - t);
   }
 
   double opacityFor(int index, int count) {
+    // Page turns move intact ink, not two fading text planes.
+    // Initial loading and mode changes keep their existing arrival behavior.
+    if (relay) return 1;
     final t = progressFor(index, count);
     return outgoing
         ? 1 - t
@@ -90,6 +136,9 @@ class ReaderTurnScope extends InheritedWidget {
       direction != oldWidget.direction ||
       outgoing != oldWidget.outgoing ||
       enabled != oldWidget.enabled ||
+      relay != oldWidget.relay ||
+      vertical != oldWidget.vertical ||
+      leafSize != oldWidget.leafSize ||
       slot != oldWidget.slot ||
       slots != oldWidget.slots;
 }
@@ -101,9 +150,11 @@ class ReaderTurnPart extends StatelessWidget {
     super.key,
     this.index = 0,
     this.count = 1,
+    this.bounds,
     required this.child,
   });
   final int index, count;
+  final Rect? bounds;
   final Widget child;
 
   @override
@@ -113,6 +164,7 @@ class ReaderTurnPart extends StatelessWidget {
       scope: scope ?? ReaderTurnScope.idle,
       index: index,
       count: count,
+      bounds: bounds,
       child: child,
     );
   }
@@ -229,29 +281,33 @@ class _TurnPart extends SingleChildRenderObjectWidget {
     required this.scope,
     required this.index,
     required this.count,
+    this.bounds,
     required Widget child,
   }) : super(child: RepaintBoundary(child: child));
   final ReaderTurnScope scope;
   final int index, count;
+  final Rect? bounds;
 
   @override
   ReaderTurnPartRender createRenderObject(BuildContext context) =>
-      ReaderTurnPartRender(scope, index, count);
+      ReaderTurnPartRender(scope, index, count, bounds);
 
   @override
   void updateRenderObject(BuildContext context, ReaderTurnPartRender render) =>
-      render.update(scope, index, count);
+      render.update(scope, index, count, bounds);
 }
 
 class ReaderTurnPartRender extends RenderProxyBox {
-  ReaderTurnPartRender(this.scope, this.index, this.count);
+  ReaderTurnPartRender(this.scope, this.index, this.count, this.bounds);
   ReaderTurnScope scope;
   int index, count;
+  Rect? bounds;
   final _translation = LayerHandle<TransformLayer>();
   final _opacity = LayerHandle<OpacityLayer>();
   int debugLayoutCount = 0;
-  double get progress => scope.progressFor(index, count);
-  Offset get displacement => scope.displacementFor(index, count);
+  double get progress => scope.progressFor(index, count, bounds: bounds);
+  Offset get displacement =>
+      scope.displacementFor(index, count, bounds: bounds);
   int get alpha => (scope.opacityFor(index, count) * 255).round();
   @override
   bool get alwaysNeedsCompositing => child != null;
@@ -263,7 +319,12 @@ class ReaderTurnPartRender extends RenderProxyBox {
     markNeedsSemanticsUpdate();
   }
 
-  void update(ReaderTurnScope next, int nextIndex, int nextCount) {
+  void update(
+    ReaderTurnScope next,
+    int nextIndex,
+    int nextCount,
+    Rect? nextBounds,
+  ) {
     if (attached && next.animation != scope.animation) {
       scope.animation.removeListener(_tick);
       next.animation.addListener(_tick);
@@ -271,6 +332,7 @@ class ReaderTurnPartRender extends RenderProxyBox {
     scope = next;
     index = nextIndex;
     count = nextCount;
+    bounds = nextBounds;
     _tick();
   }
 
@@ -296,8 +358,9 @@ class ReaderTurnPartRender extends RenderProxyBox {
   }
 
   @override
-  Rect get paintBounds =>
-      scope.enabled ? (Offset.zero & size).inflate(40) : Offset.zero & size;
+  Rect get paintBounds => (Offset.zero & size).expandToInclude(
+    (Offset.zero & size).shift(displacement),
+  );
 
   @override
   void paint(PaintingContext context, Offset offset) {
@@ -313,6 +376,11 @@ class ReaderTurnPartRender extends RenderProxyBox {
       offset,
       _transform,
       (context, offset) {
+        if (alpha == 255) {
+          _opacity.layer = null;
+          super.paint(context, offset);
+          return;
+        }
         _opacity.layer = context.pushOpacity(
           offset,
           alpha,

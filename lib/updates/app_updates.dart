@@ -12,12 +12,13 @@ const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: 'mikufoxxx/Wenku8_Flutter',
 );
-const currentAppVersion = '0.3.2';
-const currentAppBuild = 31;
+const currentAppVersion = '0.3.3';
+const currentAppBuild = 35;
 const currentReleaseNotes = '''
-新增液态玻璃更新弹窗，显示新版本与更新说明，支持「立即更新／稍后提醒」。
-同一版本 24 小时内不重复提醒；已有菜单、抽屉、返回手势或正在输入时延后提示，后台不弹出。
-点击「立即更新」进入下载页并开始匹配架构的下载，安装仍由你确认。
+优化翻页衔接，前后页正文逐段接力；竖排改为左右逐列移动，减少闪烁与文字重叠。
+本地 EPUB 图片遵循书内尺寸，小注释图标不再放大或独占整页，已有书籍无需重导。
+点击详情页作者可查看其作品，支持继续打开图书与加载更多。
+完善登录会话保存与分类请求重试，避免分类请求失败误清除有效登录。
 ''';
 
 class ReleaseVersion implements Comparable<ReleaseVersion> {

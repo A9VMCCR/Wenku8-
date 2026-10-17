@@ -22,12 +22,12 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
     private val accounts = Executors.newSingleThreadExecutor()
     private val imageIo = Executors.newSingleThreadExecutor()
     private val store = AccountSessionStore(context)
-    @Volatile private var sessionCookie: String? = null
+    @Volatile private var sessionCookie: ApiSessionCookies? = null
     @Volatile private var sessionLoaded = false
     @Volatile private var sessionRevision = 0
     private val images = File(context.filesDir, "wenku8-illustrations-v1")
     private val imageLock = Any()
-    private data class Response(val bytes: ByteArray, val cookie: String?)
+    private data class Response(val bytes: ByteArray, val cookies: List<String>)
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         if (call.method !in setOf("request", "cover", "requestBytes", "accountRequest", "login", "hasSession", "clearSession", "illustration", "clearIllustrations", "encodeReview")) {
@@ -39,11 +39,11 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
         (if (account) accounts else if (call.method in setOf("illustration", "clearIllustrations")) imageIo else io).execute {
             try {
                 if (account && !sessionLoaded) {
-                    sessionCookie = store.read()
+                    sessionCookie = store.read()?.let { ApiSessionCookies.fromStored(it) }
                     sessionLoaded = true
                 }
                 val response: Any? = when (call.method) {
-                    "hasSession" -> sessionCookie != null
+                    "hasSession" -> sessionCookie?.hasSession == true
                     "clearSession" -> {
                         store.write(null)
                         sessionCookie = null
@@ -76,8 +76,9 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
                             val reply = request(action, null)
                             val text = reply.bytes.toString(Charsets.UTF_8)
                             if (text.trim() == "1") {
-                                val cookie = reply.cookie ?: throw IllegalStateException("Missing session")
-                                store.write(cookie)
+                                val cookie = ApiSessionCookies.empty().merge(reply.cookies)
+                                check(cookie.hasSession) { "Missing session" }
+                                store.write(cookie.stored())
                                 sessionCookie = cookie
                                 sessionRevision++
                             }
@@ -88,9 +89,10 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
                             if (cookie == null) "4" else {
                                 val reply = request(action, cookie)
                                 val text = reply.bytes.toString(Charsets.UTF_8)
-                                if (reply.cookie != null && reply.cookie != cookie && text.trim() != "4") {
-                                    store.write(reply.cookie)
-                                    sessionCookie = reply.cookie
+                                val next = cookie.merge(reply.cookies)
+                                if (next != cookie && text.trim() != "4") {
+                                    store.write(if (next.hasSession) next.stored() else null)
+                                    sessionCookie = next.takeIf { it.hasSession }
                                 }
                                 text
                             }
@@ -110,7 +112,7 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
         }
     }
 
-    private fun request(action: String, cookie: String?): Response {
+    private fun request(action: String, cookie: ApiSessionCookies?): Response {
         val version = TokenManager.getMagicVersionCpp("1.30")
         val encoded = Base64.encodeToString(action.toByteArray(Charsets.UTF_8), Base64.DEFAULT).trim()
         val body = "&appver=$version&request=$encoded&timetoken=${System.currentTimeMillis()}"
@@ -118,7 +120,7 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
             requestMethod = "POST"
             setRequestProperty("Accept-Encoding", "gzip")
             setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-            cookie?.let { setRequestProperty("Cookie", "PHPSESSID=$it") }
+            cookie?.let { setRequestProperty("Cookie", it.header()) }
             connectTimeout = 5000
             readTimeout = 10000
             doOutput = true
@@ -127,15 +129,13 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
         try {
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             check(connection.responseCode in 200..299)
-            val session = connection.headerFields.entries
+            val cookies = connection.headerFields.entries
                 .filter { it.key?.equals("Set-Cookie", ignoreCase = true) == true }
-                .flatMap { it.value }.firstNotNullOfOrNull {
-                    Regex("(?:^|[;,]\\s*)PHPSESSID=([A-Za-z0-9,-]{8,256})").find(it)?.groupValues?.get(1)
-                }
+                .flatMap { it.value }
             val stream = if (connection.contentEncoding?.contains("gzip", ignoreCase = true) == true) {
                 GZIPInputStream(BufferedInputStream(connection.inputStream))
             } else connection.inputStream
-            return Response(stream.use { readBounded(it, 8 * 1024 * 1024) }, session)
+            return Response(stream.use { readBounded(it, 8 * 1024 * 1024) }, cookies)
         } finally {
             connection.disconnect()
         }

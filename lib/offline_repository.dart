@@ -144,6 +144,28 @@ class OfflineNovelRepository extends FrameChangeNotifier
     bool refresh = false,
   }) => remote.searchPage(query, page: page, refresh: refresh);
 
+  @override
+  Future<NovelPage> authorPage(
+    String author, {
+    int page = 1,
+    bool refresh = false,
+  }) async {
+    if (!offline) {
+      return remote.authorPage(author, page: page, refresh: refresh);
+    }
+    final books = <int, Novel>{
+      for (final entry in cache.books)
+        if (entry.cachedCount > 0) entry.novel.id: entry.novel,
+      for (final book in local?.books ?? const <Novel>[]) book.id: book,
+    };
+    return NovelPage.fromItems(
+      books.values
+          .where((book) => sameNovelAuthor(book.author, author))
+          .toList(),
+      page,
+    );
+  }
+
   Future<Novel?> cachedBook(int id) async {
     if (isLocalBook(id)) return local?.book(id);
     final book = cache.book(id)?.novel ?? await cache.readBook(id);

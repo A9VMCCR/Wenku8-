@@ -16,6 +16,8 @@ import 'book_identity.dart';
 import 'book_import_limits.dart';
 import 'local_book_media.dart';
 import 'local_book_series.dart';
+import 'epub_image_styles.dart';
+import 'reader_content.dart' show readerIllustrationUrl;
 
 export 'book_identity.dart' show localBookIdStart, isLocalBook;
 
@@ -414,6 +416,14 @@ ImportedBook _epub(
       continue;
     }
     final document = html.parse(read(file.path));
+    final imageLayouts = epubImageStyles(document, (href) {
+      try {
+        final path = resolve(file.path, href);
+        return files.containsKey(path) ? read(path) : null;
+      } on FormatException {
+        return null;
+      }
+    });
     for (final el in document.querySelectorAll(
       'script, style, nav, noscript',
     )) {
@@ -495,7 +505,11 @@ ImportedBook _epub(
         if (src != null) {
           try {
             final url = addImage(resolve(file.path, src));
-            if (url != null) output.add('<!--image-->$url<!--image-->');
+            if (url != null) {
+              output.add(
+                '<!--image-->$url<!--image-->${imageLayouts[node]?.suffix ?? ''}',
+              );
+            }
           } on FormatException {
             /* External images are not fetched during import. */
           }
@@ -646,6 +660,7 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
       'digest': digest,
       'encoding': text == null ? 'utf8' : 'decoded',
       'parser': 2,
+      'imageSizing': 1,
       'importedAt': DateTime.now().millisecondsSinceEpoch,
       if (parsed.seriesHint != null) 'seriesHint': parsed.seriesHint!.toJson(),
     };
@@ -694,6 +709,27 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
   }
 }
 
+class _ImageSizingJob {
+  const _ImageSizingJob(this.root, this.name, this.id, this.digest);
+  final String root, name, digest;
+  final int id;
+}
+
+List<String> _readImageSizing(_ImageSizingJob job) {
+  final stream = InputFileStream('${job.root}/${job.id}/original');
+  try {
+    return _epub(
+      LocalBookInput(job.name, Uint8List(0)),
+      job.id,
+      job.digest,
+      archive: _boundedZipStream(stream, maxSize: 512 * 1024 * 1024),
+      saveImage: (_, _) {},
+    ).bodies;
+  } finally {
+    stream.closeSync();
+  }
+}
+
 /// Durable originals are separate from disposable network caches.
 class LocalBookStore extends ChangeNotifier {
   LocalBookStore(this.directory);
@@ -706,6 +742,7 @@ class LocalBookStore extends ChangeNotifier {
   final Map<int, String?> _seriesCovers = {};
   String? seriesError;
   Future<void> _writes = Future.value();
+  final _imageUpgrades = <int, Future<void>>{};
   bool _disposed = false;
   List<Novel> get books {
     final members = <int>{
@@ -916,9 +953,92 @@ class LocalBookStore extends ChangeNotifier {
       throw const FormatException('本地书籍或章节不存在，请重新导入原书');
     }
     final source = _seriesChapters[id]?[chapter.id];
-    return File(
-      '${directory.path}/${source?.bookId ?? id}/c${source?.chapterId ?? chapter.id}.txt',
-    ).readAsString();
+    final base = source?.bookId ?? id;
+    final file = File(
+      '${directory.path}/$base/c${source?.chapterId ?? chapter.id}.txt',
+    );
+    final body = await file.readAsString();
+    if (_sources[base]?['imageSizing'] != 1 &&
+        (_sources[base]?['name'] as String? ?? '').toLowerCase().endsWith(
+          '.epub',
+        ) &&
+        body.contains('<!--image-->')) {
+      try {
+        await _imageUpgrades.putIfAbsent(base, () => _upgradeImageSizing(base));
+        return await file.readAsString();
+      } catch (_) {
+        // A missing/damaged original must not make saved prose unreadable.
+        // Its images still get natural-size rendering from their own headers.
+        return body;
+      }
+    }
+    return body;
+  }
+
+  Future<void> _upgradeImageSizing(int id) async {
+    final work = _writes.catchError((Object _) {}).then((_) async {
+      final source = _sources[id], book = _books[id];
+      if (source == null || book == null || source['imageSizing'] == 1) return;
+      final bodies = await compute(
+        _readImageSizing,
+        _ImageSizingJob(
+          directory.path,
+          source['name'] as String,
+          id,
+          source['digest'] as String,
+        ),
+      );
+      if (bodies.length != book.chapters.length) {
+        throw const FormatException('原书目录与本地目录不一致');
+      }
+      final replacements = <File, String>{};
+      String plain(String body) => body
+          .split('\n\n')
+          .map((paragraph) {
+            final url = readerIllustrationUrl(paragraph);
+            return url?.startsWith('wenku-local:') == true
+                ? '<!--image-->$url<!--image-->'
+                : paragraph;
+          })
+          .join('\n\n');
+      for (var i = 0; i < bodies.length; i++) {
+        if (book.chapters[i].id != i + 1) {
+          throw const FormatException('本地章节标识已改变');
+        }
+        final target = File('${directory.path}/$id/c${i + 1}.txt');
+        final before = await target.readAsString();
+        if (plain(before) != plain(bodies[i])) {
+          throw const FormatException('原书正文与本地正文不一致');
+        }
+        if (before != bodies[i]) replacements[target] = bodies[i];
+      }
+      // Only sizing suffixes may change: chapter IDs, prose offsets, paragraph
+      // counts, user metadata and series references are untouched.
+      for (final replacement in replacements.entries) {
+        final next = File('${replacement.key.path}.image-size-next');
+        try {
+          await next.writeAsString(replacement.value, flush: true);
+          await next.rename(replacement.key.path);
+        } finally {
+          if (await next.exists()) await next.delete();
+        }
+      }
+      final target = File('${directory.path}/$id/book.json');
+      final record =
+          jsonDecode(await target.readAsString()) as Map<String, dynamic>;
+      final changedSource = {...source, 'imageSizing': 1};
+      record['source'] = changedSource;
+      final next = File('${target.path}.image-size-next');
+      try {
+        await next.writeAsString(jsonEncode(record), flush: true);
+        await next.rename(target.path);
+      } finally {
+        if (await next.exists()) await next.delete();
+      }
+      _sources[id] = changedSource;
+    });
+    _writes = work;
+    await work;
   }
 
   Future<void> _refreshSeries() async {

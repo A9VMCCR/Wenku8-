@@ -8,6 +8,7 @@ import 'app_ui.dart';
 import 'cover_arrival.dart';
 import 'legacy_transport.dart';
 import 'local_book_media.dart';
+import 'local_image_layout.dart';
 
 typedef IllustrationRequest = Future<Uint8List> Function(String url);
 
@@ -23,6 +24,7 @@ class ReaderIllustrationCache {
   final int maxBytes;
   final _pending = <String, Future<Uint8List>>{};
   final _cache = <String, Uint8List>{};
+  final _dimensions = <String, Size>{};
   // Header inspection is shared by the inline view and gallery. Weak byte keys
   // follow the encoded cache, without retaining another copy of an illustration.
   static final _sizes = Expando<Size>('illustration-size');
@@ -32,8 +34,49 @@ class ReaderIllustrationCache {
   int get encodedBytes => _bytes;
   Uint8List? peek(String url) => _cache[url];
   Size? sizeOf(String url) {
+    if (_dimensions[url] case final size?) return size;
     final bytes = peek(url);
     return bytes == null ? null : _sizes[bytes];
+  }
+
+  Future<Size> dimensions(String url) async {
+    if (sizeOf(url) case final size?) return size;
+    return _rememberSize(url, await load(url));
+  }
+
+  Future<Size> _rememberSize(String url, Uint8List bytes) async {
+    final epoch = _epoch;
+    final size = await _size(bytes);
+    if (epoch == _epoch) {
+      if (_dimensions.length >= 256) _dimensions.remove(_dimensions.keys.first);
+      _dimensions[url] = size;
+    }
+    return size;
+  }
+
+  /// Pagination needs header dimensions, not decoded pixels. Repeated note
+  /// icons share one request; canceled layouts stop scheduling further reads.
+  Future<Map<String, Size>> measureLocalImages(
+    Iterable<String> urls, {
+    required bool Function() current,
+  }) async {
+    final local = urls
+        .where((u) => u.startsWith('wenku-local:'))
+        .toSet()
+        .toList();
+    final result = <String, Size>{};
+    for (var start = 0; start < local.length && current(); start += 4) {
+      await Future.wait(
+        local.skip(start).take(4).map((url) async {
+          try {
+            result[url] = await dimensions(url);
+          } catch (_) {
+            /* A broken image retains its reader retry, not a broken chapter. */
+          }
+        }),
+      );
+    }
+    return result;
   }
 
   Future<Size> _size(Uint8List bytes) => _sizeRequests[bytes] ??= () async {
@@ -57,6 +100,7 @@ class ReaderIllustrationCache {
   }();
 
   void evict(String url) {
+    _dimensions.remove(url);
     final bytes = _cache.remove(url);
     if (bytes != null) _bytes -= bytes.length;
   }
@@ -94,6 +138,7 @@ class ReaderIllustrationCache {
     _epoch++;
     _cache.clear();
     _pending.clear();
+    _dimensions.clear();
     _bytes = 0;
   }
 }
@@ -106,14 +151,55 @@ class ReaderIllustrationFrame extends StatelessWidget {
     required this.child,
     this.imageSize,
     this.fitPage = false,
+    this.preserveSize = false,
+    this.localLayout = const LocalImageLayout(),
+    this.fontSize = 19,
   });
 
   final Widget child;
   final Size? imageSize;
   final bool fitPage;
+  final bool preserveSize;
+  final LocalImageLayout localLayout;
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
+    if (preserveSize) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final available = Size(
+            constraints.hasBoundedWidth
+                ? constraints.maxWidth
+                : MediaQuery.sizeOf(context).width,
+            constraints.hasBoundedHeight
+                ? constraints.maxHeight
+                : double.infinity,
+          );
+          final target = localLayout.resolve(
+            natural: imageSize ?? const Size(32, 32),
+            available: available,
+            fontSize: fontSize,
+          );
+          return AnimatedSize(
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: Align(
+              alignment: fitPage ? Alignment.center : Alignment.topCenter,
+              heightFactor: fitPage ? null : 1,
+              child: SizedBox(
+                width: target.width,
+                height: target.height,
+                child: child,
+              ),
+            ),
+          );
+        },
+      );
+    }
     if (fitPage) return SizedBox.expand(child: child);
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -148,12 +234,20 @@ class ReaderIllustration extends StatefulWidget {
     this.cache,
     this.fullScreen = false,
     this.fitPage = false,
+    this.localLayout = const LocalImageLayout(),
+    this.fontSize = 19,
+    this.sizedFrame = false,
   });
   final String url;
   final VoidCallback? onOpen;
   final ReaderIllustrationCache? cache;
   final bool fullScreen;
   final bool fitPage;
+  final LocalImageLayout localLayout;
+  final double fontSize;
+
+  /// Pagination has already resolved percentages against the whole leaf.
+  final bool sizedFrame;
   @override
   State<ReaderIllustration> createState() => _ReaderIllustrationState();
 }
@@ -167,7 +261,7 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
     try {
       final cache = _cache, url = widget.url;
       final bytes = await cache.load(url);
-      final size = await cache._size(bytes);
+      final size = await cache._rememberSize(url, bytes);
       return (bytes: bytes, size: size, error: null);
     } catch (error) {
       return (bytes: null, size: null, error: error);
@@ -192,12 +286,40 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
             : null,
         builder: (context, snapshot) {
           final bytes = snapshot.data?.bytes;
-          Widget frame(Widget child) => ReaderIllustrationFrame(
-            imageSize: snapshot.data?.size,
-            fitPage: widget.fullScreen || widget.fitPage,
-            child: child,
+          Widget frame(Widget child) => widget.sizedFrame
+              ? SizedBox.expand(child: child)
+              : ReaderIllustrationFrame(
+                  imageSize: snapshot.data?.size,
+                  fitPage: widget.fullScreen || widget.fitPage,
+                  preserveSize: widget.url.startsWith('wenku-local:'),
+                  localLayout: widget.localLayout,
+                  fontSize: widget.fontSize,
+                  child: child,
+                );
+          Widget localRetry() => Semantics(
+            button: true,
+            label: '图片加载失败，点按重试',
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                _cache.evict(widget.url);
+                setState(() {
+                  _future = _load();
+                });
+              },
+              child: const FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Padding(
+                  padding: EdgeInsets.all(2),
+                  child: Icon(CupertinoIcons.arrow_clockwise, size: 24),
+                ),
+              ),
+            ),
           );
           if (snapshot.data?.error != null) {
+            if (widget.url.startsWith('wenku-local:')) {
+              return frame(localRetry());
+            }
             return frame(
               Center(
                 child: Column(
@@ -240,12 +362,24 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
                     width: constraints.maxWidth,
                     height: constraints.maxHeight,
                     fit: BoxFit.contain,
-                    cacheWidth: widget.fullScreen
-                        ? 2400
-                        : (constraints.maxWidth *
-                                  MediaQuery.devicePixelRatioOf(context))
-                              .round()
-                              .clamp(1, 1600),
+                    cacheWidth:
+                        (widget.fullScreen
+                                ? 2400
+                                : (constraints.maxWidth *
+                                          MediaQuery.devicePixelRatioOf(
+                                            context,
+                                          ))
+                                      .round()
+                                      .clamp(1, 1600))
+                            .clamp(
+                              1,
+                              widget.url.startsWith('wenku-local:')
+                                  ? snapshot.data!.size!.width.round().clamp(
+                                      1,
+                                      2400,
+                                    )
+                                  : 2400,
+                            ),
                     frameBuilder: (context, child, frame, sync) => CoverArrival(
                       bytes: bytes,
                       ready: frame != null,
@@ -255,17 +389,20 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
                       ),
                       child: child,
                     ),
-                    errorBuilder: (context, error, stack) => Center(
-                      child: GlassTextButton(
-                        onPressed: () {
-                          _cache.evict(widget.url);
-                          setState(() {
-                            _future = _load();
-                          });
-                        },
-                        child: const Text('重新读取插图'),
-                      ),
-                    ),
+                    errorBuilder: (context, error, stack) =>
+                        widget.url.startsWith('wenku-local:')
+                        ? localRetry()
+                        : Center(
+                            child: GlassTextButton(
+                              onPressed: () {
+                                _cache.evict(widget.url);
+                                setState(() {
+                                  _future = _load();
+                                });
+                              },
+                              child: const Text('重新读取插图'),
+                            ),
+                          ),
                   ),
                 ),
               ),

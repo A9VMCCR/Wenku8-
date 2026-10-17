@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'app_ui.dart';
 import 'app_typography.dart';
 import 'app_interactions.dart';
+import 'author_works_page.dart';
 import 'archive_carousel.dart';
 import 'backup_page.dart';
 import 'book_collection_layout.dart';
@@ -41,6 +42,7 @@ import 'reader_appearance.dart';
 import 'reader_content.dart';
 import 'reader_follow_scroll.dart';
 import 'reader_illustrations.dart';
+import 'local_image_layout.dart';
 import 'reader_find.dart';
 import 'reader_pagination.dart';
 import 'reader_paged_view.dart';
@@ -3051,13 +3053,69 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                     height: 20,
                                                     label: '正在加载作者信息',
                                                   )
-                                                : Text(
-                                                    novel.author,
-                                                    style: TextStyle(
-                                                      color: Theme.of(context)
-                                                          .colorScheme
-                                                          .onSurfaceVariant,
-                                                      fontSize: 14,
+                                                : Semantics(
+                                                    button: true,
+                                                    label:
+                                                        '查看${novel.author}的作品',
+                                                    child: JellyTapSurface(
+                                                      key: const ValueKey(
+                                                        'detail-author-works',
+                                                      ),
+                                                      onTap:
+                                                          novel.author
+                                                              .trim()
+                                                              .isEmpty
+                                                          ? null
+                                                          : () => pushNovelPage<void>(
+                                                              context,
+                                                              AuthorWorksPage(
+                                                                author: novel
+                                                                    .author,
+                                                                repository:
+                                                                    repository,
+                                                                state: state,
+                                                                localOnly:
+                                                                    isLocalBook(
+                                                                      novel.id,
+                                                                    ),
+                                                              ),
+                                                              reduceMotion:
+                                                                  _reduceMotion,
+                                                            ),
+                                                      child: Padding(
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              vertical: 5,
+                                                            ),
+                                                        child: Row(
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          children: [
+                                                            Flexible(
+                                                              child: Text(
+                                                                novel.author,
+                                                                style: TextStyle(
+                                                                  color: Theme.of(
+                                                                    context,
+                                                                  ).colorScheme.onSurfaceVariant,
+                                                                  fontSize: 14,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                            const SizedBox(
+                                                              width: 5,
+                                                            ),
+                                                            Icon(
+                                                              CupertinoIcons
+                                                                  .chevron_right,
+                                                              size: 11,
+                                                              color: Theme.of(context)
+                                                                  .colorScheme
+                                                                  .onSurfaceVariant,
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
                                                     ),
                                                   ),
                                           ),
@@ -4383,12 +4441,16 @@ class _ReaderPageState extends State<ReaderPage>
     int index,
     TextStyle style, {
     bool fullPage = false,
+    bool sizedImage = false,
   }) {
     final url = readerIllustrationUrl(paragraphs[index]);
     if (url != null) {
       return ReaderIllustration(
         url: url,
         fitPage: fullPage,
+        localLayout: LocalImageLayout.fromParagraph(paragraphs[index]),
+        fontSize: MediaQuery.textScalerOf(context).scale(style.fontSize ?? 19),
+        sizedFrame: sizedImage,
         onOpen: () => pushNovelPage<void>(
           context,
           ReaderIllustrationGallery(
@@ -4684,8 +4746,14 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   Widget _pagedLeaf(ReaderLeaf page, TextStyle style) {
-    if (page.fragments.length == 1 && page.fragments.first.image) {
+    if (page.fragments.length == 1 &&
+        page.fragments.first.image &&
+        readerIllustrationUrl(
+              page.fragments.first.text,
+            )?.startsWith('wenku-local:') !=
+            true) {
       return ReaderTurnPart(
+        bounds: page.fragments.first.rect,
         child: _paragraphContent(
           _currentContent!.paragraphs,
           page.fragments.first.paragraph,
@@ -4749,7 +4817,7 @@ class _ReaderPageState extends State<ReaderPage>
         },
       );
       final controller = _listening;
-      return controller == null
+      final body = controller == null
           ? verticalPage(context, (active: false, paragraph: null), null)
           : SelectedValueBuilder<
               ListeningSnapshot,
@@ -4768,6 +4836,28 @@ class _ReaderPageState extends State<ReaderPage>
               },
               builder: verticalPage,
             );
+      return Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(child: body),
+          for (final (index, fragment) in page.fragments.indexed)
+            if (fragment.image)
+              Positioned.fromRect(
+                rect: fragment.rect,
+                child: ReaderFragmentMotion(
+                  fragment: fragment,
+                  index: index,
+                  count: page.fragments.length,
+                  child: _paragraphContent(
+                    _currentContent!.paragraphs,
+                    fragment.paragraph,
+                    style,
+                    sizedImage: true,
+                  ),
+                ),
+              ),
+        ],
+      );
     }
     return Stack(
       clipBehavior: Clip.none,
@@ -4783,6 +4873,14 @@ class _ReaderPageState extends State<ReaderPage>
                 valueListenable: _bookmarkLanding,
                 child: Builder(
                   builder: (context) {
+                    if (fragment.image) {
+                      return _paragraphContent(
+                        _currentContent!.paragraphs,
+                        fragment.paragraph,
+                        style,
+                        sizedImage: true,
+                      );
+                    }
                     final text = ReaderHighlightText(
                       text: fragment.text,
                       index: fragment.paragraph,

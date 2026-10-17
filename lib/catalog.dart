@@ -158,6 +158,23 @@ abstract class NovelRepository {
     int page = 1,
     bool refresh = false,
   }) async => NovelPage.fromItems(await search(query), page);
+
+  Future<NovelPage> authorPage(
+    String author, {
+    int page = 1,
+    bool refresh = false,
+  }) async => NovelPage.fromItems(
+    (await search(
+      author,
+    )).where((book) => sameNovelAuthor(book.author, author)).toList(),
+    page,
+  );
+}
+
+bool sameNovelAuthor(String a, String b) {
+  String key(String name) =>
+      name.replaceAll(RegExp(r'[\s\u3000]+'), '').toLowerCase();
+  return key(a).isNotEmpty && key(a) == key(b);
 }
 
 enum NovelSort {

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'local_book_media.dart';
+import 'local_image_layout.dart';
 
 List<String> _splitParagraphs(String source) => source.split('\n\n');
 
@@ -26,14 +27,18 @@ class ReaderContent {
 String? readerIllustrationUrl(String paragraph) {
   const marker = '<!--image-->';
   final text = paragraph.trim();
-  if (!text.startsWith(marker) ||
-      !text.endsWith(marker) ||
-      text.length <= marker.length * 2) {
+  if (!text.startsWith(marker) || text.length <= marker.length * 2) {
     return null;
   }
-  final raw = text.substring(marker.length, text.length - marker.length).trim();
+  final end = text.indexOf(marker, marker.length);
+  if (end < 0) return null;
+  final tail = text.substring(end + marker.length).trim();
+  final raw = text.substring(marker.length, end).trim();
   final uri = Uri.tryParse(raw);
-  if (uri != null && LocalBookMedia.valid(uri)) return uri.toString();
+  if (uri != null && LocalBookMedia.valid(uri)) {
+    return LocalImageLayout.parseSuffix(tail) == null ? null : uri.toString();
+  }
+  if (tail.isNotEmpty) return null;
   if (uri == null ||
       !['https', 'http'].contains(uri.scheme) ||
       uri.userInfo.isNotEmpty ||

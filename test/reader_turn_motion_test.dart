@@ -13,7 +13,12 @@ import 'package:wenku8_flutter/reader_vertical_text.dart';
 import 'reader_modes_test.dart' show settleReader;
 import 'support/visual_review.dart';
 
-const _style = TextStyle(fontSize: 19, height: 1.72, color: Color(0xff373a3d));
+const _style = TextStyle(
+  fontFamily: 'Roboto',
+  fontSize: 19,
+  height: 1.72,
+  color: Color(0xff373a3d),
+);
 final _content = ReaderContent([
   for (var i = 0; i < 80; i++)
     '第${i + 1}段　窗外的风轻轻掠过书页，她停下脚步。「往前走吧，下一页的故事正等着我们。」',
@@ -78,6 +83,107 @@ void main({
       expect(leaf(.7, 1).progressFor(6, 7), 0);
     },
   );
+
+  test('vertical relay moves columns left/right, never up/down', () {
+    const size = Size(338, 690);
+    const bounds = Rect.fromLTRB(280, 0, 302, 650);
+    for (final direction in [-1.0, 1.0]) {
+      for (final outgoing in [false, true]) {
+        final scope = ReaderTurnScope(
+          animation: const AlwaysStoppedAnimation(.5),
+          direction: direction,
+          outgoing: outgoing,
+          relay: true,
+          vertical: true,
+          leafSize: size,
+          child: const SizedBox(),
+        );
+        final displacement = scope.displacementFor(0, 12, bounds: bounds);
+        expect(displacement.dy, 0);
+        expect(displacement.dx, isNot(0));
+        expect(displacement.dx.sign, outgoing ? -direction : direction);
+      }
+    }
+  });
+
+  test('relay keeps full ink and separates unequal old/new paragraph bounds', () {
+    const size = Size(338, 690);
+    for (final vertical in [false, true]) {
+      for (final direction in [-1.0, 1.0]) {
+        for (final slots in [1, 2]) {
+          for (var slot = 0; slot < slots; slot++) {
+            for (var frame = 0; frame <= 120; frame++) {
+              final time = frame / 120;
+              ReaderTurnScope scope(bool outgoing) => ReaderTurnScope(
+                animation: AlwaysStoppedAnimation(time),
+                direction: direction,
+                relay: true,
+                vertical: vertical,
+                leafSize: size,
+                outgoing: outgoing,
+                slot: slot,
+                slots: slots,
+                child: const SizedBox(),
+              );
+              final old = scope(true), next = scope(false);
+              expect(old.opacityFor(0, 1), 1);
+              expect(next.opacityFor(0, 12), 1);
+              List<Rect> bands(List<double> divisions) => [
+                for (var i = 0; i + 1 < divisions.length; i++)
+                  vertical
+                      ? Rect.fromLTRB(
+                          divisions[i] * size.width,
+                          0,
+                          divisions[i + 1] * size.width,
+                          size.height,
+                        )
+                      : Rect.fromLTRB(
+                          0,
+                          divisions[i] * size.height,
+                          size.width,
+                          divisions[i + 1] * size.height,
+                        ),
+              ];
+              final oldBounds = bands([0, .12, .49, .68, 1]);
+              final nextBounds = bands([0, .35, .51, .73, .89, 1]);
+              for (final (scope, originals) in [
+                (old, oldBounds),
+                (next, nextBounds),
+              ]) {
+                final moved = [
+                  for (final rect in originals)
+                    rect.shift(scope.displacementFor(0, 1, bounds: rect)),
+                ];
+                for (var i = 1; i < moved.length; i++) {
+                  expect(
+                    moved[i - 1].overlaps(moved[i]),
+                    isFalse,
+                    reason: 'Adjacent columns must stay separate at $time.',
+                  );
+                }
+              }
+              for (final a in oldBounds) {
+                for (final b in nextBounds) {
+                  final movedOld = a.shift(
+                    old.displacementFor(0, 1, bounds: a),
+                  );
+                  final movedNew = b.shift(
+                    next.displacementFor(0, 1, bounds: b),
+                  );
+                  expect(
+                    movedOld.overlaps(movedNew),
+                    isFalse,
+                    reason:
+                        'Different paragraph lengths must not double-paint ink at $time / $a / $b',
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
 
   Future<void> shot(WidgetTester tester, GlobalKey key, String name) async {
     if (capture != null) {
@@ -201,6 +307,11 @@ void main({
                 render.debugTurnColumnProgress(render.debugTurnColumnCount - 1),
               ),
             );
+            for (var i = 0; i < render.debugTurnColumnCount; i++) {
+              final displacement = render.debugTurnColumnDisplacement(i);
+              expect(displacement.dy, 0);
+              expect(displacement.dx, lessThan(0));
+            }
           }
           final shaped = cache.debugShapeCount;
           await shot(
@@ -306,6 +417,44 @@ void main({
           await tester.drag(viewport, Offset(-size.width * .8 * direction, 0));
           await tester.pumpAndSettle();
           expect(controller.page, controller.pagesPerSpread);
+          if (mode == ReaderMode.vertical) {
+            controller.pageBy(-1);
+            await tester.pump();
+            await tester.pump(const Duration(milliseconds: 180));
+            final previousLeaf = find.byWidgetPredicate(
+              (w) =>
+                  w is ReaderTurnScope &&
+                  w.enabled &&
+                  !w.outgoing &&
+                  w.slot == 0,
+            );
+            final render = tester.renderObject<RenderReaderVerticalText>(
+              find
+                  .descendant(
+                    of: previousLeaf,
+                    matching: find.byType(ReaderVerticalText),
+                  )
+                  .first,
+            );
+            expect(
+              render.debugTurnColumnProgress(0),
+              lessThan(
+                render.debugTurnColumnProgress(render.debugTurnColumnCount - 1),
+              ),
+            );
+            for (var i = 0; i < render.debugTurnColumnCount; i++) {
+              final displacement = render.debugTurnColumnDisplacement(i);
+              expect(displacement.dy, 0);
+              expect(displacement.dx, greaterThan(0));
+            }
+            await shot(
+              tester,
+              boundary,
+              'vertical-${wide ? 'book' : 'phone'}-back',
+            );
+            await tester.pumpAndSettle();
+            expect(controller.page, 0);
+          }
           expect(controller.debugLayoutGeneration, generation);
           expect(tester.binding.transientCallbackCount, 0);
           expect(tester.takeException(), isNull);

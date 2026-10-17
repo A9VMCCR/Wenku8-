@@ -8,6 +8,7 @@ import 'reader_pagination.dart';
 import 'reader_preferences.dart';
 import 'reader_reflow.dart';
 import 'reader_turn_motion.dart';
+import 'reader_illustrations.dart';
 import 'reader_page_anchor.dart';
 
 TextStyle _chapterHeadingStyle(TextStyle style) => style.copyWith(
@@ -473,6 +474,12 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
     _layoutFailed = false;
     ReaderPagination? result;
     try {
+      final imageSizes = await ReaderIllustrationCache.shared
+          .measureLocalImages(
+            content.illustrations,
+            current: () => mounted && ticket == _generation,
+          );
+      if (!mounted || ticket != _generation) return;
       result = await paginateReader(
         content: content,
         size: size,
@@ -482,6 +489,7 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
         current: () => mounted && ticket == _generation,
         pageBreak: preserveStart ? oldAnchor : null,
         cache: _textLayout,
+        localImageSizes: imageSizes,
       );
     } catch (_) {
       if (mounted && ticket == _generation) {
@@ -693,6 +701,10 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
             : _turnDirection,
         enabled: turn && (spread == _turnSpread || outgoing || entering),
         outgoing: outgoing,
+        relay: !entering && (outgoing || spread == _turnSpread),
+        vertical:
+            (_publishedMode ?? widget.preferences.mode) == ReaderMode.vertical,
+        leafSize: pagination.size,
         slot: slot,
         slots: layout.count,
         child: page,

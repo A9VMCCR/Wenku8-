@@ -66,7 +66,12 @@ class ReaderFragmentMotion extends StatelessWidget {
   Widget build(BuildContext context) {
     final scope = ReaderReflowScope.maybeOf(context);
     if (scope == null) {
-      return ReaderTurnPart(index: index, count: count, child: child);
+      return ReaderTurnPart(
+        index: index,
+        count: count,
+        bounds: fragment.rect,
+        child: child,
+      );
     }
     final reverse = scope.originDelta.dy < 0;
     ReaderPageFragment? previous;

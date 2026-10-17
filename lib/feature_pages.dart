@@ -774,13 +774,17 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
         failure.code == 4 &&
         widget.account != null) {
       return ContentNotice(
-        icon: CupertinoIcons.person_crop_circle,
+        icon: widget.account!.authenticated
+            ? CupertinoIcons.arrow_clockwise
+            : CupertinoIcons.person_crop_circle,
         title: widget.account!.authenticated ? '分类暂未读取成功' : '此分类需要文库账号',
         message: widget.account!.authenticated
-            ? '你已登录，但分类服务未接受本次请求。可在账号页重新验证登录后重试。'
+            ? '账号连接正常，分类服务暂未返回书目。请稍后重新加载。'
             : '登录后可读取出版分类。最近更新、排行榜和搜索仍可直接使用。',
-        actionLabel: widget.account!.authenticated ? '检查账号并重试' : '登录账号',
-        onRetry: _loginForLibrary,
+        actionLabel: widget.account!.authenticated ? '重新加载' : '登录账号',
+        onRetry: widget.account!.authenticated
+            ? () => _select(_selected!, force: true)
+            : _loginForLibrary,
       );
     }
     return DiscoverPage(
