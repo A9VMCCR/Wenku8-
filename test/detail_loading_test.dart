@@ -170,17 +170,21 @@ void main({
         findsOneWidget,
       );
       pending.directory.complete(novel.chapters);
-      for (
-        var i = 0;
-        i < 20 && find.byType(DetailSkeleton).evaluate().isNotEmpty;
-        i++
-      ) {
+      // Readiness includes real filesystem writes. A fixed frame count gives
+      // concurrent CI runs only 160ms of disk time, not a loading contract.
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (find.byType(DetailSkeleton).evaluate().isNotEmpty &&
+          DateTime.now().isBefore(deadline)) {
         await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 8)),
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );
         await tester.pump();
       }
-      expect(find.byType(DetailSkeleton), findsNothing);
+      expect(
+        find.byType(DetailSkeleton),
+        findsNothing,
+        reason: 'The completed directory must replace its loading skeleton.',
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 130));
       expect(
