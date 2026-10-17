@@ -63,8 +63,8 @@ cd android
 ## 发布一个可被应用检测的版本
 
 1. 更新 `pubspec.yaml` 的版本号和更大的 Android 构建号，并同步 `lib/updates/app_updates.dart` 的本版说明与版本常量。
-2. 在 `CHANGELOG.md` 添加对应版本的说明。运行 `python3 tools/prepare_release.py --tag v0.3.3 --notes build/release-notes.md` 可检查当前版本与标签是否一致。
-3. 提交到自己的 Fork 后，推送与版本一致的标签，例如当前版本用 `v0.3.3`。本地整理脚本不会推送。
+2. 在 `CHANGELOG.md` 添加对应版本的说明。运行 `python3 tools/prepare_release.py --tag v0.3.4 --notes build/release-notes.md` 可检查当前版本与标签是否一致。
+3. 提交到自己的 Fork 后，推送与版本一致的标签，例如当前版本用 `v0.3.4`。本地整理脚本不会推送。
 4. Actions 完成检查和三架构构建，上传 APK / 工程源码并创建 **Draft Release**。先核对签名、工程归档、脱敏与第三方条件，再点击 **Publish release**。
 5. 已安装应用会在下次前台检查时显示新版本；也可以在「关于轻小说文库」立即检查。草稿、预发布和普通 Actions Artifacts 不进入自动更新渠道。
 
@@ -74,4 +74,10 @@ cd android
 
 更新源默认为 `mikufoxxx/Wenku8_Flutter`。发布工作流将 `${{ github.repository }}` 写入 `UPDATE_REPOSITORY`，因此他人 Fork 的构建检查自己的 Releases。本地构建可用 `--dart-define=UPDATE_REPOSITORY=用户名/仓库名` 指定。应用不包含 GitHub Token，不收集账号或阅读内容；自动检查可关闭。
 
-下载使用 HTTPS 和受限的 GitHub 资源地址，使用 GitHub 提供的 SHA-256 摘要（如有）核验完整性。安装前还必须通过 Android 包名、版本和签名检查，首次安装授权及最终确认由系统界面完成。下载可取消，断线或校验失败不会进入安装步骤。
+下载使用 HTTPS 和受限的 GitHub 资源地址，使用 GitHub 提供的 SHA-256 摘要（如有）核验完整性。每次下载写入独立缓存目录，交给系统的文件与 Content URI 不再被后续下载替换。完成下载与打开安装程序前均核对 Android 包名、真实版本、构建号及签名；安装页显示已验证的版本与构建号，首次安装授权及最终确认由系统界面完成。检查、下载、安装互斥；下载可取消，断线或校验失败后可重新下载。
+
+### 更新链路回归
+
+`flutter test test/app_updates_test.dart test/app_update_prompt_test.dart` 覆盖并发排除、版本／附件绑定、不可变文件路径、安装授权和失败重试。
+
+真机测试使用独立的 `.render_probe` 包，不覆盖正式版。`tools/create_update_fixtures.py --sdk "$ANDROID_HOME" --output build/update-fixtures` 可生成调试签名的微型 APK；将输出放入测试包的 `files/update-fixtures/` 后，以 `fixture=update` 运行 `SessionFixtureInstrumentation`，核对真实包解析与 FileProvider 读取的版本。`integration_test/update_install_probe.dart` 可作为 debug 入口构建（版本覆盖为 `0.3.3+35`），通过真实的更新页操作完成 `0.3.4+36` 安装验证。该入口只接受隔离测试包；正式构建仍使用 `lib/main.dart`。

@@ -484,9 +484,7 @@ class AppUpdatePage extends StatelessWidget {
                       const SizedBox(height: 12),
                       GlassTextButton(
                         key: const ValueKey('check-app-update'),
-                        onPressed: service.checking || service.downloading
-                            ? null
-                            : () => service.check(),
+                        onPressed: service.busy ? null : () => service.check(),
                         child: Text(service.checking ? '正在检查版本' : '检查更新'),
                       ),
                       if (service.checking) ...[
@@ -562,6 +560,17 @@ class AppUpdatePage extends StatelessWidget {
                             child: const Text('取消下载'),
                           ),
                         ] else if (service.downloaded != null) ...[
+                          Text(
+                            '安装包 ${service.downloadedInfo!.version} · 构建 ${service.downloadedInfo!.build}',
+                            key: const ValueKey('downloaded-app-version'),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
                           if (service.needsPermission)
                             Text(
                               '请允许本应用安装更新，返回后再次点击「安装更新」。',
@@ -582,13 +591,15 @@ class AppUpdatePage extends StatelessWidget {
                             ),
                           GlassTextButton(
                             key: const ValueKey('install-app-update'),
-                            onPressed: service.install,
-                            child: const Text('安装更新'),
+                            onPressed: service.busy ? null : service.install,
+                            child: Text(
+                              service.installing ? '正在打开安装程序' : '安装更新',
+                            ),
                           ),
                         ] else if (service.asset != null)
                           GlassTextButton(
                             key: const ValueKey('download-app-update'),
-                            onPressed: service.download,
+                            onPressed: service.busy ? null : service.download,
                             child: Text(
                               '下载更新 · ${(service.asset!.size / 1024 / 1024).toStringAsFixed(1)} MB',
                             ),

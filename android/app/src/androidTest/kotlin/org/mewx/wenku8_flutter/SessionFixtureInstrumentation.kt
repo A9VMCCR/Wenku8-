@@ -7,10 +7,10 @@ import android.os.Bundle
 
 /** No credentials or network: device-keystore tests in the separate QA package. */
 class SessionFixtureInstrumentation : Instrumentation() {
-    private var speech = false
+    private var fixture: String? = null
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
-        speech = arguments?.getString("fixture") == "speech"
+        fixture = arguments?.getString("fixture")
         start()
     }
 
@@ -19,13 +19,14 @@ class SessionFixtureInstrumentation : Instrumentation() {
         var code = Activity.RESULT_OK
         var checks = 0
         val context = targetContext
-        if (speech) {
+        if (fixture == "speech" || fixture == "update") {
             try {
                 check(context.packageName.endsWith(".render_probe"))
-                SpeechFixture.run(context, results)
+                if (fixture == "speech") SpeechFixture.run(context, results)
+                else UpdateFixture.run(context, results)
                 finish(Activity.RESULT_OK, results)
             } catch (failure: Throwable) {
-                results.putString("stream", "SPEECH_FIXTURE_FAILURE=${failure.javaClass.simpleName}:${failure.message}\n")
+                results.putString("stream", "${fixture!!.uppercase()}_FIXTURE_FAILURE=${failure.javaClass.simpleName}:${failure.message}\n")
                 finish(Activity.RESULT_CANCELED, results)
             }
             return

@@ -12,13 +12,12 @@ const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: 'mikufoxxx/Wenku8_Flutter',
 );
-const currentAppVersion = '0.3.3';
-const currentAppBuild = 35;
+const currentAppVersion = '0.3.4';
+const currentAppBuild = 36;
 const currentReleaseNotes = '''
-优化翻页衔接，前后页正文逐段接力；竖排改为左右逐列移动，减少闪烁与文字重叠。
-本地 EPUB 图片遵循书内尺寸，小注释图标不再放大或独占整页，已有书籍无需重导。
-点击详情页作者可查看其作品，支持继续打开图书与加载更多。
-完善登录会话保存与分类请求重试，避免分类请求失败误清除有效登录。
+修复应用内更新复用安装地址的问题，每次下载使用独立安装包，避免新旧版本混用。
+检查、下载与安装互斥，下载完成后核对实际版本、构建号与签名，安装前再次验证。
+更新页显示安装包的实际版本与构建号；无效安装包可重新下载，保留安装授权后的继续安装。
 ''';
 
 class ReleaseVersion implements Comparable<ReleaseVersion> {
@@ -72,12 +71,21 @@ class UpdateAsset {
     required this.name,
     required this.url,
     required this.size,
+    this.id,
     this.digest,
   });
   final String name;
   final Uri url;
   final int size;
+  final int? id;
   final String? digest;
+
+  bool samePackage(UpdateAsset other) =>
+      id == other.id &&
+      name == other.name &&
+      url == other.url &&
+      size == other.size &&
+      digest == other.digest;
 }
 
 class AppRelease {
@@ -107,7 +115,7 @@ class AppRelease {
       final url = Uri.tryParse(raw['browser_download_url']?.toString() ?? '');
       final size = raw['size'];
       if (name is! String ||
-          !name.startsWith('wenku8-') ||
+          !name.startsWith('wenku8-${version.name}-') ||
           !name.endsWith('.apk') ||
           url == null ||
           url.scheme != 'https' ||
@@ -132,6 +140,7 @@ class AppRelease {
           name: name,
           url: url,
           size: size,
+          id: raw['id'] is int ? raw['id'] as int : null,
           digest:
               digest != null &&
                   RegExp(r'^sha256:[a-fA-F0-9]{64}$').hasMatch(digest)
@@ -172,9 +181,16 @@ class AppRelease {
   }
 }
 
+class UpdatePackageInfo {
+  const UpdatePackageInfo({required this.version, required this.build});
+  final String version;
+  final int build;
+}
+
 abstract interface class UpdatePlatform {
   Future<InstalledApp> installedApp();
-  Future<String> install(File apk, String version);
+  Future<UpdatePackageInfo> inspect(File apk, String version, {int? build});
+  Future<String> install(File apk, String version, {int? build});
   Future<void> allowInstalls();
   Future<void> openRelease(Uri page);
 }
@@ -193,10 +209,29 @@ class AndroidUpdatePlatform implements UpdatePlatform {
   }
 
   @override
-  Future<String> install(File apk, String version) async =>
+  Future<UpdatePackageInfo> inspect(
+    File apk,
+    String version, {
+    int? build,
+  }) async {
+    final info = await channel.invokeMapMethod<String, dynamic>('inspect', {
+      'path': apk.path,
+      'version': version,
+      'build': build,
+    });
+    if (info == null) throw const FormatException('无法验证安装包，请重新下载');
+    return UpdatePackageInfo(
+      version: info['version'] as String,
+      build: (info['build'] as num).toInt(),
+    );
+  }
+
+  @override
+  Future<String> install(File apk, String version, {int? build}) async =>
       await channel.invokeMethod<String>('install', {
         'path': apk.path,
         'version': version,
+        'build': build,
       }) ??
       'opened';
   @override
@@ -263,6 +298,7 @@ class GithubUpdateSource implements UpdateSource {
       );
       request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8-Flutter');
       request.headers.set('X-GitHub-Api-Version', '2022-11-28');
+      request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(
         const Duration(seconds: 20),
       );
@@ -312,6 +348,7 @@ class GithubUpdateSource implements UpdateSource {
         }
         final request = await client.getUrl(url);
         request.followRedirects = false;
+        request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
         final candidate = await request.close().timeout(
           const Duration(seconds: 30),
         );
@@ -357,6 +394,17 @@ class GithubUpdateSource implements UpdateSource {
   }
 }
 
+class _ReadyUpdate {
+  const _ReadyUpdate(this.file, this.tag, this.asset, this.info);
+  final File file;
+  final String tag;
+  final UpdateAsset asset;
+  final UpdatePackageInfo info;
+
+  bool matches(AppRelease? release, UpdateAsset? selected) =>
+      release?.tag == tag && selected != null && asset.samePackage(selected);
+}
+
 class AppUpdates extends ChangeNotifier {
   AppUpdates({
     required this.preferences,
@@ -376,7 +424,9 @@ class AppUpdates extends ChangeNotifier {
   InstalledApp? installed;
   AppRelease? release;
   String? error;
-  File? downloaded;
+  _ReadyUpdate? _ready;
+  File? get downloaded => _ready?.file;
+  UpdatePackageInfo? get downloadedInfo => _ready?.info;
   bool checking = false,
       downloading = false,
       checked = false,
@@ -386,6 +436,7 @@ class AppUpdates extends ChangeNotifier {
   bool _disposed = false;
   UpdateDownload? _download;
   Future<InstalledApp>? _loadingInfo;
+  bool get busy => checking || downloading || installing;
   bool get autoCheck => preferences.getBool('checkAppUpdates') ?? true;
   bool get available =>
       release != null && installed != null && release!.isNewerThan(installed!);
@@ -435,7 +486,7 @@ class AppUpdates extends ChangeNotifier {
       if (!_disposed) {
         installed = value;
         if (release != null && !available) {
-          downloaded = null;
+          _ready = null;
           needsPermission = false;
         }
         _notify();
@@ -446,7 +497,7 @@ class AppUpdates extends ChangeNotifier {
   }
 
   Future<void> check({bool automatic = false}) async {
-    if (_disposed || checking || downloading) return;
+    if (_disposed || busy) return;
     final now = _clock();
     if (automatic && !autoCheck) return;
     checking = true;
@@ -456,8 +507,9 @@ class AppUpdates extends ChangeNotifier {
       await loadInstalled(refresh: true);
       final candidate = await source.latest();
       if (_disposed) return;
-      if (candidate?.tag != release?.tag) {
-        downloaded = null;
+      if (_ready != null &&
+          !_ready!.matches(candidate, candidate?.assetFor(installed!.abis))) {
+        _ready = null;
         needsPermission = false;
       }
       release = candidate;
@@ -476,20 +528,29 @@ class AppUpdates extends ChangeNotifier {
 
   Future<void> download() async {
     final selected = asset;
-    if (_disposed || downloading || !available || selected == null) return;
+    final target = release;
+    if (_disposed || busy || !available || selected == null || target == null) {
+      return;
+    }
     final task = UpdateDownload();
     _download = task;
     downloading = true;
-    downloaded = null;
+    _ready = null;
     needsPermission = false;
     error = null;
     bytes = 0;
     _notify();
-    File? part;
+    Directory? attempt;
+    var retained = false;
     try {
       final root = Directory('${(await _directory()).path}/updates');
       await root.create(recursive: true);
-      part = File('${root.path}/pending.apk.part');
+      // Android stages a content URI asynchronously. Never replace a file that
+      // has already been handed to its installer, even for a retry of one tag.
+      await _pruneOldDownloads(root);
+      task.check();
+      attempt = await root.createTemp('package-');
+      final part = File('${attempt.path}/pending.apk.part');
       final notificationClock = Stopwatch()..start();
       await source.download(selected, part, task, (count) {
         bytes = count;
@@ -500,37 +561,93 @@ class AppUpdates extends ChangeNotifier {
         }
       });
       task.check();
-      final ready = File('${root.path}/update.apk');
-      if (await ready.exists()) await ready.delete();
-      downloaded = await part.rename(ready.path);
+      final ready = await part.rename('${attempt.path}/update.apk');
+      final info = await platform.inspect(
+        ready,
+        target.version.name,
+        build: target.version.build > 0 ? target.version.build : null,
+      );
+      task.check();
+      if (info.version != target.version.name ||
+          info.build <= installed!.build ||
+          (target.version.build > 0 && info.build != target.version.build)) {
+        throw const FormatException('下载的安装包版本不符，请重新下载');
+      }
+      final candidate = _ReadyUpdate(ready, target.tag, selected, info);
+      if (!candidate.matches(release, asset)) {
+        throw const FormatException('更新版本已变化，请重新检查并下载');
+      }
+      _ready = candidate;
+      retained = true;
     } catch (failure) {
       if (!task.cancelled && !_disposed) {
-        error = failure is FormatException ? failure.message : '下载失败，请检查网络后重试';
+        error = switch (failure) {
+          FormatException() => failure.message,
+          PlatformException() => failure.message ?? '安装包无法验证，请重新下载',
+          _ => '下载失败，请检查网络后重试',
+        };
       }
     } finally {
-      if (part != null && await part.exists()) await part.delete();
-      _download = null;
-      downloading = false;
-      _notify();
+      try {
+        if (!retained && attempt != null && await attempt.exists()) {
+          await attempt.delete(recursive: true);
+        }
+      } finally {
+        _download = null;
+        downloading = false;
+        _notify();
+      }
+    }
+  }
+
+  Future<void> _pruneOldDownloads(Directory root) async {
+    final expiry = _clock().subtract(const Duration(days: 7));
+    await for (final entry in root.list(followLinks: false)) {
+      if (entry is! Directory ||
+          !entry.path
+              .split(Platform.pathSeparator)
+              .last
+              .startsWith('package-')) {
+        continue;
+      }
+      if ((await entry.stat()).modified.isBefore(expiry)) {
+        await entry.delete(recursive: true);
+      }
     }
   }
 
   void cancelDownload() => _download?.cancel();
   Future<void> install() async {
-    final apk = downloaded;
-    if (apk == null || release == null || _disposed || installing) return;
+    final ready = _ready;
+    if (ready == null || _disposed || busy) return;
+    if (!ready.matches(release, asset)) {
+      _ready = null;
+      needsPermission = false;
+      error = '更新版本已变化，请重新检查并下载';
+      _notify();
+      return;
+    }
     installing = true;
     _notify();
     try {
       await loadInstalled(refresh: true);
+      if (_disposed) return;
       if (!available) {
         error = '本机已安装 ${installed!.version}（${installed!.build}），无需重复安装';
         return;
       }
-      final result = await platform.install(apk, release!.version.name);
+      final result = await platform.install(
+        ready.file,
+        ready.info.version,
+        build: ready.info.build,
+      );
       needsPermission = result == 'permission';
       error = null;
     } on PlatformException catch (failure) {
+      if (failure.code == 'APK_REJECTED') {
+        _ready = null;
+        needsPermission = false;
+      }
       error = failure.message ?? '无法打开安装程序，请重试';
     } catch (_) {
       error = '无法打开安装程序，请重试';

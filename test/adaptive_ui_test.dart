@@ -28,7 +28,14 @@ class _AdaptiveUpdatePlatform implements UpdatePlatform {
   Future<InstalledApp> installedApp() async =>
       const InstalledApp(version: '0.2.0', build: 2, abis: ['arm64-v8a']);
   @override
-  Future<String> install(File apk, String version) async => 'opened';
+  Future<UpdatePackageInfo> inspect(
+    File apk,
+    String version, {
+    int? build,
+  }) async => UpdatePackageInfo(version: version, build: build ?? 7);
+  @override
+  Future<String> install(File apk, String version, {int? build}) async =>
+      'opened';
   @override
   Future<void> allowInstalls() async {}
   @override

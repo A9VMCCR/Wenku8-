@@ -73,7 +73,13 @@ class _Platform implements UpdatePlatform {
   @override
   Future<InstalledApp> installedApp() async => app;
   @override
-  Future<String> install(File apk, String version) async {
+  Future<UpdatePackageInfo> inspect(
+    File apk,
+    String version, {
+    int? build,
+  }) async => UpdatePackageInfo(version: version, build: build ?? 31);
+  @override
+  Future<String> install(File apk, String version, {int? build}) async {
     installs++;
     return 'opened';
   }

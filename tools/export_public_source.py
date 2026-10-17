@@ -13,6 +13,7 @@ FILES = (
     "CHANGELOG.md", "tools/prepare_release.py", "tools/test_prepare_release.py",
     "tools/check_public_source.py", "tools/test_public_source_policy.py",
     "tools/verify_apk_runtime.py", "tools/test_verify_apk_runtime.py",
+    "tools/create_update_fixtures.py",
 )
 DIRECTORIES = ("lib", "assets", "shaders", "test", "integration_test", "android", "ios", "docs/images", "third_party/liquid_glass_easy")
 PRIVATE_NAMES = {

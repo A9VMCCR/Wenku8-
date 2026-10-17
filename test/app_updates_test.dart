@@ -24,10 +24,10 @@ Map<String, dynamic> _json({
       [
         for (final abi in ['armeabi-v7a', 'arm64-v8a', 'x86_64'])
           {
-            'name': 'wenku8-0.3.0-$abi.apk',
+            'name': 'wenku8-${ReleaseVersion.parse(tag)!.name}-$abi.apk',
             'size': 16,
             'browser_download_url':
-                'https://github.com/$_repo/releases/download/$tag/wenku8-0.3.0-$abi.apk',
+                'https://github.com/$_repo/releases/download/$tag/wenku8-${ReleaseVersion.parse(tag)!.name}-$abi.apk',
           },
       ],
 };
@@ -40,9 +40,15 @@ const _installed = InstalledApp(
 class _Platform implements UpdatePlatform {
   String result = 'opened';
   String? failure;
+  String failureCode = 'APK_REJECTED';
   int installs = 0;
   int reads = 0;
   InstalledApp current = _installed;
+  Completer<void>? installGate;
+  final handedOff = <File>[];
+  String? inspectFailure;
+  int? installBuild;
+  int verifiedBuild = 7;
   @override
   Future<InstalledApp> installedApp() async {
     reads++;
@@ -50,10 +56,25 @@ class _Platform implements UpdatePlatform {
   }
 
   @override
-  Future<String> install(File apk, String version) async {
+  Future<UpdatePackageInfo> inspect(
+    File apk,
+    String version, {
+    int? build,
+  }) async {
+    if (inspectFailure != null) {
+      throw PlatformException(code: 'APK_REJECTED', message: inspectFailure);
+    }
+    return UpdatePackageInfo(version: version, build: build ?? verifiedBuild);
+  }
+
+  @override
+  Future<String> install(File apk, String version, {int? build}) async {
     installs++;
+    installBuild = build;
+    handedOff.add(apk);
+    if (installGate != null) await installGate!.future;
     if (failure != null) {
-      throw PlatformException(code: 'APK_REJECTED', message: failure);
+      throw PlatformException(code: failureCode, message: failure);
     }
     return result;
   }
@@ -69,9 +90,13 @@ class _Source implements UpdateSource {
   int checks = 0;
   bool fail = false;
   Completer<void>? gate;
+  Completer<void>? checkGate;
+  List<int> data = [1, 2, 3];
+  int downloads = 0;
   @override
   Future<AppRelease?> latest() async {
     checks++;
+    if (checkGate != null) await checkGate!.future;
     if (fail) throw const SocketException('offline');
     return release;
   }
@@ -83,8 +108,9 @@ class _Source implements UpdateSource {
     UpdateDownload task,
     void Function(int) progress,
   ) async {
-    await file.writeAsBytes([1, 2, 3]);
-    progress(3);
+    downloads++;
+    await file.writeAsBytes(data);
+    progress(data.length);
     if (gate != null) await gate!.future;
     task.check();
     if (fail) throw const SocketException('offline');
@@ -454,10 +480,7 @@ void main() {
       await downloading;
       expect(updates.downloaded, isNull);
       expect(updates.error, null);
-      expect(
-        await File('${temp.path}/updates/pending.apk.part').exists(),
-        false,
-      );
+      expect(await Directory('${temp.path}/updates').list().toList(), isEmpty);
       source.gate = null;
       source.fail = true;
       await updates.download();
@@ -465,6 +488,154 @@ void main() {
       source.fail = false;
       await updates.download();
       expect(updates.downloaded, isNotNull);
+    },
+  );
+  test(
+    'a new download cannot replace an APK already handed to Android',
+    () async {
+      await updates.check();
+      await updates.download();
+      await updates.install();
+      final first = platform.handedOff.single;
+      source.release = AppRelease.fromGithub(_json(tag: 'v0.4.0'), _repo);
+      source.data = [4, 5, 6];
+      await updates.check();
+      await updates.download();
+      expect(updates.downloaded!.path, isNot(first.path));
+      expect(await first.readAsBytes(), [1, 2, 3]);
+      expect(await updates.downloaded!.readAsBytes(), [4, 5, 6]);
+    },
+  );
+  test(
+    'checking excludes download and install until metadata is settled',
+    () async {
+      await updates.check();
+      await updates.download();
+      source.checkGate = Completer<void>();
+      final checking = updates.check();
+      await Future<void>.delayed(Duration.zero);
+      expect(updates.checking, isTrue);
+      await updates.install();
+      await updates.download();
+      expect(platform.installs, 0);
+      expect(source.downloads, 1);
+      source.checkGate!.complete();
+      await checking;
+    },
+  );
+  test(
+    'installer handoff excludes metadata changes and another download',
+    () async {
+      await updates.check();
+      await updates.download();
+      platform.installGate = Completer<void>();
+      final installing = updates.install();
+      await Future<void>.delayed(Duration.zero);
+      expect(updates.installing, isTrue);
+      await updates.check();
+      await updates.download();
+      expect(source.checks, 1);
+      expect(source.downloads, 1);
+      platform.installGate!.complete();
+      await installing;
+    },
+  );
+  test(
+    'replacing an asset under the same tag invalidates the ready APK',
+    () async {
+      await updates.check();
+      await updates.download();
+      final replacement = _json();
+      for (final asset in replacement['assets'] as List) {
+        (asset as Map<String, dynamic>)['size'] = 32;
+      }
+      source.release = AppRelease.fromGithub(replacement, _repo);
+      await updates.check();
+      expect(updates.downloaded, isNull);
+      await updates.install();
+      expect(platform.installs, 0);
+    },
+  );
+  test(
+    'a rejected APK returns to download instead of repeating a bad install',
+    () async {
+      await updates.check();
+      await updates.download();
+      platform.failure = '安装包版本不匹配，请重新下载';
+      await updates.install();
+      expect(updates.downloaded, isNull);
+      expect(updates.error, contains('重新下载'));
+      platform.failure = null;
+      await updates.download();
+      await updates.install();
+      expect(source.downloads, 2);
+      expect(platform.installs, 2);
+    },
+  );
+  test(
+    'unchanged metadata preserves a verified APK across permission returns',
+    () async {
+      await updates.check();
+      await updates.download();
+      final ready = updates.downloaded;
+      platform.result = 'permission';
+      await updates.install();
+      await updates.check();
+      expect(updates.downloaded!.path, ready!.path);
+      expect(updates.needsPermission, isTrue);
+      platform.failureCode = 'OPEN';
+      platform.failure = '系统页面无法打开，请重试';
+      await updates.install();
+      expect(updates.downloaded!.path, ready.path);
+      platform.failure = null;
+      platform.result = 'opened';
+      await updates.install();
+      expect(updates.needsPermission, isFalse);
+    },
+  );
+  test(
+    'same-tag asset IDs invalidate an equal-sized APK, retries have unique paths',
+    () async {
+      await updates.check();
+      await updates.download();
+      final first = updates.downloaded!;
+      await updates.download();
+      expect(updates.downloaded!.path, isNot(first.path));
+      final replaced = _json();
+      for (final raw in replaced['assets'] as List) {
+        (raw as Map<String, dynamic>)['id'] = 42;
+      }
+      source.release = AppRelease.fromGithub(replaced, _repo);
+      await updates.check();
+      expect(updates.downloaded, isNull);
+    },
+  );
+  test(
+    'download validates the actual APK before offering installation',
+    () async {
+      await updates.check();
+      platform.inspectFailure = '安装包是 0.2.0（2），不是较新版本，请重新下载';
+      await updates.download();
+      expect(updates.downloaded, isNull);
+      expect(updates.error, contains('0.2.0（2）'));
+      expect(await Directory('${temp.path}/updates').list().toList(), isEmpty);
+      platform.inspectFailure = null;
+      await updates.download();
+      expect(updates.downloadedInfo!.version, '0.3.0');
+      expect(updates.downloadedInfo!.build, 7);
+      await updates.install();
+      expect(platform.installBuild, 7);
+    },
+  );
+  test(
+    'an APK must have a newer native build even with a newer release name',
+    () async {
+      await updates.check();
+      platform.verifiedBuild = 2;
+      await updates.download();
+      expect(updates.downloaded, isNull);
+      expect(updates.error, contains('版本不符'));
+      expect(platform.installs, 0);
     },
   );
   test(
