@@ -84,6 +84,10 @@ flutter build apk --release --target-platform android-arm64
 
 签名配置与发布流程见 [构建发布指南](docs/RELEASING.md)。
 
+## 友情链接
+
+[LINUX DO 社区](https://linux.do/)
+
 ## 贡献
 
 欢迎通过 [Issues](https://github.com/mikufoxxx/Wenku8_Flutter/issues) 反馈问题或提出建议，通过 Pull Request 参与开发。提交问题时请提供应用版本、Android 版本和复现步骤。
