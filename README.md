@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/branding/app-icon.png" width="96" alt="Wenku8 Flutter" />
+  <img src="assets/branding/app-icon.png" width="96" alt="纸间文库" />
 </p>
 
-<h1 align="center">Wenku8 Flutter</h1>
+<h1 align="center">纸间文库</h1>
 
-<p align="center">基于 Flutter 的 Android 轻小说阅读客户端</p>
+<p align="center">自己的书源，自己的阅读空间</p>
 
 <p align="center">
   <a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases"><img src="https://img.shields.io/github/v/release/mikufoxxx/Wenku8_Flutter?style=flat-square&color=555555" alt="Release" /></a>
@@ -22,7 +22,9 @@
 
 ## 简介
 
-Wenku8 Flutter 是面向 Android 手机与平板的轻小说阅读客户端，集成书籍发现、书架管理、本地书库、离线阅读与在线听书。奶白玻璃材质、档案式排版与立体书架贯穿界面，阅读器支持滚动、横排翻页、竖排翻页和大屏对页。
+纸间文库是面向 Android 手机与平板的阅读应用，集成书籍发现、书架管理、本地书库、离线阅读与在线听书。奶白玻璃材质、档案式排版与立体书架贯穿界面，阅读器支持滚动、横排翻页、竖排翻页和大屏对页。
+
+**0.4.0 开发中**：项目已更名为「纸间文库」，新版将移除内置内容源，优先兼容阅读 3.0 的 JSON 书源。当前下载仍为更名前的 **0.3.7 正式版**；0.4.0 尚未发布。
 
 ## 界面预览
 
@@ -95,7 +97,7 @@ flutter build apk --release --target-platform android-arm64
 
 ## 项目声明
 
-本项目是基于 MewX/light-novel-library_Wenku8_Android 二次开发的非官方第三方客户端，由本项目维护者独立维护，不代表来源站点或上游作者。
+纸间文库是基于 MewX/light-novel-library_Wenku8_Android 二次开发的非官方第三方客户端，由本项目维护者独立维护，不代表来源站点或上游作者。
 
 本仓库用于维护应用源码及发布版本更新。应用代码遵循相应的 GPL 许可，保留上游署名及第三方组件许可，具体见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
 

@@ -45,7 +45,7 @@ Android 文档转换使用 [jsoup 1.23.2](https://jsoup.org/)（MIT，Jonathan H
 
 OpenJDK 兼容库的完整未修改源码、许可与构建脚本保存在 `third_party/desugar_jdk_libs-2.1.5/`，对应上游发布准备提交 `73170c345e6a762fc6a1f0301bb15218850023ef`；来源见 `third_party/DESUGAR_JDK_LIBS.md`，随应用对应源码一起提供。
 
-依赖版本锁定于 `pubspec.lock`。Flutter、Cupertino Icons、音频与存储插件保留各自许可；Flutter 构建生成的许可集合可在 **设置 → 关于轻小说文库 → 开源许可与字体授权** 查看。该页面也包括上面的内置字体与协议适配声明。
+依赖版本锁定于 `pubspec.lock`。Flutter、Cupertino Icons、音频与存储插件保留各自许可；Flutter 构建生成的许可集合可在 **我的 → 关于 → 开源许可与字体授权** 查看。该页面也包括上面的内置字体与协议适配声明。
 
 液态玻璃基于 [liquid_glass_easy 5.0.0](https://pub.dev/packages/liquid_glass_easy/versions/5.0.0)，作者 Ahmed Gamil，使用 MIT License。源码和原许可保留于 [`third_party/liquid_glass_easy`](../third_party/liquid_glass_easy)；本地 GPU 性能修改单独记录在 [`PATCHES.md`](../third_party/liquid_glass_easy/PATCHES.md)。应用保留原作者署名，版权与许可随源码及 Flutter 的开源许可集合分发。
 
