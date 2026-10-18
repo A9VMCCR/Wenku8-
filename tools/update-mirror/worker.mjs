@@ -203,7 +203,11 @@ export async function handle(request, dependencies) {
     }
     if (url.pathname === '/api/releases/latest' && !url.search) {
       const result = await release('latest', url.origin, dependencies);
-      return output(result.response, request.method, result.state);
+      const response = output(result.response, request.method, result.state);
+      // The internal shared manifest still caches for 120 seconds. Do not let
+      // a browser retain the previous release across a withdrawal or rollback.
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
     }
     const match = url.pathname.match(/^\/mikufoxxx\/Wenku8_Flutter\/releases\/download\/([^/]+)\/([^/]+)$/);
     if (match) return await assetResponse(request, url, match, dependencies);
@@ -293,13 +297,13 @@ export class ReleaseRegistry {
   }
 }
 
-export const HOME = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文库 · 更新镜像</title>
+export const HOME = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>轻小说文库 · 下载与更新</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#f5f4ee;color:#303633;font:16px/1.65 system-ui,-apple-system,sans-serif}main{max-width:900px;margin:auto;padding:12vh 28px 64px}small{letter-spacing:.16em;color:#65756e}h1{font-size:clamp(32px,6vw,56px);font-weight:500;letter-spacing:-.04em;margin:20px 0 12px}p{color:#65716c;max-width:630px}header{border-bottom:1px solid #d9dfd8;padding-bottom:36px;margin-bottom:32px}a{color:inherit}#files{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:26px 0 42px}.file{display:flex;flex-direction:column;gap:12px;padding:24px;background:#ffffffa8;border:1px solid #ffffff;border-radius:20px;text-decoration:none;transition:transform .2s,background .2s}.file:hover{transform:translateY(-3px);background:#fff}.file b{font-size:18px;font-weight:550}.file span{color:#6c7970;font-size:14px}.file em{font-style:normal;color:#395f4e;margin-top:8px;font-size:14px}footer{font-size:13px;color:#79827b;display:flex;gap:24px;flex-wrap:wrap}.status{font-size:14px;color:#536a5c}pre{font-size:13px;overflow:auto;background:#e9ece5;padding:18px;border-radius:12px}</style>
-<main><header><small>WENKU8 / READING ARCHIVE</small><h1>把故事，留在手边。</h1><p>轻小说文库 Flutter 客户端。在线发现、离线阅读、本地书库与自然听书，以轻盈的玻璃界面承载每一页故事。</p><p>立体书架 · 横排与竖排 · 本地导入 · 书签与听书</p></header><div class="status" id="status">正在读取最新版本…</div><section id="releases"><div id="files"></div></section><details><summary>本版更新说明</summary><pre id="release-notes" style="white-space:pre-wrap">正在读取…</pre></details><br><footer><a href="https://github.com/mikufoxxx/Wenku8_Flutter">项目仓库 ↗</a><a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases">历史版本 ↗</a><span>文库 · Android</span></footer></main>
+<main><header><small>WENKU8 / READING ARCHIVE</small><h1>把故事，留在手边。</h1><p>轻小说文库 Flutter 客户端。在线发现、离线阅读、本地书库与自然听书，以轻盈的玻璃界面承载每一页故事。</p><p>立体书架 · 横排与竖排 · 本地导入 · 书签与听书</p><p><strong>当前正式版恢复为 0.3.7，0.4.0 已撤回。</strong><br>历史正式版安装包与源码包恢复提供。已安装 0.4.0 的用户请先备份数据，不要直接卸载；Android 不支持普通覆盖降级。</p></header><div class="status" id="status">正在读取最新版本…</div><section id="releases"><div id="files"></div></section><details><summary>本版更新说明</summary><pre id="release-notes" style="white-space:pre-wrap">正在读取…</pre></details><br><footer><a href="https://github.com/mikufoxxx/Wenku8_Flutter">项目仓库 ↗</a><a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases">历史版本 ↗</a><span>轻小说文库 · Android</span></footer></main>
 <script>
 async function read(url, method='GET') {
   const controller = new AbortController(), timer = setTimeout(()=>controller.abort(), 8000);
-  try { const r=await fetch(url,{method,signal:controller.signal}); if(!r.ok)throw Error(); return method==='HEAD'?true:await r.json(); }
+  try { const r=await fetch(url,{method,signal:controller.signal,cache:'no-store'}); if(!r.ok)throw Error(); return method==='HEAD'?true:await r.json(); }
   finally {clearTimeout(timer)}
 }
 async function latest(){try{return await read('/api/releases/latest')}catch{return await read('https://api.github.com/repos/mikufoxxx/Wenku8_Flutter/releases/latest')}}

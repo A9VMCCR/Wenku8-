@@ -33,8 +33,9 @@ test('latest keeps canonical GitHub URLs and digests; shared cache is 120 second
   const first = await f.request('/api/releases/latest');
   assert.deepEqual(await first.json(), data);
   assert.equal(first.headers.get('x-wenku-cache'), 'MISS');
-  assert.match(first.headers.get('cache-control'), /s-maxage=120/);
+  assert.equal(first.headers.get('cache-control'), 'no-store');
   await Promise.all(f.pending);
+  assert.match([...f.stored.values()][0].headers.get('cache-control'), /s-maxage=120/);
   assert.equal((await f.request('/api/releases/latest')).headers.get('x-wenku-cache'), 'HIT');
   assert.equal(f.calls.length, 1);
   assert.equal(f.calls[0].options.redirect, 'manual');
