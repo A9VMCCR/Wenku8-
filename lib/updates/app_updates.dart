@@ -15,12 +15,12 @@ const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: officialUpdateRepository,
 );
-const currentAppVersion = '0.3.6';
-const currentAppBuild = 61;
+const currentAppVersion = '0.3.7';
+const currentAppBuild = 62;
 const currentReleaseNotes = '''
 阅读器新增五种翻页效果、四边页边距、透明进度预览，修复翻页选字与控件收放闪烁；听书支持 0.5～3 倍速。
 扩展本地导入与扫描，支持自定义分类、批量删除、字体导入和繁体中文；发现支持多标签筛选。
-更新入口与阅读工具重新归组，详情支持 EPUB／TXT 下载，版本检测与 APK 下载自动优先镜像并保留原站兜底。
+更新入口与阅读工具重新归组，小说仅保留 App 内离线缓存；版本检测与 APK 下载自动优先镜像并保留原站兜底。
 完整说明见「我的 → 关于 → 本版更新」。
 ''';
 

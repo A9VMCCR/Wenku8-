@@ -21,7 +21,7 @@ import java.util.concurrent.Executors
 class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHandler {
     private val io = Executors.newSingleThreadExecutor()
     private val preferences = activity.getSharedPreferences("book_documents", 0)
-    private data class Pending(val method: String, val result: MethodChannel.Result, val export: File? = null, val exportName: String? = null)
+    private data class Pending(val method: String, val result: MethodChannel.Result)
     private var pending: Pending? = null
     private var closed = false
     private val root = File(activity.cacheDir, "book-documents").apply { mkdirs() }
@@ -100,23 +100,6 @@ class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHa
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "saveBookFile" -> {
-                if (pending != null) { result.error("busy", "请先完成当前文件选择", null); return }
-                try {
-                    val source = BookExportFiles.source(File(activity.cacheDir, "book-exports"), call.argument<String>("path") ?: "")
-                    val title = (call.argument<String>("name") ?: source.name)
-                    require(title.length in 1..240 && !title.contains('/') && !title.contains('\\') && !title.any { it.code < 32 }) { "文件名无效" }
-                    require(title.substringAfterLast('.').lowercase() == source.extension.lowercase()) { "文件格式不匹配" }
-                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = BookExportFiles.mime(source)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                        putExtra(Intent.EXTRA_TITLE, title)
-                    }
-                    pending = Pending(call.method, result, source, title)
-                    @Suppress("DEPRECATION") activity.startActivityForResult(Intent.createChooser(intent, "选择保存文件的应用"), REQUEST)
-                } catch (error: Exception) { pending = null; result.error("export", error.message ?: "无法打开保存位置", null) }
-            }
             "selectAllScan" -> {
                 if (pending != null) { result.error("busy", "请先完成当前文件选择", null); return }
                 if (scanner.canReadAll()) { background(result) { scanner.selectAll() }; return }
@@ -259,12 +242,7 @@ class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHa
         if (uris.isEmpty()) { operation.result.success(null); return true }
         val uri = uris.first()
         background(operation.result) {
-            if (operation.method == "saveBookFile") {
-                val source = BookExportFiles.source(File(activity.cacheDir, "book-exports"), operation.export?.path ?: "")
-                val size = activity.contentResolver.openOutputStream(uri, "wt")?.use { BookExportFiles.copy(source, it) }
-                    ?: error("无法写入所选位置，请重新选择")
-                mapOf("name" to name(uri, operation.exportName ?: source.name), "size" to size)
-            } else if (operation.method == "selectScanFolder") {
+            if (operation.method == "selectScanFolder") {
                 scanner.select(uri, data.flags)
             } else if (operation.method == "pickFont") {
                 val display = name(uri)

@@ -161,7 +161,7 @@ void main({
       expect(tester.binding.transientCallbackCount, 0);
       final download = tester.widget<GlassIconButton>(
         find.byWidgetPredicate(
-          (widget) => widget is GlassIconButton && widget.label == '下载与缓存',
+          (widget) => widget is GlassIconButton && widget.label == '离线缓存',
         ),
       );
       expect(download.onPressed, isNull);

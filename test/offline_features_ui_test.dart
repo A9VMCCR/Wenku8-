@@ -190,7 +190,7 @@ void main({
     },
   );
 
-  testWidgets('download menu reuses glass and downloaded body reads offline', (
+  testWidgets('cache-only menu reuses glass and cached body reads offline', (
     tester,
   ) async {
     final key = GlobalKey();
@@ -198,9 +198,13 @@ void main({
       _app(DetailPage(novel: novel, state: state, repository: repository), key),
     );
     await tester.pumpAndSettle();
-    await _tapIo(tester, _control('下载与缓存'));
+    await _tapIo(tester, _control('离线缓存'));
     expect(find.byType(GlassOverlaySurface), findsOneWidget);
     expect(find.byType(LiquidGlass), findsWidgets);
+    expect(find.text('下载 EPUB / TXT'), findsNothing);
+    expect(find.text('下载并保存'), findsNothing);
+    expect(find.text('缓存全部章节'), findsOneWidget);
+    expect(find.text('缓存后续 20 章'), findsOneWidget);
     if (capture != null) await capture(tester, key, 'offline-detail-menu');
     await _tapIo(
       tester,
@@ -325,7 +329,7 @@ void main({
         ),
       );
       await tester.pumpAndSettle();
-      await _tapIo(tester, _control('下载与缓存'));
+      await _tapIo(tester, _control('离线缓存'));
       await _tapIo(
         tester,
         find.text('缓存全部章节'),
@@ -337,7 +341,7 @@ void main({
         await capture(tester, key, 'offline-download-failed');
       }
       remote.failChapter = null;
-      await _tapIo(tester, _control('下载与缓存'));
+      await _tapIo(tester, _control('离线缓存'));
       await _tapIo(
         tester,
         find.text('继续缓存'),
@@ -362,13 +366,13 @@ void main({
         ),
       );
       await tester.pumpAndSettle();
-      await _tapIo(tester, _control('下载与缓存'));
+      await _tapIo(tester, _control('离线缓存'));
       await _tapIo(
         tester,
         find.text('缓存全部章节'),
         until: () => remote.activeReads == 1,
       );
-      await _tapIo(tester, _control('下载与缓存'));
+      await _tapIo(tester, _control('离线缓存'));
       await _tapIo(tester, find.text('取消缓存'));
       reply.complete(novel.chapters.first.content);
       await _settleIo(tester);
@@ -376,7 +380,7 @@ void main({
       expect(cache.book(71)!.cachedCount, 0);
       expect(find.text('已取消 · 保留已缓存章节'), findsOneWidget);
       if (capture != null) await capture(tester, key, 'offline-cancelled');
-      await _tapIo(tester, _control('下载与缓存'));
+      await _tapIo(tester, _control('离线缓存'));
       await _tapIo(
         tester,
         find.text('继续缓存'),
@@ -408,7 +412,7 @@ void main({
         ),
       );
       await tester.pumpAndSettle();
-      await _tapIo(tester, _control('下载与缓存'));
+      await _tapIo(tester, _control('离线缓存'));
       await _tapIo(
         tester,
         find.text('缓存后续 20 章'),

@@ -12,7 +12,6 @@ import 'app_ui.dart';
 import 'app_search_field.dart';
 import 'setting_menu.dart';
 import 'cover_images.dart';
-import 'book_download_page.dart';
 import 'font_settings_page.dart';
 import 'my_page.dart';
 import 'illustration_layout_page.dart';
@@ -3901,24 +3900,20 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
       code: ArchiveDesign.fileCode(novel.id),
     ),
     actions: [
-      if (repository case final OfflineNovelRepository offline)
-        if (isLocalBook(novel.id))
-          _downloadButton(context)
-        else if (isLoading || loadError != null || novel.chapters.isEmpty)
+      if (!isLocalBook(novel.id) && repository is OfflineNovelRepository)
+        if (isLoading || loadError != null || novel.chapters.isEmpty)
           const GlassIconButton(
             icon: CupertinoIcons.cloud_download,
-            label: '下载与缓存',
+            label: '离线缓存',
             onPressed: null,
           )
         else
           OfflineBookMenu(
-            repository: offline,
+            repository: repository as OfflineNovelRepository,
             novel: novel,
             startChapter: state.chapterForNovel(novel),
             reduceMotion: state.reduceMotion,
-          )
-      else
-        _downloadButton(context),
+          ),
       if (isLocalBook(novel.id))
         GlassIconButton(
           key: const ValueKey('local-book-config'),
@@ -3968,24 +3963,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
           ),
         ),
     ],
-  );
-
-  Widget _downloadButton(BuildContext context) => GlassIconButton(
-    key: const ValueKey('detail-download-book'),
-    icon: CupertinoIcons.arrow_down_to_line,
-    label: isLocalBook(novel.id) ? '导出书籍' : '下载书籍',
-    onPressed: isLoading || loadError != null || novel.chapters.isEmpty
-        ? null
-        : () => pushNovelPage<void>(
-            context,
-            BookDownloadPage(
-              book: novel,
-              repository: repository,
-              reduceMotion: _reduceMotion,
-            ),
-            reduceMotion: _reduceMotion,
-            slot: ('book-download', novel.id),
-          ),
   );
 
   Future<void> _openReader(BuildContext context, int chapter) async {

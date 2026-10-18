@@ -45,19 +45,6 @@ class BookScanSnapshot {
 
 class BookDocuments {
   static const channel = MethodChannel('org.mewx.wenku8/book_documents');
-  Future<({String name, int size})?> saveBookFile(
-    File file,
-    String name,
-  ) async {
-    final value = await channel.invokeMapMethod<String, dynamic>(
-      'saveBookFile',
-      {'path': file.path, 'name': name},
-    );
-    return value == null
-        ? null
-        : (name: value['name'] as String, size: value['size'] as int);
-  }
-
   Future<BookDocumentSelection?> pickFont() async {
     final value = await channel.invokeMapMethod<String, dynamic>('pickFont');
     return value == null

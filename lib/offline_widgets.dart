@@ -6,7 +6,6 @@ import 'app_interactions.dart';
 import 'catalog.dart';
 import 'offline_cache.dart';
 import 'offline_repository.dart';
-import 'book_download_page.dart';
 
 class OfflineBookStatus extends StatelessWidget {
   const OfflineBookStatus({
@@ -52,7 +51,7 @@ class OfflineBookStatus extends StatelessWidget {
   );
 }
 
-enum _BookAction { export, all, next, retry, cancel, remove }
+enum _BookAction { all, next, retry, cancel, remove }
 
 class OfflineBookMenu extends StatelessWidget {
   const OfflineBookMenu({
@@ -72,7 +71,7 @@ class OfflineBookMenu extends StatelessWidget {
     child: Builder(
       builder: (anchor) => GlassIconButton(
         icon: CupertinoIcons.cloud_download,
-        label: '下载与缓存',
+        label: '离线缓存',
         onPressed: () => _show(anchor),
       ),
     ),
@@ -86,39 +85,33 @@ class OfflineBookMenu extends StatelessWidget {
       builder: (menu) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          GlassMenuItem(
-            label: '下载 EPUB / TXT',
-            onPressed: () => Navigator.pop(menu, _BookAction.export),
-          ),
           if (job?.active == true)
             GlassMenuItem(
-              order: 1,
               label: '取消缓存',
               onPressed: () => Navigator.pop(menu, _BookAction.cancel),
             )
           else ...[
             GlassMenuItem(
-              order: 1,
               label: '缓存全部章节',
               onPressed: () => Navigator.pop(menu, _BookAction.all),
             ),
             if (novel.chapters.isNotEmpty)
               GlassMenuItem(
-                order: 2,
+                order: 1,
                 label: '缓存后续 20 章',
                 onPressed: () => Navigator.pop(menu, _BookAction.next),
               ),
             if (job?.phase == DownloadPhase.failed ||
                 job?.phase == DownloadPhase.cancelled)
               GlassMenuItem(
-                order: 3,
+                order: 2,
                 label: '继续缓存',
                 onPressed: () => Navigator.pop(menu, _BookAction.retry),
               ),
           ],
           if (repository.cache.book(novel.id) != null)
             GlassMenuItem(
-              order: 4,
+              order: 3,
               label: '清除这本缓存',
               onPressed: () => Navigator.pop(menu, _BookAction.remove),
             ),
@@ -127,18 +120,6 @@ class OfflineBookMenu extends StatelessWidget {
     );
     if (!context.mounted || selected == null) return;
     switch (selected) {
-      case _BookAction.export:
-        await pushNovelPage<void>(
-          context,
-          BookDownloadPage(
-            book: novel,
-            repository: repository,
-            reduceMotion: reduceMotion,
-          ),
-          reduceMotion: reduceMotion,
-          slot: ('book-download', novel.id),
-        );
-        return;
       case _BookAction.all:
         repository.download(novel);
         return;
@@ -308,7 +289,7 @@ class _OfflineCachePageState extends State<OfflineCachePage> {
                               ] else if (!loading && count == 0)
                                 const Padding(
                                   padding: EdgeInsets.only(top: 24),
-                                  child: AppText('暂无离线缓存，在图书详情中下载章节。'),
+                                  child: AppText('暂无离线缓存，在图书详情中缓存章节。'),
                                 ),
                             ],
                           ),

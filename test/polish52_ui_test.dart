@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,17 +6,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_interactions.dart';
 import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/author_works_page.dart';
-import 'package:wenku8_flutter/book_documents.dart';
-import 'package:wenku8_flutter/book_download_page.dart';
-import 'package:wenku8_flutter/book_file_export.dart';
+import 'package:wenku8_flutter/book_identity.dart';
 import 'package:wenku8_flutter/catalog.dart';
 import 'package:wenku8_flutter/legacy_cover.dart';
 import 'package:wenku8_flutter/library_state.dart';
 import 'package:wenku8_flutter/pages.dart';
 import 'package:wenku8_flutter/reader_illustrations.dart';
 import 'package:wenku8_flutter/setting_menu.dart';
-import 'book_file_export_test.dart'
-    show exportBook, exportPicture, ExportRepository;
+import 'support/book_cover_fixture.dart';
 import 'support/visual_review.dart';
 
 class _Books extends DemoNovelRepository {
@@ -109,18 +105,6 @@ class _ExploreState extends State<_Explore> {
       ],
     ),
   );
-}
-
-class _SaveFiles extends BookDocuments {
-  final paths = <String>[];
-  @override
-  Future<({String name, int size})?> saveBookFile(
-    File file,
-    String name,
-  ) async {
-    paths.add(file.path);
-    return paths.length == 1 ? null : (name: name, size: await file.length());
-  }
 }
 
 class _NoticeHeader extends StatefulWidget {
@@ -324,7 +308,8 @@ void main() {
     'gallery fits at ninety percent on a full canvas, allows shrinking and closes on tap',
     (tester) async {
       phone(tester);
-      final bytes = (await tester.runAsync(exportPicture))!, key = GlobalKey();
+      final bytes = (await tester.runAsync(coverFixturePicture))!,
+          key = GlobalKey();
       final cache = ReaderIllustrationCache(request: (_) async => bytes);
       await tester.pumpWidget(
         app(
@@ -386,15 +371,16 @@ void main() {
     tester,
   ) async {
     phone(tester);
-    final bytes = (await tester.runAsync(exportPicture))!, key = GlobalKey();
-    LegacyCover.seedLocalBytes(exportBook.id, bytes);
+    final bytes = (await tester.runAsync(coverFixturePicture))!,
+        key = GlobalKey();
+    LegacyCover.seedLocalBytes(coverFixtureBook.id, bytes);
     var opened = 0;
     await tester.pumpWidget(
       app(
         Scaffold(
           body: Padding(
             padding: const EdgeInsets.all(24),
-            child: NovelRow(novel: exportBook, onTap: () => opened++),
+            child: NovelRow(novel: coverFixtureBook, onTap: () => opened++),
           ),
         ),
         key,
@@ -456,31 +442,51 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
-  testWidgets(
-    'detail download entry opens book options without entering the reader',
-    (tester) async {
-      phone(tester);
-      final state = await LibraryState.load(), source = _Books();
-      addTearDown(state.dispose);
-      await tester.pumpWidget(
-        app(
-          DetailPage(
-            novel: source.books.first,
-            state: state,
-            repository: source,
+  for (final local in [false, true]) {
+    testWidgets(
+      '${local ? 'local' : 'online'} detail has no book file export entry',
+      (tester) async {
+        phone(tester);
+        final state = await LibraryState.load(), source = _Books();
+        addTearDown(state.dispose);
+        final original = source.books.first;
+        final book = local
+            ? Novel(
+                id: localBookIdStart,
+                title: original.title,
+                author: original.author,
+                genre: original.genre,
+                summary: original.summary,
+                colors: original.colors,
+                chapters: original.chapters,
+              )
+            : original;
+        await tester.pumpWidget(
+          app(
+            DetailPage(novel: book, state: state, repository: source),
+            GlobalKey(),
           ),
-          GlobalKey(),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(pressKey('detail-download-book'));
-      await tester.pumpAndSettle();
-      expect(find.byType(BookDownloadPage), findsOneWidget);
-      expect(find.text('下载并保存'), findsOneWidget);
-      expect(find.byType(ReaderPage), findsNothing);
-      expect(tester.takeException(), isNull);
-    },
-  );
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('detail-download-book')),
+          findsNothing,
+        );
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is GlassIconButton &&
+                const ['下载书籍', '导出书籍'].contains(widget.label),
+          ),
+          findsNothing,
+        );
+        expect(find.text('下载 EPUB / TXT'), findsNothing);
+        if (local) expect(action('配置本地书籍'), findsOneWidget);
+        expect(find.byType(ReaderPage), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
   testWidgets(
     'reader language entry uses the same anchored menu inside the settings panel',
     (tester) async {
@@ -604,67 +610,6 @@ void main() {
       expect(glass.tintColor, isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
-      expect(tester.takeException(), isNull);
-    },
-  );
-  testWidgets(
-    'cancelled save keeps the generated book and retries without another download',
-    (tester) async {
-      phone(tester);
-      final bytes = (await tester.runAsync(exportPicture))!,
-          repo = ExportRepository(),
-          documents = _SaveFiles(),
-          key = GlobalKey();
-      final directory = (await tester.runAsync(
-        () => Directory.systemTemp.createTemp('wenku-download-ui-'),
-      ))!;
-      addTearDown(() async {
-        if (await directory.exists()) await directory.delete(recursive: true);
-      });
-      await tester.pumpWidget(
-        app(
-          BookDownloadPage(
-            book: exportBook,
-            repository: repo,
-            reduceMotion: true,
-            documents: documents,
-            exporter: BookFileExporter(
-              repository: repo,
-              directory: directory,
-              coverRequest: (_) async => bytes,
-              imageRequest: (_) async => bytes,
-            ),
-          ),
-          key,
-        ),
-      );
-      await tester.pumpAndSettle();
-      await captureReview(tester, key, 'book-download-options');
-      await tester.tap(pressKey('book-download-start'));
-      await io(
-        tester,
-        () => find.text('文件已生成，可重新选择保存位置。').evaluate().isNotEmpty,
-      );
-      expect(documents.paths.length, 1);
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('book-download-start')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(pressKey('book-download-start'));
-      await io(
-        tester,
-        () => find.textContaining('已保存 ·').evaluate().isNotEmpty,
-      );
-      expect(documents.paths.length, 2);
-      expect(documents.paths[0], documents.paths[1]);
-      expect(repo.calls, [1, 2, 3]);
-      expect(find.text('文件已保存'), findsOneWidget);
-      expect(find.text('正在生成 EPUB'), findsNothing);
-      await captureReview(tester, key, 'book-download-saved');
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 60)),
-      );
       expect(tester.takeException(), isNull);
     },
   );
