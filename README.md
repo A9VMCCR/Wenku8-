@@ -93,6 +93,16 @@ flutter build apk --release --target-platform android-arm64
 
 欢迎通过 [Issues](https://github.com/mikufoxxx/Wenku8_Flutter/issues) 反馈问题或提出建议，通过 Pull Request 参与开发。提交问题时请提供应用版本、Android 版本和复现步骤。
 
+## 项目声明
+
+本项目是基于 MewX/light-novel-library_Wenku8_Android 二次开发的非官方第三方客户端，由本项目维护者独立维护，不代表来源站点或上游作者。
+
+本仓库用于维护应用源码及发布版本更新。应用代码遵循相应的 GPL 许可，保留上游署名及第三方组件许可，具体见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
+
+小说、封面及插图的版权归各自权利人所有。使用本项目应遵守来源站点的使用规则及相关授权，不得用于绕过访问权限或付费限制。站点接口及规则变化可能影响功能可用性。
+
+如发现版权、授权或其他权益问题，请通过仓库 Issue 联系维护者，核实后采取相应措施。
+
 ## 致谢与许可
 
 本项目基于 [MewX/light-novel-library_Wenku8_Android](https://github.com/MewX/light-novel-library_Wenku8_Android) 重构。感谢 MewX、Baby Pepper（SeraphRoy）、Jack Liu（aaassseee）及原项目贡献者。
