@@ -8,9 +8,12 @@ import 'book_identity.dart';
 import 'performance_preferences.dart';
 import 'local_book_media.dart';
 import 'reader_preferences.dart';
+import 'user_fonts.dart';
+import 'illustration_placement.dart';
 
 final backupPreferenceKeys = <String>{
   'theme',
+  'appLanguage',
   'readerFontSize',
   'readerLineHeight',
   'reduceMotion',
@@ -20,18 +23,28 @@ final backupPreferenceKeys = <String>{
   'readerPreferences',
   'checkAppUpdates',
   'appTypeface',
+  'appCustomFont',
+  'readerTypeface',
   'shelfSort',
   'shelfFilter',
+  'shelfSourceFilter',
   'shelfLayout',
   'adaptWhenOffline',
   'localReaderMode',
+  'directReading',
+  'combinedShelf',
   PerformancePreferences.modeKey,
   ...PerformanceEffect.values.map((effect) => effect.preferenceKey),
 };
-const _listKeys = {'shelf', 'reading_history_hidden', 'recentSearches'};
+const _listKeys = {
+  'shelf',
+  'reading_history_hidden',
+  'recentSearches',
+  'local_shelf_hidden',
+};
 const restoreJournalKey = 'library_restore_journal';
 final _recordKey = RegExp(
-  r'^(chapter|shelf_added|novel_meta|reading_position|reader_bookmarks|book_merge)_([1-9][0-9]{0,9})$',
+  r'^(chapter|shelf_added|novel_meta|reading_position|reader_bookmarks|book_merge|illustration_layout)_([1-9][0-9]{0,9})$',
 );
 
 bool isLibraryRecordKey(String key) =>
@@ -175,6 +188,12 @@ Map<String, Object> _validateRecords(Map<String, dynamic> input) {
         'theme' => ['system', 'light', 'dark'].contains(value),
         'shelfSort' => ['recentRead', 'recentAdded', 'title'].contains(value),
         'shelfLayout' => ['shelf', 'list'].contains(value),
+        'shelfSourceFilter' => [
+          'all',
+          'local',
+          'cached',
+          'online',
+        ].contains(value),
         'shelfFilter' => [
           'all',
           'unread',
@@ -185,8 +204,20 @@ Map<String, Object> _validateRecords(Map<String, dynamic> input) {
         'readerKeepScreenOn' ||
         'adaptWhenOffline' ||
         'localReaderMode' ||
+        'directReading' ||
+        'combinedShelf' ||
         'checkAppUpdates' => value is bool,
+        'appLanguage' => [
+          'system',
+          'simplified',
+          'hongKong',
+          'taiwan',
+        ].contains(value),
         'appTypeface' => value == 'system' || value == 'sourceHanSerif',
+        'appCustomFont' =>
+          value == '' ||
+              (validFontChoice(value) && (value as String).startsWith('font_')),
+        'readerTypeface' => validFontChoice(value, follow: true),
         'readerFontSize' => _number(value, 15, 27),
         'readerLineHeight' => _number(value, 1.3, 2.2),
         'readerPreferences' => _validReaderPreferences(value),
@@ -257,6 +288,19 @@ Map<String, Object> _validateRecords(Map<String, dynamic> input) {
       } else if (key.startsWith('reading_position_')) {
         _validatePosition(record);
         output[key] = jsonEncode(record);
+      } else if (key.startsWith('illustration_layout_')) {
+        if (record is! List || record.length > 2000) {
+          throw const FormatException('插图排版数量过多或格式有误');
+        }
+        final ids = <String>{};
+        for (final raw in record) {
+          if (raw is! Map) throw const FormatException('插图排版格式有误');
+          final placement = IllustrationPlacement.fromJson(
+            Map<String, dynamic>.from(raw),
+          );
+          if (!ids.add(placement.id)) throw const FormatException('插图排版记录重复');
+        }
+        output[key] = jsonEncode(record);
       } else {
         if (record is! List || record.length > 1000) {
           throw const FormatException('书签数量过多或格式有误');
@@ -269,7 +313,10 @@ Map<String, Object> _validateRecords(Map<String, dynamic> input) {
               (mark['id'] as String).length > 256 ||
               !seen.add(mark['id']) ||
               mark['chapterTitle'] is! String ||
-              (mark['chapterTitle'] as String).length > 2048) {
+              (mark['chapterTitle'] as String).length > 2048 ||
+              (mark['quote'] != null &&
+                  (mark['quote'] is! String ||
+                      (mark['quote'] as String).length > 12000))) {
             throw const FormatException('书签格式有误');
           }
           _validatePosition(mark['position']);
@@ -308,8 +355,7 @@ void _validatePosition(Object? record) {
       (record['lineHeight'] != null &&
           !_number(record['lineHeight'], 1.3, 2.2)) ||
       (record['textScale'] != null && !_number(record['textScale'], .5, 5)) ||
-      (record['typeface'] != null &&
-          !const {'system', 'sourceHanSerif'}.contains(record['typeface'])) ||
+      (record['typeface'] != null && !validFontChoice(record['typeface'])) ||
       (record['layout'] != null &&
           (record['layout'] is! String ||
               (record['layout'] as String).length > 128)) ||

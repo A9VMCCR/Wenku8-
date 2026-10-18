@@ -158,15 +158,12 @@ class BookSync extends ChangeNotifier {
     BookDocuments? documents,
     LocalLibraryPreferences? organization,
   }) : documents = documents ?? BookDocuments(),
-       organization =
-           organization ?? (LocalLibraryPreferences(preferences)..load()),
-       _ownsOrganization = organization == null;
+       organization = organization ?? state.organization;
   final LocalBookStore books;
   final LibraryState state;
   final SharedPreferences preferences;
   final BookDocuments documents;
   final LocalLibraryPreferences organization;
-  final bool _ownsOrganization;
   bool get syncOriginals => preferences.getBool('bookSyncOriginals') ?? true;
   bool get syncReading => preferences.getBool('bookSyncReading') ?? true;
   bool get syncCategories => preferences.getBool('bookSyncCategories') ?? true;
@@ -413,7 +410,6 @@ class BookSync extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    if (_ownsOrganization) organization.dispose();
     super.dispose();
   }
 }

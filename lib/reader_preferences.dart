@@ -32,11 +32,33 @@ enum ReaderTapLayout {
   final String label;
 }
 
+enum ReaderPageEffect {
+  staggered('段落接续'),
+  none('无动画'),
+  slide('平移'),
+  cover('覆盖'),
+  paper('纸页翻动');
+
+  const ReaderPageEffect(this.label);
+  final String label;
+  Duration get duration => switch (this) {
+    staggered => const Duration(milliseconds: 620),
+    none => Duration.zero,
+    slide => const Duration(milliseconds: 300),
+    cover => const Duration(milliseconds: 340),
+    paper => const Duration(milliseconds: 440),
+  };
+}
+
 /// Reader-only settings: changing paper never changes the rest of the app.
 class ReaderPreferences {
   const ReaderPreferences({
     this.paper = ReaderPaper.system,
     this.margin = 26,
+    this.marginLeft,
+    this.marginRight,
+    this.marginTop = 8,
+    this.marginBottom = 8,
     this.paragraphGap = 12,
     this.indent = false,
     this.justify = false,
@@ -47,22 +69,35 @@ class ReaderPreferences {
     this.mode = ReaderMode.scroll,
     this.tapLayout = ReaderTapLayout.standard,
     this.edgeBrightness = false,
+    this.pageEffect = ReaderPageEffect.staggered,
+    this.hideSystemStatus = false,
   });
   final ReaderPaper paper;
   final double margin, paragraphGap, autoScrollSpeed;
+  // Null horizontal edges preserve old records and existing margin callers.
+  final double? marginLeft, marginRight;
+  final double marginTop, marginBottom;
+  double get leftMargin => marginLeft ?? margin;
+  double get rightMargin => marginRight ?? margin;
+  double get bindingMargin => (leftMargin + rightMargin) / 2;
   final bool indent, justify, tapPaging, volumePaging;
   final double? brightness;
   final ReaderMode mode;
   final ReaderTapLayout tapLayout;
   final bool edgeBrightness;
+  final ReaderPageEffect pageEffect;
+  final bool hideSystemStatus;
   String get layoutKey =>
-      margin == 26 &&
+      leftMargin == 26 &&
+          rightMargin == 26 &&
+          marginTop == 8 &&
+          marginBottom == 8 &&
           paragraphGap == 12 &&
           !indent &&
           !justify &&
           mode == ReaderMode.scroll
       ? ''
-      : '$margin:$paragraphGap:$indent:$justify${mode == ReaderMode.scroll ? '' : ':${mode.name}'}';
+      : '${leftMargin == rightMargin && marginTop == 8 && marginBottom == 8 ? '$leftMargin' : '$leftMargin,$marginTop,$rightMargin,$marginBottom'}:$paragraphGap:$indent:$justify${mode == ReaderMode.scroll ? '' : ':${mode.name}'}';
   Color background(bool dark) => switch (paper) {
     ReaderPaper.system =>
       dark ? ArchiveDesign.darkBackground : const Color(0xFFF7F7F2),
@@ -78,6 +113,10 @@ class ReaderPreferences {
   Map<String, Object?> toJson() => {
     'paper': paper.name,
     'margin': margin,
+    if (marginLeft != null) 'marginLeft': marginLeft,
+    if (marginRight != null) 'marginRight': marginRight,
+    'marginTop': marginTop,
+    'marginBottom': marginBottom,
     'paragraphGap': paragraphGap,
     'indent': indent,
     'justify': justify,
@@ -88,6 +127,8 @@ class ReaderPreferences {
     'mode': mode.name,
     'tapLayout': tapLayout.name,
     'edgeBrightness': edgeBrightness,
+    'pageEffect': pageEffect.name,
+    'hideSystemStatus': hideSystemStatus,
   };
   factory ReaderPreferences.fromJson(Map<String, dynamic> json) {
     double number(String key, double min, double max, double fallback) {
@@ -105,6 +146,7 @@ class ReaderPreferences {
       'tapPaging',
       'volumePaging',
       'edgeBrightness',
+      'hideSystemStatus',
     ]) {
       if (json[key] != null && json[key] is! bool) {
         throw const FormatException('阅读偏好格式有误');
@@ -114,7 +156,15 @@ class ReaderPreferences {
       paper: ReaderPaper.values.firstWhere(
         (p) => p.name == (json['paper'] ?? 'system'),
       ),
-      margin: number('margin', 12, 56, 26),
+      margin: number('margin', 0, 80, 26),
+      marginLeft: json['marginLeft'] == null
+          ? null
+          : number('marginLeft', 0, 80, 26),
+      marginRight: json['marginRight'] == null
+          ? null
+          : number('marginRight', 0, 80, 26),
+      marginTop: number('marginTop', 0, 80, 8),
+      marginBottom: number('marginBottom', 0, 80, 8),
       paragraphGap: number('paragraphGap', 0, 32, 12),
       indent: json['indent'] == true,
       justify: json['justify'] == true,
@@ -127,6 +177,10 @@ class ReaderPreferences {
       mode: ReaderMode.values.byName(json['mode'] ?? 'scroll'),
       tapLayout: ReaderTapLayout.values.byName(json['tapLayout'] ?? 'standard'),
       edgeBrightness: json['edgeBrightness'] == true,
+      hideSystemStatus: json['hideSystemStatus'] == true,
+      pageEffect: ReaderPageEffect.values.byName(
+        json['pageEffect'] ?? 'staggered',
+      ),
     );
   }
   static ReaderPreferences fromRecord(Object? record) {
@@ -140,6 +194,10 @@ class ReaderPreferences {
   ReaderPreferences copyWith({
     ReaderPaper? paper,
     double? margin,
+    double? marginLeft,
+    double? marginRight,
+    double? marginTop,
+    double? marginBottom,
     double? paragraphGap,
     bool? indent,
     bool? justify,
@@ -151,9 +209,15 @@ class ReaderPreferences {
     ReaderMode? mode,
     ReaderTapLayout? tapLayout,
     bool? edgeBrightness,
+    ReaderPageEffect? pageEffect,
+    bool? hideSystemStatus,
   }) => ReaderPreferences(
     paper: paper ?? this.paper,
     margin: margin ?? this.margin,
+    marginLeft: marginLeft ?? (margin ?? this.marginLeft),
+    marginRight: marginRight ?? (margin ?? this.marginRight),
+    marginTop: marginTop ?? this.marginTop,
+    marginBottom: marginBottom ?? this.marginBottom,
     paragraphGap: paragraphGap ?? this.paragraphGap,
     indent: indent ?? this.indent,
     justify: justify ?? this.justify,
@@ -164,5 +228,7 @@ class ReaderPreferences {
     mode: mode ?? this.mode,
     tapLayout: tapLayout ?? this.tapLayout,
     edgeBrightness: edgeBrightness ?? this.edgeBrightness,
+    pageEffect: pageEffect ?? this.pageEffect,
+    hideSystemStatus: hideSystemStatus ?? this.hideSystemStatus,
   );
 }

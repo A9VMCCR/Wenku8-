@@ -102,13 +102,13 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
                       children: [
                         sectionHeader(context, '最近阅读', '${ids.length} 本书'),
                         const SizedBox(height: 12),
-                        const Text(
+                        const AppText(
                           '未收藏的作品也会记录。移除历史只隐藏记录，书架、续读进度和离线缓存保留。',
                           style: TextStyle(fontSize: 13, height: 1.7),
                         ),
                         if (ids.isEmpty) ...[
                           const SizedBox(height: 30),
-                          const Text('暂无阅读历史'),
+                          const AppText('暂无阅读历史'),
                         ],
                       ],
                     ),
@@ -172,14 +172,14 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  AppText(
                     title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 7),
-                  Text(
+                  AppText(
                     '第 ${chapter + 1} 章${position == null ? '' : ' · 本章 ${(position.fraction * 100).round()}%'}',
                     style: TextStyle(
                       fontSize: 12,
@@ -187,7 +187,7 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
+                  AppText(
                     _readingTime(position?.updatedAt ?? 0),
                     style: const TextStyle(fontSize: 12),
                   ),
@@ -197,7 +197,7 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
                       onPressed: () => setState(() {
                         _requests[id] = _request(id);
                       }),
-                      child: const Text('重试载入书名'),
+                      child: const AppText('重试载入书名'),
                     ),
                   ],
                 ],

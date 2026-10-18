@@ -40,7 +40,13 @@ void main({
 }) {
   TestWidgetsFlutterBinding.ensureInitialized();
   if (!native) setUpAll(loadReviewFonts);
-  setUp(() => SharedPreferences.setMockInitialValues({'reduceMotion': false}));
+  setUp(
+    () => SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+      'reduceMotion': false,
+    }),
+  );
   Future<GlobalKey> mount(
     WidgetTester tester,
     Widget page, {
@@ -149,7 +155,7 @@ void main({
       expect(tester.getSize(find.byType(ReaderPage)).width, 1318);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      await tester.tap(find.text('退出阅读'));
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(detail, findsOneWidget);
       AnimationController? closeClock;

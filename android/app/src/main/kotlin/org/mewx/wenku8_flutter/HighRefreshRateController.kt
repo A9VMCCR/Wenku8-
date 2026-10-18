@@ -20,9 +20,10 @@ import io.flutter.embedding.android.FlutterView
 
 /** Keeps the preference attached to the live Flutter rendering surface. */
 internal class HighRefreshRateController(private val activity: Activity) :
-    DisplayManager.DisplayListener, ViewTreeObserver.OnGlobalLayoutListener {
+    DisplayManager.DisplayListener, ViewTreeObserver.OnGlobalLayoutListener, android.content.SharedPreferences.OnSharedPreferenceChangeListener {
     private val manager = activity.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
     private val handler = Handler(Looper.getMainLooper())
+    private val settings = activity.getSharedPreferences("frame_rate_settings", Context.MODE_PRIVATE)
     private val root get() = activity.window.decorView
     private val surfaces = LinkedHashMap<SurfaceView, SurfaceBinding>()
     private val viewRates = LinkedHashMap<View, Float>()
@@ -34,6 +35,7 @@ internal class HighRefreshRateController(private val activity: Activity) :
         if (active) return
         active = true
         manager.registerDisplayListener(this, handler)
+        settings.registerOnSharedPreferenceChangeListener(this)
         root.viewTreeObserver.addOnGlobalLayoutListener(this)
         update()
         // The shared audio engine may attach its FlutterView after onResume.
@@ -49,6 +51,7 @@ internal class HighRefreshRateController(private val activity: Activity) :
         active = false
         root.removeCallbacks(reconcile)
         manager.unregisterDisplayListener(this)
+        settings.unregisterOnSharedPreferenceChangeListener(this)
         if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnGlobalLayoutListener(this)
         surfaces.values.forEach { it.close() }
         surfaces.clear()
@@ -70,7 +73,7 @@ internal class HighRefreshRateController(private val activity: Activity) :
             RefreshRatePolicy.Mode(current.modeId, current.physicalWidth, current.physicalHeight, current.refreshRate),
             display.supportedModes.map {
                 RefreshRatePolicy.Mode(it.modeId, it.physicalWidth, it.physicalHeight, it.refreshRate)
-            }) ?: return
+            }, settings.getFloat("target", 0f)) ?: return
         preference = selected
         val attrs = activity.window.attributes
         if (attrs.preferredDisplayModeId != selected.modeId || attrs.preferredRefreshRate != selected.rate) {
@@ -93,7 +96,8 @@ internal class HighRefreshRateController(private val activity: Activity) :
                 // mean only 90 Hz on a 120 Hz device, so use the actual number.
                 if (Build.VERSION.SDK_INT >= 36) {
                     if (!viewRates.containsKey(view)) viewRates[view] = view.requestedFrameRate
-                    if (view.requestedFrameRate != rate) view.requestedFrameRate = rate
+                    val vote = if (rate == 0f) viewRates[view]!! else rate
+                    if (view.requestedFrameRate != vote) view.requestedFrameRate = vote
                 }
                 if (view is SurfaceView) {
                     liveSurfaces.add(view)
@@ -137,6 +141,7 @@ internal class HighRefreshRateController(private val activity: Activity) :
     }
 
     override fun onGlobalLayout() { if (active) preference?.let { bindRenderingViews(it.rate) } }
+    override fun onSharedPreferenceChanged(preferences: android.content.SharedPreferences?, key: String?) { if (key == "target") refresh() }
     override fun onDisplayAdded(displayId: Int) = refresh()
     override fun onDisplayRemoved(displayId: Int) = refresh()
     override fun onDisplayChanged(displayId: Int) {

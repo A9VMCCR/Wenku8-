@@ -12,6 +12,8 @@ val releaseKeys = Properties().apply {
     if (releaseKeyFile.isFile) releaseKeyFile.inputStream().use { load(it) }
 }
 val readerPreview = providers.gradleProperty("wenkuReaderPreview").orNull == "true"
+val catalogProbe = providers.gradleProperty("wenkuCatalogProbe").orNull == "true"
+check(!catalogProbe || readerPreview) { "Account read probes are restricted to the reader preview" }
 
 android {
     namespace = "org.mewx.wenku8_flutter"
@@ -22,6 +24,7 @@ android {
     packaging.jniLibs.keepDebugSymbols.add("**/libcpp.so")
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -38,6 +41,17 @@ android {
         versionName = flutter.versionName
         manifestPlaceholders["wenkuAppLabel"] = "轻小说文库"
         testInstrumentationRunner = "org.mewx.wenku8_flutter.SessionFixtureInstrumentation"
+        if (catalogProbe) testInstrumentationRunner = "org.mewx.wenku8_flutter.CatalogReadInstrumentation"
+        // AGP otherwise builds upstream desktop utilities too, including the
+        // DRM tool whose encryption code is intentionally disabled in this app.
+        externalNativeBuild.cmake.targets.addAll(listOf("mobi", "wenku_mobi"))
+    }
+    if (catalogProbe) testBuildType = "release"
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
     }
 
     if (releaseKeyFile.isFile) {
@@ -59,6 +73,8 @@ android {
             applicationIdSuffix = ".profile_probe"
         }
         release {
+            proguardFile(file("document-import.pro"))
+            if (catalogProbe) proguardFile(file("catalog-probe.pro"))
             if (readerPreview) {
                 applicationIdSuffix = ".reader_preview"
                 manifestPlaceholders["wenkuAppLabel"] = "文库 · 阅读预览"
@@ -96,6 +112,10 @@ flutter {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+    implementation("org.jsoup:jsoup:1.23.2")
+    implementation("org.commonmark:commonmark:0.30.1")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // Keep the media host classes available to the app's shared-engine wiring.
     implementation("androidx.media:media:1.7.0")
     testImplementation("junit:junit:4.13.2")

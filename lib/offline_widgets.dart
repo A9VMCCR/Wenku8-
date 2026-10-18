@@ -6,6 +6,7 @@ import 'app_interactions.dart';
 import 'catalog.dart';
 import 'offline_cache.dart';
 import 'offline_repository.dart';
+import 'book_download_page.dart';
 
 class OfflineBookStatus extends StatelessWidget {
   const OfflineBookStatus({
@@ -31,7 +32,7 @@ class OfflineBookStatus extends StatelessWidget {
           : novel.chapters
                 .where((chapter) => saved.chapterBytes.containsKey(chapter.id))
                 .length;
-      return Text(
+      return AppText(
         job?.active == true ||
                 job?.phase == DownloadPhase.failed ||
                 job?.phase == DownloadPhase.cancelled
@@ -51,7 +52,7 @@ class OfflineBookStatus extends StatelessWidget {
   );
 }
 
-enum _BookAction { all, next, retry, cancel, remove }
+enum _BookAction { export, all, next, retry, cancel, remove }
 
 class OfflineBookMenu extends StatelessWidget {
   const OfflineBookMenu({
@@ -85,33 +86,39 @@ class OfflineBookMenu extends StatelessWidget {
       builder: (menu) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          GlassMenuItem(
+            label: '下载 EPUB / TXT',
+            onPressed: () => Navigator.pop(menu, _BookAction.export),
+          ),
           if (job?.active == true)
             GlassMenuItem(
-              label: '取消下载',
+              order: 1,
+              label: '取消缓存',
               onPressed: () => Navigator.pop(menu, _BookAction.cancel),
             )
           else ...[
             GlassMenuItem(
-              label: '下载全部章节',
+              order: 1,
+              label: '缓存全部章节',
               onPressed: () => Navigator.pop(menu, _BookAction.all),
             ),
             if (novel.chapters.isNotEmpty)
               GlassMenuItem(
-                order: 1,
-                label: '下载后续 20 章',
+                order: 2,
+                label: '缓存后续 20 章',
                 onPressed: () => Navigator.pop(menu, _BookAction.next),
               ),
             if (job?.phase == DownloadPhase.failed ||
                 job?.phase == DownloadPhase.cancelled)
               GlassMenuItem(
-                order: 2,
-                label: '继续下载',
+                order: 3,
+                label: '继续缓存',
                 onPressed: () => Navigator.pop(menu, _BookAction.retry),
               ),
           ],
           if (repository.cache.book(novel.id) != null)
             GlassMenuItem(
-              order: 3,
+              order: 4,
               label: '清除这本缓存',
               onPressed: () => Navigator.pop(menu, _BookAction.remove),
             ),
@@ -120,6 +127,18 @@ class OfflineBookMenu extends StatelessWidget {
     );
     if (!context.mounted || selected == null) return;
     switch (selected) {
+      case _BookAction.export:
+        await pushNovelPage<void>(
+          context,
+          BookDownloadPage(
+            book: novel,
+            repository: repository,
+            reduceMotion: reduceMotion,
+          ),
+          reduceMotion: reduceMotion,
+          slot: ('book-download', novel.id),
+        );
+        return;
       case _BookAction.all:
         repository.download(novel);
         return;
@@ -271,25 +290,25 @@ class _OfflineCachePageState extends State<OfflineCachePage> {
                                 formatCacheBytes(widget.repository.cache.bytes),
                               ),
                               const SizedBox(height: 12),
-                              const Text(
+                              const AppText(
                                 '已缓存正文可离线阅读。清理缓存不会移出书架，也不会删除阅读进度。',
                                 style: TextStyle(fontSize: 13, height: 1.7),
                               ),
                               if (snapshot.hasError ||
                                   widget.repository.cacheError != null) ...[
                                 const SizedBox(height: 12),
-                                const Text('缓存读取或写入失败，请释放存储后重试。'),
+                                const AppText('缓存读取或写入失败，请释放存储后重试。'),
                                 GlassTextButton(
                                   onPressed: () => setState(
                                     () =>
                                         _loaded = widget.repository.loadCache(),
                                   ),
-                                  child: const Text('重试'),
+                                  child: const AppText('重试'),
                                 ),
                               ] else if (!loading && count == 0)
                                 const Padding(
                                   padding: EdgeInsets.only(top: 24),
-                                  child: Text('暂无离线缓存，在图书详情中下载章节。'),
+                                  child: AppText('暂无离线缓存，在图书详情中下载章节。'),
                                 ),
                             ],
                           ),
@@ -315,7 +334,7 @@ class _OfflineCachePageState extends State<OfflineCachePage> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
+                                    AppText(
                                       novel.title,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
@@ -329,7 +348,7 @@ class _OfflineCachePageState extends State<OfflineCachePage> {
                                       novel: novel,
                                     ),
                                     const SizedBox(height: 4),
-                                    Text(
+                                    AppText(
                                       formatCacheBytes(
                                         widget.repository.cache
                                                 .book(novel.id)

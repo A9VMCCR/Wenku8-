@@ -6,6 +6,7 @@ import 'package:wenku8_flutter/catalog.dart';
 import 'package:wenku8_flutter/library_state.dart';
 import 'package:wenku8_flutter/main.dart';
 import 'package:wenku8_flutter/pages.dart';
+import 'package:wenku8_flutter/my_page.dart';
 
 Novel _book(int id) => Novel(
   id: id,
@@ -91,7 +92,12 @@ Future<LibraryState> _mount(
   _Repository repository, {
   Map<String, Object> prefs = const {},
 }) async {
-  SharedPreferences.setMockInitialValues({'shelfLayout': 'list', ...prefs});
+  SharedPreferences.setMockInitialValues({
+    'readerChromeVisible': true,
+    'readerChromeHintSeen': true,
+    'shelfLayout': 'list',
+    ...prefs,
+  });
   final state = await LibraryState.load();
   await tester.pumpWidget(NovelApp(state: state, repository: repository));
   await tester.pumpAndSettle();
@@ -192,7 +198,11 @@ void main() {
   testWidgets(
     'shelf and settings remain available when the recent list fails',
     (tester) async {
-      SharedPreferences.setMockInitialValues({'shelfLayout': 'list'});
+      SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+        'shelfLayout': 'list',
+      });
       final state = await LibraryState.load();
       await state.toggleShelf(5000, novel: _book(5000));
       await state.setChapter(5000, 1);
@@ -207,7 +217,7 @@ void main() {
       expect(repository.findCalls, 0);
       await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
       await tester.pumpAndSettle();
-      expect(find.byType(SettingsPage), findsOneWidget);
+      expect(find.byType(MyPage), findsOneWidget);
       expect(find.text('书籍加载失败'), findsNothing);
     },
   );
@@ -226,7 +236,7 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('dock-tab-1')));
       await tester.pumpAndSettle();
-      expect(find.text('1 本书'), findsOneWidget);
+      expect(find.text('1 本'), findsOneWidget);
       expect(find.text('书籍 5000 暂未载入'), findsOneWidget);
       expect(state.contains(5000), isTrue);
       repository.failFind = false;
@@ -260,7 +270,11 @@ void main() {
   testWidgets(
     'reader restores its real scroll position after closing and reloading preferences',
     (tester) async {
-      SharedPreferences.setMockInitialValues({'reduceMotion': true});
+      SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+        'reduceMotion': true,
+      });
       var state = await LibraryState.load();
       final repository = _Repository();
       await _reader(tester, state, repository);
@@ -291,7 +305,11 @@ void main() {
   testWidgets(
     'next chapter starts at zero and backgrounding persists progress',
     (tester) async {
-      SharedPreferences.setMockInitialValues({'reduceMotion': true});
+      SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+        'reduceMotion': true,
+      });
       final state = await LibraryState.load();
       await _reader(tester, state, _Repository());
       final scroll = _scroll(
@@ -318,7 +336,11 @@ void main() {
   testWidgets(
     'a failed chapter load never overwrites a saved reading position',
     (tester) async {
-      SharedPreferences.setMockInitialValues({'reduceMotion': true});
+      SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+        'reduceMotion': true,
+      });
       final state = await LibraryState.load();
       await state.savePosition(
         novel: _book(5000),
@@ -369,7 +391,11 @@ void main() {
   testWidgets(
     'continue reading resolves the saved chapter ID after a directory insertion',
     (tester) async {
-      SharedPreferences.setMockInitialValues({'reduceMotion': true});
+      SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+        'reduceMotion': true,
+      });
       final state = await LibraryState.load();
       final old = _book(5000);
       await state.savePosition(

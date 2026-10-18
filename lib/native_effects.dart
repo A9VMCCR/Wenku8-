@@ -279,20 +279,29 @@ class NativeScrollEdgeGroup extends StatefulWidget {
 class _NativeScrollEdgeGroupState extends State<NativeScrollEdgeGroup> {
   final _group = _GlassInputGroup();
   @override
-  Widget build(BuildContext context) =>
-      _ScrollEdgeInputScope.maybeOf(context) != null
-      ? widget.child
-      : _ScrollEdgeInputScope(
-          group:
-              widget.enabled &&
-                  const bool.fromEnvironment(
-                    'SCROLL_EDGE_BATCH',
-                    defaultValue: true,
-                  )
-              ? _group
-              : null,
-          child: widget.child,
-        );
+  Widget build(BuildContext context) {
+    final enabled =
+        widget.enabled &&
+        const bool.fromEnvironment('SCROLL_EDGE_BATCH', defaultValue: true);
+    final child = LiquidGlassScrollEdgeGroup(
+      enabled: enabled,
+      child: widget.child,
+    );
+    return _ScrollEdgeInputScope.maybeOf(context) != null
+        ? child
+        : _ScrollEdgeInputScope(
+            group:
+                widget.enabled &&
+                    const bool.fromEnvironment(
+                      'SCROLL_EDGE_BATCH',
+                      defaultValue: true,
+                    )
+                ? _group
+                : null,
+            child: child,
+          );
+  }
+
   @override
   void dispose() {
     _group.dispose();

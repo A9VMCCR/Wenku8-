@@ -5,8 +5,12 @@ import java.net.HttpCookie
 /** A relay-scoped account jar. Guest requests never receive or mutate it. */
 internal class ApiSessionCookies private constructor(private val values: Map<String, String>) {
     val hasSession: Boolean get() = sessionId.matches(values["PHPSESSID"] ?: "")
+    val hasWebLogin: Boolean get() = !values["jieqiUserInfo"].isNullOrEmpty()
     fun header(): String = values.entries.joinToString("; ") { "${it.key}=${it.value}" }
     fun stored(): String = prefix + header()
+    // Only the site's CMS session is transferable from its API relay. Relay
+    // infrastructure cookies remain scoped to the API, not another host.
+    fun websiteSession(): ApiSessionCookies = checked(values.filterKeys { it == "PHPSESSID" || it.startsWith("jieqi") })
 
     fun merge(headers: List<String>): ApiSessionCookies {
         val next = LinkedHashMap(values)
@@ -33,7 +37,7 @@ internal class ApiSessionCookies private constructor(private val values: Map<Str
         private val cookieName = Regex("[!#$%&'*+.^_`|~A-Za-z0-9-]+")
         private val combined = Regex(",\\s*(?=[!#$%&'*+.^_`|~A-Za-z0-9-]+=)")
         fun empty() = ApiSessionCookies(emptyMap())
-        fun fromStored(value: String): ApiSessionCookies {
+        fun fromStored(value: String, requireSession: Boolean = true): ApiSessionCookies {
             // Existing encrypted v1 sessions stay usable after upgrading.
             if (sessionId.matches(value)) return checked(mapOf("PHPSESSID" to value))
             require(value.startsWith(prefix))
@@ -44,7 +48,7 @@ internal class ApiSessionCookies private constructor(private val values: Map<Str
                 validate(pair[0], pair[1])
                 pairs[pair[0]] = pair[1]
             }
-            return checked(pairs).also { require(it.hasSession) }
+            return checked(pairs).also { require(!requireSession || it.hasSession) }
         }
         private fun checked(values: Map<String, String>): ApiSessionCookies {
             require(values.size <= 32)

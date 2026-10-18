@@ -26,7 +26,14 @@ class PublicSourceExportTest(unittest.TestCase):
                      "third_party/liquid_glass_easy/LICENSE",
                      "third_party/liquid_glass_easy/lib/liquid_glass_easy.dart",
                      "flutter_screenshots/private.png", "LISTENING.md", "README.md", "docs/READER.md",
-                     "docs/CLOUD_IMPORT.md", "docs/SEARCH.md"):
+                     "docs/CLOUD_IMPORT.md", "docs/SEARCH.md",
+                     "tools/update-mirror/index.mjs", "tools/update-mirror/worker.mjs",
+                     "tools/update-mirror/build-site.mjs", "tools/update-mirror/wrangler.jsonc",
+                     "tools/update-mirror/.wrangler/state/private.txt",
+                     "tools/update-mirror/.dev.vars.production", "tools/update-mirror/.env.local",
+                     "tools/update-mirror/node_modules/private.txt", "tools/update-mirror/public/index.html",
+                     "tools/content-gateway/index.mjs", "tools/content-gateway/worker.mjs",
+                     "tools/content-gateway/.dev.vars"):
             file = self.root / name
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text("fixture")
@@ -46,7 +53,10 @@ class PublicSourceExportTest(unittest.TestCase):
             "third_party/liquid_glass_easy/LICENSE",
             "third_party/liquid_glass_easy/lib/liquid_glass_easy.dart",
             "android/gradle/wrapper/gradle-wrapper.jar",
-            "android/app/src/main/jniLibs/arm64-v8a/libcpp.so"})
+            "android/app/src/main/jniLibs/arm64-v8a/libcpp.so",
+            "tools/update-mirror/index.mjs", "tools/update-mirror/worker.mjs",
+            "tools/update-mirror/build-site.mjs", "tools/update-mirror/wrangler.jsonc",
+            "tools/content-gateway/index.mjs", "tools/content-gateway/worker.mjs"})
 
     def test_source_only_is_explicit_and_leaves_runtime_out(self):
         output = self.base / "source-only"

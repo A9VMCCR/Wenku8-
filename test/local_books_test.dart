@@ -126,6 +126,41 @@ void main() {
       isFalse,
     );
   });
+  test(
+    'EPUB2 cover XHTML is resolved through its guide instead of becoming a missing cover',
+    () {
+      final book = parseLocalBook(
+        LocalBookInput(
+          'guide.epub',
+          epubFixture(
+            overrides: {
+              'OPS/book.opf':
+                  '<package><metadata><title>导读封面</title><meta name="cover" content="coverpage"/></metadata><manifest><item id="coverpage" href="a.xhtml" media-type="application/xhtml+xml"/><item id="body" href="b.xhtml" media-type="application/xhtml+xml"/></manifest><guide><reference type="cover" href="a.xhtml"/></guide><spine><itemref idref="body"/></spine></package>',
+              'OPS/a.xhtml':
+                  '<html><body><img src="images/cover.png"/></body></html>',
+            },
+          ),
+        ),
+      );
+      expect(book.novel.coverUrl, endsWith('/cover.png'));
+      expect(book.images.containsKey('cover.png'), true);
+    },
+  );
+  test('missing optional cover XHTML does not reject the EPUB body', () {
+    final book = parseLocalBook(
+      LocalBookInput(
+        'missing-cover.epub',
+        epubFixture(
+          overrides: {
+            'OPS/book.opf':
+                '<package><metadata><title>正文仍可阅读</title></metadata><manifest><item id="body" href="b.xhtml" media-type="application/xhtml+xml"/></manifest><guide><reference type="cover" href="missing.xhtml"/></guide><spine><itemref idref="body"/></spine></package>',
+          },
+        ),
+      ),
+    );
+    expect(book.bodies.join(), contains('第二章正文'));
+    expect(book.novel.coverUrl, isNull);
+  });
   test('long TXT preserves surrogate pairs at a paragraph boundary', () {
     final text = '${'字' * 3999}😀尾';
     final book = parseLocalBook(

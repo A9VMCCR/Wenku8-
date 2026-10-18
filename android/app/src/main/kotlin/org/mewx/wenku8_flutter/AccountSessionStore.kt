@@ -11,9 +11,10 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** Device-bound session only: no password, export, log or Android backup. */
-internal class AccountSessionStore(context: Context) {
-    private val preferences = context.getSharedPreferences("wenku_account_session", Context.MODE_PRIVATE)
-    private val alias = "wenku8.account.session.v1"
+internal class AccountSessionStore(context: Context, scope: String? = null) {
+    private val web = scope == "web"
+    private val preferences = context.getSharedPreferences(if (web) "wenku_web_session" else "wenku_account_session", Context.MODE_PRIVATE)
+    private val alias = if (web) "wenku8.web.session.v1" else "wenku8.account.session.v1"
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey(alias, null) as? SecretKey)?.let { return it }
@@ -30,14 +31,14 @@ internal class AccountSessionStore(context: Context) {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)))
             cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)).toString(Charsets.UTF_8)
-                .also { ApiSessionCookies.fromStored(it) }
+                .also { ApiSessionCookies.fromStored(it, requireSession = !web) }
         }
     } catch (_: Exception) {
         preferences.edit().clear().commit()
         null
     }
     fun write(cookie: String?) {
-        cookie?.let { ApiSessionCookies.fromStored(it) }
+        cookie?.let { ApiSessionCookies.fromStored(it, requireSession = !web) }
         val editor = preferences.edit()
         if (cookie == null) editor.clear() else {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")

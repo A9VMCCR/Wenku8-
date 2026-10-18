@@ -67,6 +67,7 @@ Future<void> removeLocalBook({
   await books.remove(id);
   for (final removed in [id, ...?series?.volumes.map((v) => v.bookId)]) {
     await library.setShelfMembership(removed, false);
+    await library.setLocalBookHidden(removed, false);
   }
 }
 

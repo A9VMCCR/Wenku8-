@@ -477,7 +477,7 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
                   Flexible(
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: Text(
+                      child: AppText(
                         item.label,
                         maxLines: 1,
                         style: TextStyle(

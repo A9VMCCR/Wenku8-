@@ -10,8 +10,9 @@ void main() {
   test(
     'document failures retain their actionable message and format limits differ',
     () {
-      expect(localBookByteLimit('illustrated.EPUB'), 256 * 1024 * 1024);
-      expect(localBookByteLimit('text.TXT'), 40 * 1024 * 1024);
+      expect(localBookByteLimit('illustrated.EPUB'), 512 * 1024 * 1024);
+      expect(localBookByteLimit('text.TXT'), 128 * 1024 * 1024);
+      expect(localBookByteLimit('book.mobi'), 256 * 1024 * 1024);
       expect(
         cloudFailureMessage(
           PlatformException(code: 'document', message: '文件超过 256 MiB 大小限制'),
@@ -44,7 +45,7 @@ void main() {
           isA<FormatException>().having(
             (e) => e.message,
             'message',
-            contains('256 MiB'),
+            contains('512 MiB'),
           ),
         ),
       );

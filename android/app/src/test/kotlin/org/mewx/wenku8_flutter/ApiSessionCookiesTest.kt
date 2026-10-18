@@ -47,4 +47,11 @@ class ApiSessionCookiesTest {
             assertThrows(IllegalArgumentException::class.java) { ApiSessionCookies.fromStored(value) }
         }
     }
+    @Test fun websiteReuseTransfersCmsSessionButNotRelayInfrastructureCookies() {
+        val account = ApiSessionCookies.fromStored("account-session-123456").merge(listOf(
+            "jieqiUserInfo=reader; Path=/", "relayRouting=private-route; Path=/"
+        ))
+        assertEquals("PHPSESSID=account-session-123456; jieqiUserInfo=reader", account.websiteSession().header())
+        assertTrue(account.header().contains("relayRouting"))
+    }
 }

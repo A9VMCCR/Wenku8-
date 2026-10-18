@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:tategaki/tategaki.dart'
     show CharacterClassifier, RotationRules, KinsokuProcessor;
 import 'reader_content.dart';
+import 'reader_text.dart';
 import 'reader_preferences.dart';
 import 'local_image_layout.dart';
 
@@ -176,7 +177,7 @@ Future<ReaderPagination?> paginateReader({
   }
 
   try {
-    for (var index = 0; index < content.paragraphs.length; index++) {
+    for (final index in content.order) {
       if (!current()) return null;
       final text = content.paragraphs[index];
       final imageUrl = readerIllustrationUrl(text);
@@ -248,12 +249,19 @@ Future<ReaderPagination?> paginateReader({
       }
       if (text.isEmpty) continue;
       if (!vertical) {
-        final prefix = preferences.indent ? '\u3000\u3000' : '';
+        final prefix = preferences.indent ? readerIndentPlaceholder : '';
         final display = '$prefix$text';
         var metrics = measured.horizontal[index];
         if (metrics == null) {
           if (cache != null) cache.paragraphMeasurements++;
-          painter.text = TextSpan(text: display, style: style);
+          painter.text = readerParagraphSpan(
+            children: [TextSpan(text: text)],
+            style: style,
+            indent: preferences.indent,
+          );
+          painter.setPlaceholderDimensions(
+            readerIndentDimensions(preferences.indent, font),
+          );
           painter.layout(maxWidth: size.width);
           final lines = painter.computeLineMetrics();
           final starts = <int>[];

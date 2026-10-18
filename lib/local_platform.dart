@@ -23,6 +23,20 @@ abstract final class LocalPlatform {
       channel.invokeMapMethod<Object?, Object?>('importLegacyData');
   static Future<void> shareText(String text) =>
       channel.invokeMethod<void>('shareText', {'text': text});
+  static Future<bool> saveBookImage(Uint8List bytes, String name) async =>
+      await channel.invokeMethod<bool>('saveBookImage', {
+        'bytes': bytes,
+        'name': name,
+      }) ??
+      false;
+  static Future<void> shareImage(Uint8List bytes, String name) =>
+      channel.invokeMethod<void>('shareImage', {'bytes': bytes, 'name': name});
+  static Future<bool> exportImage(Uint8List bytes, String name) async =>
+      await channel.invokeMethod<bool>('exportImage', {
+        'bytes': bytes,
+        'name': name,
+      }) ??
+      false;
   static final Set<Object> _awakeOwners = {};
   static const readerControls = MethodChannel(
     'org.mewx.wenku8/reader_controls',
@@ -54,6 +68,7 @@ abstract final class LocalPlatform {
         .invokeMethod<void>('apply', {
           'volumePaging': active && state.readerPreferences.volumePaging,
           'brightness': active ? state.readerPreferences.brightness : null,
+          'hideStatusBar': active && state.readerPreferences.hideSystemStatus,
         })
         .catchError((Object _) {});
   }

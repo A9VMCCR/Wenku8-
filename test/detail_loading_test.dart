@@ -51,7 +51,10 @@ void main({
   final novel = offlineFixtureBook(83);
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+    });
     state = await LibraryState.load();
     directory = await Directory.systemTemp.createTemp('novel8-detail-polish-');
     cache = OfflineCacheStore(directory);
@@ -243,6 +246,8 @@ void main({
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
       SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
         'chapter_83': 99999,
         'reduceMotion': true,
       });

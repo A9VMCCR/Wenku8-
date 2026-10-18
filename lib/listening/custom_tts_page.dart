@@ -158,7 +158,7 @@ class _CustomSpeechPageState extends State<CustomSpeechPage> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        AppText(title, style: const TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
         CupertinoTextField(
           controller: controller,
@@ -215,7 +215,7 @@ class _CustomSpeechPageState extends State<CustomSpeechPage> {
               code: 'MICROSOFT SSML / HTTPS',
             ),
             const SizedBox(height: 14),
-            const Text(
+            const AppText(
               '支持 Microsoft Azure 及兼容的 SSML 合成接口。填写完整的 POST 地址，输出格式为 MP3。',
               style: TextStyle(height: 1.65),
             ),
@@ -228,15 +228,18 @@ class _CustomSpeechPageState extends State<CustomSpeechPage> {
             _field('音色 ID', _voice),
             _field('显示名称', _label),
             _field('语言', _locale),
-            const Text('认证方式', style: TextStyle(fontWeight: FontWeight.w600)),
+            const AppText(
+              '认证方式',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             AppControls.segments<SpeechAuthentication>(
               context,
               groupValue: _auth,
               children: const {
-                SpeechAuthentication.none: Text('无认证'),
-                SpeechAuthentication.subscriptionKey: Text('Azure Key'),
-                SpeechAuthentication.bearer: Text('Bearer'),
+                SpeechAuthentication.none: AppText('无认证'),
+                SpeechAuthentication.subscriptionKey: AppText('Azure Key'),
+                SpeechAuthentication.bearer: AppText('Bearer'),
               },
               onValueChanged: (value) {
                 if (!_busy && value != null) setState(() => _auth = value);
@@ -254,7 +257,7 @@ class _CustomSpeechPageState extends State<CustomSpeechPage> {
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 14),
-                child: Text(
+                child: AppText(
                   _error!,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
@@ -266,21 +269,21 @@ class _CustomSpeechPageState extends State<CustomSpeechPage> {
             ),
             GlassTextButton(
               onPressed: _busy ? null : _preview,
-              child: Text(_previewing ? '正在试听' : '试听接口'),
+              child: AppText(_previewing ? '正在试听' : '试听接口'),
             ),
             if (_previewing)
               GlassTextButton(
                 onPressed: () => _previewCancel?.cancel(),
-                child: const Text('停止试听'),
+                child: const AppText('停止试听'),
               ),
-            const Text(
+            const AppText(
               '试听会发送一条测试句；接口可能按提供方规则计费。密钥仅加密保存在本机，不进入书库备份与云同步。',
               style: TextStyle(fontSize: 12, height: 1.6),
             ),
             if (widget.settings.config != null)
               GlassTextButton(
                 onPressed: _busy ? null : _reset,
-                child: const Text('移除自定义接口'),
+                child: const AppText('移除自定义接口'),
               ),
           ],
         ),

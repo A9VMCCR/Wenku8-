@@ -65,4 +65,23 @@ class RefreshRatePolicyTest {
         assertTrue(vote.apply(120f, true) { submitted.add(it) })
         assertEquals(listOf(120f), submitted)
     }
+
+    @Test fun customRatesStayAtTheChosenResolutionAndDoNotExceedThePreference() {
+        val modes = listOf(mode(1, 60f), mode(2, 90f), mode(3, 120f), mode(4, 144f, 1440, 3200))
+        for (sdk in listOf(24, 30, 33, 34, 36)) {
+            val chosen = RefreshRatePolicy.select(sdk, modes[0], modes, 90f)!!
+            assertEquals(90f, chosen.rate, 0f)
+            assertEquals(if (sdk < 34) 2 else 0, chosen.modeId)
+            assertEquals(60f, RefreshRatePolicy.select(sdk, modes[0], modes.take(1), 120f)!!.rate, 0f)
+        }
+    }
+    @Test fun systemSchedulingClearsAllExplicitModeAndRatePreferences() {
+        val chosen = RefreshRatePolicy.select(36, mode(1, 120f), listOf(mode(1, 120f)), -1f)!!
+        assertEquals(0, chosen.modeId)
+        assertEquals(0f, chosen.rate, 0f)
+    }
+    @Test fun availableChoicesOmitOtherResolutionsAndNearDuplicateRates() {
+        val modes = listOf(mode(1, 59.94f), mode(2, 60f), mode(3, 90f), mode(4, 144f, 1440, 3200), mode(5, Float.NaN))
+        assertEquals(listOf(59.94f, 90f), RefreshRatePolicy.rates(modes[0], modes))
+    }
 }

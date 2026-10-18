@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'catalog.dart';
+import 'book_search.dart';
+import 'tag_catalogue.dart';
 
 /// Owns page cursors, stale-result isolation and explicit recovery. A failed
 /// page never advances the cursor or loops automatically against the service.
@@ -21,6 +23,10 @@ class NovelFeedController extends ChangeNotifier {
   List<Novel> _items = const [];
   NovelSort sort = NovelSort.lastUpdate;
   String query = '';
+  BookSearchField searchField = BookSearchField.all;
+  List<String> tags = const [];
+  final _tagSuggestions = <String>{};
+  Set<String> get tagSuggestions => Set.unmodifiable(_tagSuggestions);
   int page = 0;
   int? totalItems;
   bool hasMore = true;
@@ -57,8 +63,19 @@ class NovelFeedController extends ChangeNotifier {
       : _load(replace: page == 0 || refreshFailed, force: true);
 
   Future<void> selectSort(NovelSort value) async {
-    if (sort == value) return;
+    if (sort == value && tags.isEmpty) return;
     sort = value;
+    tags = const [];
+    _reset();
+    await _load(replace: true);
+  }
+
+  Future<void> selectTags(Iterable<String> values) async {
+    final next =
+        values.map((t) => t.trim()).where((t) => t.isNotEmpty).toSet().toList()
+          ..sort();
+    if (listEquals(tags, next)) return;
+    tags = List.unmodifiable(next);
     _reset();
     await _load(replace: true);
   }
@@ -73,6 +90,15 @@ class NovelFeedController extends ChangeNotifier {
     _searchDelay?.cancel();
     _searchDelay = null;
     query = term;
+    _reset();
+    await _load(replace: true);
+  }
+
+  Future<void> selectSearchField(BookSearchField value) async {
+    if (_disposed || searchField == value) return;
+    _searchDelay?.cancel();
+    _searchDelay = null;
+    searchField = value;
     _reset();
     await _load(replace: true);
   }
@@ -130,7 +156,9 @@ class NovelFeedController extends ChangeNotifier {
     var requestedPage = replace ? 1 : page + 1;
     var replacing = replace;
     final requestedSort = sort;
-    final requestedQuery = query;
+    final filteringTags = !search && tags.isNotEmpty;
+    final requestedQuery = filteringTags ? tags.join(' ') : query;
+    final requestedField = filteringTags ? BookSearchField.tags : searchField;
     final hadItems = _items.isNotEmpty;
     loading = true;
     refreshing = replace && _items.isNotEmpty;
@@ -139,9 +167,24 @@ class NovelFeedController extends ChangeNotifier {
     notifyListeners();
     try {
       while (true) {
-        final result = search
-            ? await repository.searchPage(
+        final tagOnly =
+            requestedField == BookSearchField.tags ||
+            requestedField == BookSearchField.all &&
+                requestedQuery.trim().startsWith('#');
+        final result =
+            (search || filteringTags) &&
+                tagOnly &&
+                repository is ProgressiveTagCatalogue
+            ? await (repository as ProgressiveTagCatalogue).tagPage(
                 requestedQuery,
+                page: requestedPage,
+                refresh: force,
+                current: () => !_disposed && generation == _generation,
+              )
+            : search || filteringTags
+            ? await repository.searchFilteredPage(
+                requestedQuery,
+                field: requestedField,
                 page: requestedPage,
                 refresh: force,
               )
@@ -162,6 +205,7 @@ class NovelFeedController extends ChangeNotifier {
         };
         _resultStartIndex = replacing ? 0 : oldCount;
         _items = List.unmodifiable(merged.values);
+        _tagSuggestions.addAll(result.items.expand((book) => book.tags));
         if (_resultStartIndex < _items.length) _resultRevision++;
         page = requestedPage;
         hasMore = result.hasMore;
@@ -171,6 +215,7 @@ class NovelFeedController extends ChangeNotifier {
         // At most the first three ordinary API pages, sequentially. Publish
         // page one immediately, stop on duplicates/errors/end or a new sort.
         if (search ||
+            filteringTags ||
             _items.length >= initialItems ||
             page >= 3 ||
             !hasMore ||

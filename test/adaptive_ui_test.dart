@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/reader_panels.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/app_typography.dart';
@@ -147,6 +148,8 @@ void main({AdaptiveCapture? capture, bool native = false}) {
       addTearDown(tester.view.resetViewPadding);
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
         'reduceMotion': true,
         'appTypeface': AppTypeface.sourceHanSerif.name,
       });
@@ -236,22 +239,41 @@ void main({AdaptiveCapture? capture, bool native = false}) {
       );
       await tester.pumpAndSettle();
       await snapshot('settings');
+      await tester.ensureVisible(find.byKey(const ValueKey('my-settings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('my-settings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-reading-entry')));
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('跟随系统'),
+        find.descendant(
+          of: find.byKey(const ValueKey('settings-appearance')),
+          matching: find.text('跟随系统'),
+        ),
         180,
         scrollable: find
             .descendant(
-              of: find.byKey(const PageStorageKey('settings')),
+              of: find.byKey(const PageStorageKey('settings-reading')),
               matching: find.byType(Scrollable),
             )
             .first,
       );
       await Scrollable.ensureVisible(
-        tester.element(find.text('跟随系统')),
+        tester.element(
+          find.descendant(
+            of: find.byKey(const ValueKey('settings-appearance')),
+            matching: find.text('跟随系统'),
+          ),
+        ),
         alignment: .5,
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('跟随系统'));
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('settings-appearance')),
+          matching: find.text('跟随系统'),
+        ),
+      );
       await tester.pumpAndSettle();
       onScreen(find.byType(GlassOverlaySurface));
       await snapshot('menu');
@@ -330,7 +352,7 @@ void main({AdaptiveCapture? capture, bool native = false}) {
           initialChapter: 0,
         ),
       );
-      onScreen(find.byKey(const ValueKey('reader-listening-entry')));
+      onScreen(find.byKey(const ValueKey('reader-settings-entry')));
       await snapshot('reader');
       await tester.tap(_button('阅读设置'));
       await tester.pumpAndSettle();
@@ -382,8 +404,7 @@ void main({AdaptiveCapture? capture, bool native = false}) {
         await tester.pump(const Duration(milliseconds: 16));
       }
       await starting;
-      await tester.tap(_button('听书'));
-      await tester.pumpAndSettle();
+      await openReaderPanel(tester, tab: '听书');
       final slider = find.byKey(const ValueKey('listening-position'));
       await tester.ensureVisible(slider);
       await tester.pumpAndSettle();

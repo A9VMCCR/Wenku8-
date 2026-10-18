@@ -46,6 +46,7 @@ class _Platform implements UpdatePlatform {
   InstalledApp current = _installed;
   Completer<void>? installGate;
   final handedOff = <File>[];
+  final opened = <Uri>[];
   String? inspectFailure;
   int? installBuild;
   int verifiedBuild = 7;
@@ -82,13 +83,17 @@ class _Platform implements UpdatePlatform {
   @override
   Future<void> allowInstalls() async {}
   @override
-  Future<void> openRelease(Uri page) async {}
+  Future<void> openRelease(Uri page) async {
+    opened.add(page);
+  }
 }
 
 class _Source implements UpdateSource {
   AppRelease? release = AppRelease.fromGithub(_json(), _repo);
   int checks = 0;
   bool fail = false;
+  Object? failure;
+  bool? fileExistedBeforeDownload;
   Completer<void>? gate;
   Completer<void>? checkGate;
   List<int> data = [1, 2, 3];
@@ -98,6 +103,7 @@ class _Source implements UpdateSource {
     checks++;
     if (checkGate != null) await checkGate!.future;
     if (fail) throw const SocketException('offline');
+    if (failure != null) throw failure!;
     return release;
   }
 
@@ -109,11 +115,13 @@ class _Source implements UpdateSource {
     void Function(int) progress,
   ) async {
     downloads++;
+    fileExistedBeforeDownload = await file.exists();
     await file.writeAsBytes(data);
     progress(data.length);
     if (gate != null) await gate!.future;
     task.check();
     if (fail) throw const SocketException('offline');
+    if (failure != null) throw failure!;
   }
 }
 
@@ -166,16 +174,20 @@ class _Client extends Fake implements HttpClient {
   _Client(this.replies);
   final List<_Reply> replies;
   final urls = <Uri>[];
+  Completer<HttpClientRequest>? requestGate;
   @override
   set connectionTimeout(Duration? value) {}
   @override
   Future<HttpClientRequest> getUrl(Uri url) async {
     urls.add(url);
+    if (requestGate != null) return requestGate!.future;
     return _Request(replies.removeAt(0));
   }
 
   @override
   void close({bool force = false}) {}
+  @override
+  Future<HttpClientRequest> headUrl(Uri url) => getUrl(url);
 }
 
 void main() {
@@ -696,7 +708,7 @@ void main() {
         GithubUpdateSource(
           clientFactory: () => incomplete,
         ).download(asset, file, UpdateDownload(), (_) {}),
-        throwsFormatException,
+        throwsA(isA<UpdateServiceUnavailable>()),
       );
       final changed = [...data]..[0] ^= 1;
       final tampered = _Client([
@@ -708,6 +720,302 @@ void main() {
         ).download(asset, file, UpdateDownload(), (_) {}),
         throwsFormatException,
       );
+    },
+  );
+  test(
+    'mirror changes transport only and keeps canonical release identity',
+    () async {
+      final metadata = _json(tag: 'v0.3.0+57');
+      (metadata['assets'] as List).first['id'] = 57;
+      final client = _Client([
+        _Reply(200, [utf8.encode(jsonEncode(metadata))]),
+      ]);
+      final source = GithubUpdateSource(
+        repository: _repo,
+        gateway: Uri.parse(updateMirrorOrigin),
+        clientFactory: () => client,
+      );
+      final release = (await source.latest())!;
+      expect(
+        client.urls.single.toString(),
+        '$updateMirrorOrigin/api/releases/latest',
+      );
+      expect(release.page.host, 'github.com');
+      expect(release.assets.first.url.host, 'github.com');
+      expect(release.assets.first.id, 57);
+    },
+  );
+  test(
+    'mirror downloads immutable asset ID and still checks digest and size',
+    () async {
+      final bytes = utf8.encode('APK bytes');
+      final asset = UpdateAsset(
+        name: 'wenku8-0.3.0-arm64-v8a.apk',
+        url: Uri.parse(
+          'https://github.com/$_repo/releases/download/v0.3.0%2B57/wenku8-0.3.0-arm64-v8a.apk',
+        ),
+        size: bytes.length,
+        id: 57,
+        digest: sha256.convert(bytes).toString(),
+      );
+      final client = _Client([
+        _Reply(200, [bytes]),
+      ]);
+      final file = File('${temp.path}/mirror.apk');
+      await GithubUpdateSource(
+        repository: _repo,
+        gateway: Uri.parse(updateMirrorOrigin),
+        clientFactory: () => client,
+      ).download(asset, file, UpdateDownload(), (_) {});
+      expect(client.urls.single.host, 'git.3952039.xyz');
+      expect(client.urls.single.pathSegments, asset.url.pathSegments);
+      expect(client.urls.single.queryParameters, {'asset': '57'});
+      expect(await file.readAsBytes(), bytes);
+      final changed = _Client([
+        _Reply(200, [utf8.encode('bad bytes')]),
+      ]);
+      await expectLater(
+        GithubUpdateSource(
+          repository: _repo,
+          gateway: Uri.parse(updateMirrorOrigin),
+          clientFactory: () => changed,
+        ).download(asset, file, UpdateDownload(), (_) {}),
+        throwsFormatException,
+      );
+    },
+  );
+  test(
+    'mirror transport reports redirects as unavailable and rejects external assets',
+    () async {
+      final client = _Client([
+        _Reply(
+          302,
+          [],
+          'https://github.com/$_repo/releases/download/v0.3.0/app.apk',
+        ),
+      ]);
+      final source = GithubUpdateSource(
+        repository: _repo,
+        gateway: Uri.parse(updateMirrorOrigin),
+        clientFactory: () => client,
+      );
+      final file = File('${temp.path}/mirror.apk');
+      final release = AppRelease.fromGithub(_json(), _repo)!;
+      await expectLater(
+        source.download(release.assets.first, file, UpdateDownload(), (_) {}),
+        throwsA(isA<UpdateServiceUnavailable>()),
+      );
+      expect(client.urls, hasLength(1));
+      final external = UpdateAsset(
+        name: 'file.apk',
+        url: Uri.parse('https://evil.test/file.apk'),
+        size: 4,
+      );
+      await expectLater(
+        source.download(external, file, UpdateDownload(), (_) {}),
+        throwsFormatException,
+      );
+      expect(client.urls, hasLength(1));
+    },
+  );
+  test(
+    'official app always chooses mirror-first without a user channel preference',
+    () async {
+      final service = AppUpdates(preferences: updates.preferences);
+      addTearDown(service.dispose);
+      expect(service.source, isA<MirrorFirstUpdateSource>());
+      expect(service.projectPage.host, 'git.3952039.xyz');
+      expect(service.releasePage.host, 'git.3952039.xyz');
+      await updates.preferences.setString('appUpdateChannel', 'github');
+      final restarted = AppUpdates(preferences: updates.preferences);
+      addTearDown(restarted.dispose);
+      expect(restarted.source, isA<MirrorFirstUpdateSource>());
+    },
+  );
+
+  test(
+    'mirror rate limiting falls back once; a real no-release response does not',
+    () async {
+      final mirrorClient = _Client([_Reply(429, []), _Reply(404, [])]);
+      final original = _Source();
+      final source = MirrorFirstUpdateSource(
+        mirror: GithubUpdateSource(
+          repository: _repo,
+          gateway: Uri.parse(updateMirrorOrigin),
+          clientFactory: () => mirrorClient,
+        ),
+        original: original,
+      );
+      expect(await source.latest(), original.release);
+      expect(original.checks, 1);
+      expect(await source.latest(), isNull);
+      expect(original.checks, 1);
+      expect(mirrorClient.urls, hasLength(2));
+    },
+  );
+
+  test(
+    'an interrupted mirror transfer restarts cleanly and retains the verified asset',
+    () async {
+      final mirror = _Source()..fail = true;
+      final original = _Source()..data = [8, 9, 10, 11];
+      final routes = <bool>[], progress = <int>[];
+      final source = MirrorFirstUpdateSource(
+        mirror: mirror,
+        original: original,
+        onRoute: routes.add,
+      );
+      final file = File('${temp.path}/fallback.apk');
+      await source.download(
+        mirror.release!.assets.first,
+        file,
+        UpdateDownload(),
+        progress.add,
+      );
+      expect(await file.readAsBytes(), original.data);
+      expect(original.fileExistedBeforeDownload, false);
+      expect(routes, [false, true]);
+      expect(progress, [3, 0, 4]);
+      expect(original.downloads, 1);
+    },
+  );
+
+  test(
+    'cancelled transfers and integrity/identity failures never retry another source',
+    () async {
+      final mirror = _Source()..failure = const FormatException('安装包校验失败');
+      final original = _Source();
+      final source = MirrorFirstUpdateSource(
+        mirror: mirror,
+        original: original,
+      );
+      final file = File('${temp.path}/cancelled.apk');
+      await expectLater(
+        source.download(
+          mirror.release!.assets.first,
+          file,
+          UpdateDownload(),
+          (_) {},
+        ),
+        throwsFormatException,
+      );
+      expect(original.downloads, 0);
+      mirror.failure = null;
+      mirror.gate = Completer<void>();
+      final task = UpdateDownload();
+      final download = source.download(
+        mirror.release!.assets.first,
+        file,
+        task,
+        (_) {},
+      );
+      final assertion = expectLater(download, throwsA(isA<UpdateCancelled>()));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      task.cancel();
+      mirror.gate!.complete();
+      await assertion;
+      expect(original.downloads, 0);
+    },
+  );
+  test(
+    'direct fallback revalidates the exact release asset ID before downloading',
+    () async {
+      final data = utf8.encode('verified update');
+      final metadata = _json(
+        assets: [
+          {
+            'name': 'wenku8-0.3.0-arm64-v8a.apk',
+            'size': data.length,
+            'id': 57,
+            'digest': 'sha256:${sha256.convert(data)}',
+            'browser_download_url':
+                'https://github.com/$_repo/releases/download/v0.3.0/wenku8-0.3.0-arm64-v8a.apk',
+          },
+        ],
+      );
+      final asset = AppRelease.fromGithub(metadata, _repo)!.assets.single;
+      final good = _Client([
+        _Reply(200, [utf8.encode(jsonEncode(metadata))]),
+        _Reply(200, [data]),
+      ]);
+      final file = File('${temp.path}/immutable.apk');
+      await GithubUpdateSource(
+        repository: _repo,
+        clientFactory: () => good,
+      ).download(asset, file, UpdateDownload(), (_) {});
+      expect(good.urls.first.path, '/repos/$_repo/releases/tags/v0.3.0');
+      expect(await file.readAsBytes(), data);
+      final replaced = jsonDecode(jsonEncode(metadata)) as Map<String, dynamic>;
+      (replaced['assets'] as List).single['id'] = 58;
+      final bad = _Client([
+        _Reply(200, [utf8.encode(jsonEncode(replaced))]),
+      ]);
+      await expectLater(
+        GithubUpdateSource(
+          repository: _repo,
+          clientFactory: () => bad,
+        ).download(asset, file, UpdateDownload(), (_) {}),
+        throwsFormatException,
+      );
+      expect(bad.urls, hasLength(1));
+    },
+  );
+  test(
+    'update requests release public-content priority after success and failure',
+    () async {
+      final calls = <bool>[];
+      final service = AppUpdates(
+        preferences: updates.preferences,
+        source: source,
+        platform: platform,
+        directory: () async => temp,
+        networkPriority: (enabled) async {
+          calls.add(enabled);
+        },
+      );
+      addTearDown(service.dispose);
+      await service.check();
+      expect(calls, [true, false]);
+      source.fail = true;
+      await service.download();
+      expect(calls, [true, false, true, false]);
+      expect(service.downloading, false);
+    },
+  );
+  testWidgets(
+    'a stalled mirror DNS/connection times out and falls back automatically',
+    (tester) async {
+      final client = _Client([])..requestGate = Completer<HttpClientRequest>();
+      final original = _Source();
+      final source = MirrorFirstUpdateSource(
+        mirror: GithubUpdateSource(
+          repository: _repo,
+          gateway: Uri.parse(updateMirrorOrigin),
+          clientFactory: () => client,
+        ),
+        original: original,
+      );
+      AppRelease? result;
+      final pending = source.latest().then((value) {
+        result = value;
+      });
+      await tester.pump(const Duration(seconds: 4, milliseconds: 1));
+      await pending;
+      expect(result, original.release);
+      expect(original.checks, 1);
+    },
+  );
+  test(
+    'project/download entry opens the mirror first and falls back without a source picker',
+    () async {
+      final client = _Client([_Reply(200, []), _Reply(503, [])]);
+      await HttpOverrides.runZoned(() async {
+        await updates.openProjectPage();
+        expect(platform.opened.last.host, 'git.3952039.xyz');
+        await updates.openProjectPage(showRelease: true);
+        expect(platform.opened.last.host, 'github.com');
+        expect(client.urls, hasLength(2));
+      }, createHttpClient: (_) => client);
     },
   );
 }

@@ -293,14 +293,18 @@ void main() {
         NovelApp(state: state, repository: const DemoNovelRepository()),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('设置').last);
+      await tester.tap(find.text('我的').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('my-settings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-effects-entry')));
       await tester.pumpAndSettle();
       final blurFinder = find.byKey(const ValueKey('glass-blur-slider'));
       await tester.scrollUntilVisible(
         blurFinder,
         180,
         scrollable: find.descendant(
-          of: find.byKey(const PageStorageKey('settings')),
+          of: find.byKey(const PageStorageKey('settings-effects')),
           matching: find.byType(Scrollable),
         ),
       );
@@ -317,6 +321,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(state.glassBlur, 8);
       expect(state.glassOpacity, .42);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
       final appearance = GlassAppearance.of(
         tester.element(find.byKey(const ValueKey('liquid-dock'))),
       );

@@ -46,7 +46,11 @@ ThemeData readerTheme(
     iconTheme: base.iconTheme.copyWith(color: ink),
     disabledColor: raised(.35),
     dividerColor: scheme.outlineVariant,
-    textTheme: base.textTheme.apply(bodyColor: ink, displayColor: ink),
+    textTheme: base.textTheme.apply(
+      fontFamily: fontFamily ?? 'Roboto',
+      bodyColor: ink,
+      displayColor: ink,
+    ),
     inputDecorationTheme: base.inputDecorationTheme.copyWith(
       fillColor: scheme.surfaceContainerLow,
     ),
@@ -90,7 +94,7 @@ class _ReaderAppearanceState extends State<ReaderAppearance> {
   String? _family;
   ThemeData _resolve() {
     final paper = widget.state.readerPreferences.paper;
-    final family = widget.state.appTypeface.family;
+    final family = widget.state.readerFontFamily;
     if (!identical(_base, widget.appTheme) ||
         _paper != paper ||
         _family != family) {

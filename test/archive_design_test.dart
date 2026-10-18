@@ -111,9 +111,12 @@ void main() {
     });
 
     testWidgets(
-      'reader keeps a plain canvas and permanent edge blur in $brightness',
+      'reader keeps a plain canvas and hides its chrome edge blur in $brightness',
       (tester) async {
-        SharedPreferences.setMockInitialValues({});
+        SharedPreferences.setMockInitialValues({
+          'readerChromeVisible': true,
+          'readerChromeHintSeen': true,
+        });
         final state = await LibraryState.load();
         addTearDown(state.dispose);
         const repository = DemoNovelRepository();

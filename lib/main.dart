@@ -2,12 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_ui.dart';
 import 'app_licenses.dart';
-import 'app_typography.dart';
 import 'catalog.dart';
 import 'legacy_wenku_repository.dart';
 import 'library_state.dart';
@@ -30,6 +30,7 @@ import 'updates/app_updates.dart';
 import 'updates/update_page.dart';
 import 'wenku_account.dart';
 import 'wenku_features.dart';
+import 'wenku_shelf_sync.dart';
 
 Future<void> main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
@@ -38,6 +39,13 @@ Future<void> main() async {
   // Do not hold the first frame while Android is applying window insets.
   unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
   final state = await LibraryState.load();
+  if (chineseLocale(
+        state.language.locale ?? binding.platformDispatcher.locale,
+      ).countryCode !=
+      'CN') {
+    await ChineseText.prepare();
+  }
+  await state.loadFonts();
   final network = NetworkStatus();
   await network.start();
   if (state.performance.needsRuntimeEffects) await NativeEffects.prepare();
@@ -53,6 +61,13 @@ Future<void> main() async {
       : null;
   final remote = LegacyWenkuRepository(
     publicationRequest: account?.readPublication,
+    publicationSessionKey: account == null
+        ? null
+        : () => (
+            account.sessionRevision,
+            account.publicationRevision,
+            account.authenticated,
+          ),
   );
   final repository = defaultTargetPlatform == TargetPlatform.android
       ? OfflineNovelRepository(
@@ -66,7 +81,18 @@ Future<void> main() async {
     await reconcileLocalSeries(repository.local!, state);
   }
   final features = account != null
-      ? WenkuFeatures(account: account, publications: remote)
+      ? WenkuFeatures(
+          account: account,
+          // The authenticated novellist response already contains book metadata.
+          // Reuse its adapter, pagination and the existing account session.
+          publications: remote,
+          shelfSync: WenkuShelfSync(
+            account: account,
+            library: state,
+            preferences: await SharedPreferences.getInstance(),
+            network: network,
+          )..start(),
+        )
       : null;
   final customSpeech = defaultTargetPlatform == TargetPlatform.android
       ? CustomSpeechSettings()
@@ -125,25 +151,49 @@ class NovelApp extends StatefulWidget {
   State<NovelApp> createState() => _NovelAppState();
 }
 
-class _NovelAppState extends State<NovelApp> {
+class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
   LibraryState get state => widget.state;
   NovelRepository get repository => widget.repository;
   WenkuFeatures? get features => widget.features;
   ListeningController? get listening => widget.listening;
   AppUpdates? get updates => widget.updates;
   final _updateNavigation = AppUpdateNavigation();
-  late AppTypeface _lastTypeface = state.appTypeface;
-  static final _themes =
-      <(TargetPlatform, Brightness, AppTypeface), ThemeData>{};
+  late String _lastTypeface = state.appFontId;
+  Locale _systemLocale = chineseLocale(
+    WidgetsBinding.instance.platformDispatcher.locale,
+  );
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  Future<void> didChangeLocales(List<Locale>? locales) async {
+    final ticket = ++_localeRequest;
+    final next = chineseLocale(locales?.firstOrNull);
+    if (state.language == AppLanguage.system && next.countryCode != 'CN') {
+      await ChineseText.prepare();
+    }
+    if (mounted && ticket == _localeRequest) {
+      setState(() => _systemLocale = next);
+    }
+  }
+
+  int _localeRequest = 0;
+
+  static final _themes = <(TargetPlatform, Brightness, String), ThemeData>{};
 
   ThemeData _theme(Brightness brightness) => _themes.putIfAbsent((
     defaultTargetPlatform,
     brightness,
-    state.appTypeface,
-  ), () => novelTheme(brightness, fontFamily: state.appTypeface.family));
+    state.appFontId,
+  ), () => novelTheme(brightness, fontFamily: state.appFontFamily));
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    features?.shelfSync?.dispose();
     _updateNavigation.dispose();
     super.dispose();
   }
@@ -153,10 +203,19 @@ class _NovelAppState extends State<NovelApp> {
     return AnimatedBuilder(
       animation: state.applicationChanges,
       builder: (context, child) {
-        final typefaceChanged = _lastTypeface != state.appTypeface;
-        _lastTypeface = state.appTypeface;
+        final typefaceChanged = _lastTypeface != state.appFontId;
+        _lastTypeface = state.appFontId;
         return MaterialApp(
           title: '轻小说文库',
+          locale: state.language.locale ?? _systemLocale,
+          supportedLocales: const [
+            Locale('zh', 'CN'),
+            Locale('zh', 'HK'),
+            Locale('zh', 'TW'),
+          ],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          localeResolutionCallback: (locale, _) =>
+              chineseLocale(state.language.locale ?? locale),
           navigatorObservers: [_updateNavigation],
           debugShowCheckedModeBanner: false,
           scrollBehavior: const NovelScrollBehavior(),

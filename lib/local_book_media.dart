@@ -7,9 +7,13 @@ class LocalBookMedia {
   static Directory? root;
   static final _pending = <String, Future<Uint8List>>{};
   static final _covers = <String, Uint8List>{};
+  static final _coverFutures = <String, Future<Uint8List>>{};
   static Uint8List? peek(String? url) => _covers[url];
-  static void evict(int bookId) =>
-      _covers.removeWhere((url, _) => Uri.tryParse(url)?.host == '$bookId');
+  static void evict(int bookId) {
+    _covers.removeWhere((url, _) => Uri.tryParse(url)?.host == '$bookId');
+    _coverFutures.removeWhere((url, _) => Uri.tryParse(url)?.host == '$bookId');
+  }
+
   static bool valid(Uri uri) =>
       uri.scheme == 'wenku-local' &&
       (int.tryParse(uri.host) ?? 0) >= 0x60000000 &&
@@ -29,6 +33,33 @@ class LocalBookMedia {
         .whenComplete(() => _pending.remove(source));
   }
 
+  /// Older EPUBs can use img-N.jpg as their cover. Cache by role, not filename;
+  /// otherwise every reader return rereads/redecodes it and restarts arrival.
+  static Future<Uint8List> loadCover(String source) =>
+      _coverFutures.putIfAbsent(source, () async {
+        try {
+          final bytes = await load(source);
+          _rememberCover(source, bytes);
+          return bytes;
+        } catch (_) {
+          _coverFutures.remove(source);
+          rethrow;
+        }
+      });
+  static void _rememberCover(String source, Uint8List bytes) {
+    _covers.remove(source);
+    var size = _covers.values.fold<int>(
+      bytes.length,
+      (sum, data) => sum + data.length,
+    );
+    while (size > 8 * 1024 * 1024 && _covers.isNotEmpty) {
+      final key = _covers.keys.first;
+      size -= _covers.remove(key)!.length;
+      _coverFutures.remove(key);
+    }
+    _covers[source] = bytes;
+  }
+
   static Future<Uint8List> _read(String source) async {
     final uri = Uri.parse(source);
     if (root == null || !valid(uri)) throw const FormatException('本地插图地址无效');
@@ -38,14 +69,7 @@ class LocalBookMedia {
     }
     final bytes = await file.readAsBytes();
     if (uri.path.startsWith('/cover.')) {
-      var size = _covers.values.fold<int>(
-        bytes.length,
-        (sum, data) => sum + data.length,
-      );
-      while (size > 8 * 1024 * 1024 && _covers.isNotEmpty) {
-        size -= _covers.remove(_covers.keys.first)!.length;
-      }
-      _covers[source] = bytes;
+      _rememberCover(source, bytes);
     }
     return bytes;
   }

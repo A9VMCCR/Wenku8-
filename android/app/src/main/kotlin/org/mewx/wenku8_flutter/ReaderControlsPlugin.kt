@@ -3,17 +3,69 @@ package org.mewx.wenku8_flutter
 import android.app.Activity
 import android.view.KeyEvent
 import android.provider.Settings
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.EventChannel
 
 class ReaderControlsPlugin : FlutterPlugin, ActivityAware {
     private var channel: MethodChannel? = null
     private var activity: Activity? = null
     private var volumePaging = false
     private var lastPage = 0L
+    private var statusEvents: EventChannel? = null
+    private var statusReceiver: BroadcastReceiver? = null
+    private var applicationContext: Context? = null
+    private fun stopStatusEvents() {
+        statusReceiver?.let { applicationContext?.unregisterReceiver(it) }
+        statusReceiver = null
+    }
+    private fun status(context: Context): Map<String, Any?> {
+        val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val state = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        return mapOf("time" to System.currentTimeMillis(), "battery" to if (level >= 0 && scale > 0) level * 100 / scale else null,
+            "charging" to (state == BatteryManager.BATTERY_STATUS_CHARGING || state == BatteryManager.BATTERY_STATUS_FULL))
+    }
+    private fun hideStatusBar(hidden: Boolean) {
+        activity?.window?.let { window ->
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (hidden) controller.hide(WindowInsetsCompat.Type.statusBars())
+            else controller.show(WindowInsetsCompat.Type.statusBars())
+        }
+    }
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        applicationContext = binding.applicationContext
+        statusEvents = EventChannel(binding.binaryMessenger, "org.mewx.wenku8/reader_status").also { events ->
+            events.setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, sink: EventChannel.EventSink) {
+                    stopStatusEvents()
+                    val context = binding.applicationContext
+                    statusReceiver = object : BroadcastReceiver() {
+                        override fun onReceive(context: Context, intent: Intent?) { sink.success(status(context)) }
+                    }.also { receiver ->
+                        ContextCompat.registerReceiver(context, receiver, IntentFilter().apply {
+                            addAction(Intent.ACTION_BATTERY_CHANGED); addAction(Intent.ACTION_TIME_TICK)
+                            addAction(Intent.ACTION_TIME_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
+                        }, ContextCompat.RECEIVER_NOT_EXPORTED)
+                    }
+                    sink.success(status(context))
+                }
+                override fun onCancel(arguments: Any?) = stopStatusEvents()
+            })
+        }
         channel = MethodChannel(binding.binaryMessenger, "org.mewx.wenku8/reader_controls").also {
             it.setMethodCallHandler { call, result ->
                 if (call.method == "brightness") {
@@ -31,6 +83,7 @@ class ReaderControlsPlugin : FlutterPlugin, ActivityAware {
                     result.error("brightness", "阅读亮度超出范围", null); return@setMethodCallHandler
                 }
                 activity?.window?.let { window -> val attrs = window.attributes; attrs.screenBrightness = brightness; window.attributes = attrs }
+                hideStatusBar(call.argument<Boolean>("hideStatusBar") == true)
                 result.success(null)
             }
         }
@@ -46,11 +99,12 @@ class ReaderControlsPlugin : FlutterPlugin, ActivityAware {
     }
     fun suspend() {
         volumePaging = false
+        hideStatusBar(false)
         activity?.window?.let { window -> val attrs = window.attributes; attrs.screenBrightness = -1f; window.attributes = attrs }
     }
     override fun onAttachedToActivity(binding: ActivityPluginBinding) { activity = binding.activity }
     override fun onDetachedFromActivity() { suspend(); activity = null }
     override fun onDetachedFromActivityForConfigChanges() = onDetachedFromActivity()
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) = onAttachedToActivity(binding)
-    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) { suspend(); channel?.setMethodCallHandler(null); channel = null }
+    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) { suspend(); stopStatusEvents(); statusEvents?.setStreamHandler(null); statusEvents = null; applicationContext = null; channel?.setMethodCallHandler(null); channel = null }
 }

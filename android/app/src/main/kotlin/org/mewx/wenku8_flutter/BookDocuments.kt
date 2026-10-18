@@ -5,6 +5,9 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.os.Build
+import android.provider.Settings
+import android.Manifest
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
@@ -13,21 +16,22 @@ import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.Executors
 
-/** SAF grants access only to a user-selected book or sync document. No account
- * tokens, storage-wide permissions, or cloud provider SDKs are needed. */
+/** SAF for chosen folders; explicit system permission for optional shared-storage
+ * scanning. Account credentials and private application files stay separate. */
 class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHandler {
     private val io = Executors.newSingleThreadExecutor()
     private val preferences = activity.getSharedPreferences("book_documents", 0)
-    private data class Pending(val method: String, val result: MethodChannel.Result)
+    private data class Pending(val method: String, val result: MethodChannel.Result, val export: File? = null, val exportName: String? = null)
     private var pending: Pending? = null
     private var closed = false
     private val root = File(activity.cacheDir, "book-documents").apply { mkdirs() }
-    companion object { private const val REQUEST = 8020; private const val MAX_SYNC = 256L * 1024 * 1024 }
+    private val scanner = BookFolderScanner(activity)
+    companion object { private const val REQUEST = 8020; private const val ALL_REQUEST = 8021; private const val MAX_SYNC = 256L * 1024 * 1024 }
 
-    private fun name(uri: Uri): String = activity.contentResolver.query(uri,
+    private fun name(uri: Uri, fallback: String = "wenku8.wenku8sync"): String = activity.contentResolver.query(uri,
         arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
         if (it.moveToFirst()) it.getString(0) else null
-    } ?: "wenku8.wenku8sync"
+    } ?: fallback
 
     private fun selected(): Uri = preferences.getString("sync_uri", null)?.let(Uri::parse)
         ?: throw IllegalStateException("请先选择云同步文件")
@@ -85,41 +89,92 @@ class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHa
     }
 
     private fun background(result: MethodChannel.Result, action: () -> Any?) {
+        if (closed) { result.error("closed", "文件页面已关闭，请返回文库后重试", null); return }
         io.execute {
-            try { val value = action(); activity.runOnUiThread { if (!closed) result.success(value) } }
-            catch (error: Exception) { activity.runOnUiThread { if (!closed) result.error("document", error.message ?: "文件操作失败，请重试", null) } }
+            try { val value = action(); activity.runOnUiThread {
+                if (closed) result.error("closed", "文件页面已关闭，请返回文库后重试", null) else result.success(value)
+            } }
+            catch (error: Exception) { activity.runOnUiThread { result.error("document", error.message ?: "文件操作失败，请重试", null) } }
         }
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "pickBook", "pickBooks", "openSync", "createSync" -> {
+            "saveBookFile" -> {
+                if (pending != null) { result.error("busy", "请先完成当前文件选择", null); return }
+                try {
+                    val source = BookExportFiles.source(File(activity.cacheDir, "book-exports"), call.argument<String>("path") ?: "")
+                    val title = (call.argument<String>("name") ?: source.name)
+                    require(title.length in 1..240 && !title.contains('/') && !title.contains('\\') && !title.any { it.code < 32 }) { "文件名无效" }
+                    require(title.substringAfterLast('.').lowercase() == source.extension.lowercase()) { "文件格式不匹配" }
+                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = BookExportFiles.mime(source)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                        putExtra(Intent.EXTRA_TITLE, title)
+                    }
+                    pending = Pending(call.method, result, source, title)
+                    @Suppress("DEPRECATION") activity.startActivityForResult(Intent.createChooser(intent, "选择保存文件的应用"), REQUEST)
+                } catch (error: Exception) { pending = null; result.error("export", error.message ?: "无法打开保存位置", null) }
+            }
+            "selectAllScan" -> {
+                if (pending != null) { result.error("busy", "请先完成当前文件选择", null); return }
+                if (scanner.canReadAll()) { background(result) { scanner.selectAll() }; return }
+                pending = Pending(call.method, result)
+                try {
+                    if (Build.VERSION.SDK_INT >= 30) {
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            Uri.parse("package:${activity.packageName}"))
+                        @Suppress("DEPRECATION") activity.startActivityForResult(intent, ALL_REQUEST)
+                    } else activity.requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), ALL_REQUEST)
+                } catch (_: Exception) { pending = null; result.error("permission", "系统未提供共享存储授权，请选择指定文件夹", null) }
+            }
+            "pickBook", "pickBooks", "pickFont", "openSync", "createSync", "selectScanFolder" -> {
                 if (pending != null) { result.error("busy", "请先完成当前文件选择", null); return }
                 val create = call.method == "createSync"
-                val intent = Intent(if (create) Intent.ACTION_CREATE_DOCUMENT else Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                val folder = call.method == "selectScanFolder"
+                val choosingBooks = call.method == "pickBook" || call.method == "pickBooks"
+                val intent = Intent(if (folder) Intent.ACTION_OPEN_DOCUMENT_TREE else if (create) Intent.ACTION_CREATE_DOCUMENT else if (choosingBooks) Intent.ACTION_GET_CONTENT else Intent.ACTION_OPEN_DOCUMENT).apply {
+                    if (!folder) { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                    if (!folder && call.method != "pickFont") addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                     if (create) { type = "application/octet-stream"; putExtra(Intent.EXTRA_TITLE, "文库同步.wenku8sync") }
                     if (call.method == "pickBook" || call.method == "pickBooks") {
-                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/plain", "application/epub+zip", "application/octet-stream"))
+                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/*", "application/epub+zip", "application/zip", "application/x-zip-compressed", "application/x-mobipocket-ebook", "application/vnd.amazon.ebook", "application/pdf", "application/rtf", "application/xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream"))
                         if (call.method == "pickBooks") putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                     }
                 }
                 pending = Pending(call.method, result)
-                try { @Suppress("DEPRECATION") activity.startActivityForResult(intent, REQUEST) }
+                try { @Suppress("DEPRECATION") activity.startActivityForResult(
+                    if (folder || choosingBooks) Intent.createChooser(intent, if (folder) "选择支持文件夹授权的应用" else "选择文件应用") else intent,
+                    REQUEST) }
                 catch (_: Exception) { pending = null; result.error("picker", "系统文件选择器不可用", null) }
             }
+            "scanFolderInfo" -> background(result) { scanner.info() }
+            "setScanAutomatic" -> background(result) { scanner.setAutomatic(call.argument<Boolean>("value") == true); null }
+            "disconnectScanFolder" -> background(result) { scanner.disconnect(); null }
+            "scanBooks" -> background(result) { scanner.scan() }
+            "scanFormats" -> background(result) { scanner.formats().toList() }
+            "setScanFormats" -> background(result) { scanner.setFormats(call.argument<List<String>>("extensions") ?: emptyList()); null }
+            "stageScanBook" -> background(result) { scanner.stage(call.argument<String>("token") ?: "", root, ::copy) }
+            "markScanBook" -> background(result) { scanner.markImported(call.argument<String>("token") ?: ""); null }
+            "finishBookScan" -> background(result) { scanner.finish(); null }
             "syncInfo" -> background(result) {
                 val value = preferences.getString("sync_uri", null)
                 if (value == null) null else mapOf("name" to name(Uri.parse(value)), "authority" to (Uri.parse(value).authority ?: ""), "created" to preferences.getBoolean("sync_new", false))
             }
             "releaseBooks" -> background(result) {
-                for (path in call.argument<List<String>>("paths") ?: emptyList()) {
-                    val source = file(path)
-                    require(source.name.startsWith("import-") && source.name.endsWith(".source")) { "文件路径无效" }
-                    check(source.delete()) { "清理临时文件失败" }
+                for (path in (call.argument<List<String>>("paths") ?: emptyList()).distinct()) {
+                    val source = File(path).canonicalFile
+                    require(source.parentFile == root.canonicalFile && source.name.startsWith("import-") && source.name.endsWith(".source")) { "文件路径无效" }
+                    check(!source.exists() || source.isFile && source.delete()) { "清理临时文件失败" }
                 }
                 null
+            }
+            "prepareBook" -> background(result) {
+                val source = bookTextFile(call.argument<String>("path") ?: "")
+                BookArchiveImport(root).apply { documents = BookMarkupImport(root, BookPdfImport(activity, root)::read) }
+                    .prepare(call.argument<String>("name") ?: "", source)
             }
             "readSync" -> background(result) {
                 val snapshot = File(root, "cloud-before.wenku8sync")
@@ -179,11 +234,19 @@ class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHa
                 charset.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
                     .decode(ByteBuffer.wrap(bytes)).toString().removePrefix("\uFEFF")
             }
+            "decodeTextFile" -> background(result) {
+                val source = bookTextFile(call.argument<String>("path") ?: "")
+                val target = File.createTempFile("import-", ".source", root)
+                try { BookTextDecoder.normalize(source, target, call.argument<String>("encoding") ?: "auto") }
+                catch (_: java.nio.charset.CharacterCodingException) { error("文本编码无法识别，请在书库设置选择正确的 TXT 编码后重试") }
+                target.path
+            }
             else -> result.notImplemented()
         }
     }
 
     fun onActivityResult(request: Int, code: Int, data: Intent?): Boolean {
+        if (request == ALL_REQUEST) { finishAllPermission(); return true }
         if (request != REQUEST) return false
         val operation = pending ?: return true
         pending = null
@@ -196,16 +259,30 @@ class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHa
         if (uris.isEmpty()) { operation.result.success(null); return true }
         val uri = uris.first()
         background(operation.result) {
-            if (operation.method == "pickBooks") {
+            if (operation.method == "saveBookFile") {
+                val source = BookExportFiles.source(File(activity.cacheDir, "book-exports"), operation.export?.path ?: "")
+                val size = activity.contentResolver.openOutputStream(uri, "wt")?.use { BookExportFiles.copy(source, it) }
+                    ?: error("无法写入所选位置，请重新选择")
+                mapOf("name" to name(uri, operation.exportName ?: source.name), "size" to size)
+            } else if (operation.method == "selectScanFolder") {
+                scanner.select(uri, data.flags)
+            } else if (operation.method == "pickFont") {
+                val display = name(uri)
+                require(display.substringAfterLast('.').lowercase() in setOf("ttf", "otf")) { "请选择 TTF 或 OTF 字体" }
+                val target = File.createTempFile("import-", ".source", root)
+                try { copy(uri, target, 32L * 1024 * 1024) }
+                catch (error: Exception) { target.delete(); throw error }
+                mapOf("name" to display, "path" to target.path)
+            } else if (operation.method == "pickBooks") {
                 uris.map { selected ->
                     var display = "所选文件"
                     var target: File? = null
                     try {
                         display = name(selected)
-                        require(display.lowercase().endsWith(".txt") || display.lowercase().endsWith(".epub")) { "请选择 TXT 或 EPUB 文件" }
+                        require(BookArchiveImport.supported(display)) { "请选择支持的电子书或文档" }
                         val destination = File.createTempFile("import-", ".source", root)
                         target = destination
-                        copy(selected, destination, (if (display.lowercase().endsWith(".epub")) 256L else 40L) * 1024 * 1024)
+                        copy(selected, destination, BookArchiveImport.limit(display))
                         mapOf("name" to display, "path" to destination.path)
                     } catch (error: Exception) {
                         target?.delete()
@@ -214,9 +291,9 @@ class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHa
                 }
             } else if (operation.method == "pickBook") {
                 val display = name(uri)
-                require(display.lowercase().endsWith(".txt") || display.lowercase().endsWith(".epub")) { "请选择 TXT 或 EPUB 文件" }
+                require(BookArchiveImport.supported(display)) { "请选择支持的电子书或文档" }
                 val target = File(root, "import-source")
-                copy(uri, target, (if (display.lowercase().endsWith(".epub")) 256L else 40L) * 1024 * 1024)
+                copy(uri, target, BookArchiveImport.limit(display))
                 mapOf("name" to display, "path" to target.path)
             } else {
                 require(canWrite(uri)) { "此云文档不支持写入，请选择可编辑的同步文件" }
@@ -229,7 +306,20 @@ class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHa
         }
         return true
     }
+    fun onRequestPermissionsResult(request: Int): Boolean {
+        if (request != ALL_REQUEST) return false
+        finishAllPermission()
+        return true
+    }
+    private fun finishAllPermission() {
+        val operation = pending?.takeIf { it.method == "selectAllScan" } ?: return
+        pending = null
+        if (scanner.canReadAll()) background(operation.result) { scanner.selectAll() }
+        else operation.result.success(null)
+    }
     fun close() {
-        closed = true; pending?.result?.error("closed", "页面已关闭，请重试", null); pending = null; io.shutdown()
+        closed = true; pending?.result?.error("closed", "页面已关闭，请重试", null); pending = null
+        io.execute { try { scanner.finish() } catch (_: Exception) { /* The next scan safely retries unacknowledged files. */ } }
+        io.shutdown()
     }
 }

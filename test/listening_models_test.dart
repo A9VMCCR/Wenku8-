@@ -253,7 +253,7 @@ void main() {
         store.saveFollow(false),
         store.saveVoice(alternateEdgeVoice),
       ]);
-      expect(store.speed, 2);
+      expect(store.speed, 3);
       expect(store.follow, false);
       expect(store.voice.id, alternateEdgeVoice.id);
       expect(preferences.getDouble('fontSize'), 21);

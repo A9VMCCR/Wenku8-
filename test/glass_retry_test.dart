@@ -11,7 +11,10 @@ void main() {
   testWidgets(
     'glass library retry replaces the failed future with a real result',
     (tester) async {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+      });
       final state = await LibraryState.load();
       final repository = _RetryLibrary();
       await tester.pumpWidget(NovelApp(state: state, repository: repository));
@@ -30,7 +33,10 @@ void main() {
   testWidgets(
     'glass detail retry keeps its cover and replaces failed metadata',
     (tester) async {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+      });
       final state = await LibraryState.load();
       final repository = _RetryDetail();
       await tester.pumpWidget(NovelApp(state: state, repository: repository));
@@ -56,7 +62,10 @@ void main() {
   testWidgets('glass chapter retry swaps the failed content future safely', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+    });
     final state = await LibraryState.load();
     final repository = _RetryContent();
     await tester.pumpWidget(
@@ -104,7 +113,10 @@ class _RetryContent extends DemoNovelRepository {
   int attempts = 0;
   @override
   Future<String> chapterContent(int novelId, NovelChapter chapter) async {
-    if (attempts++ == 0) throw StateError('fixture content failure');
+    if (identical(chapter, demoNovels.first.chapters.first) &&
+        attempts++ == 0) {
+      throw StateError('fixture content failure');
+    }
     return '恢复的正文。';
   }
 }

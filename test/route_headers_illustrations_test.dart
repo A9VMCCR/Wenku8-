@@ -77,7 +77,13 @@ void main({
 }) {
   TestWidgetsFlutterBinding.ensureInitialized();
   if (!native) setUpAll(loadReviewFonts);
-  setUp(() => SharedPreferences.setMockInitialValues({'reduceMotion': true}));
+  setUp(
+    () => SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+      'reduceMotion': true,
+    }),
+  );
 
   Future<GlobalKey> mount(
     WidgetTester tester,

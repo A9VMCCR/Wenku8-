@@ -4,8 +4,12 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'app_ui.dart';
+import 'app_search_field.dart';
 import 'catalog.dart';
 import 'offline_cache.dart';
+import 'library_state.dart' show ReadingPosition;
+import 'reader_tools.dart'
+    show ReaderChapterProgress, ReaderSeekProgress, ReaderOpenFind;
 
 /// A bounded, lazy chapter picker using the existing glass drawer. The current
 /// chapter is the scroll origin, so locating it never lays out earlier rows.
@@ -15,10 +19,17 @@ class ReaderCatalogue extends StatefulWidget {
     required this.novel,
     required this.currentChapter,
     this.cache,
+    this.position,
+    this.onProgressPreview,
+    this.onProgressCommitted,
+    this.onPreviewChanged,
   });
   final Novel novel;
   final int currentChapter;
   final OfflineCacheStore? cache;
+  final ReadingPosition? position;
+  final ValueChanged<double>? onProgressPreview, onProgressCommitted;
+  final ValueChanged<bool>? onPreviewChanged;
 
   @override
   State<ReaderCatalogue> createState() => _ReaderCatalogueState();
@@ -28,6 +39,8 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
   final _search = TextEditingController();
   final _scroll = ScrollController();
   final _center = GlobalKey();
+  String _tab = 'chapters';
+  bool _previewing = false;
   late List<int> _matches = _filter('');
   late final _volumes = NovelVolume.of(widget.novel.chapters);
   late final Set<String> _expanded = {
@@ -61,6 +74,7 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
   }
 
   void _locateCurrent() {
+    _tab = 'chapters';
     for (final volume in _volumes) {
       if (widget.currentChapter >= volume.start &&
           widget.currentChapter < volume.end) {
@@ -109,56 +123,100 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            const Expanded(
-              child: ArchiveSection(title: '目录', code: 'READER / CONTENTS'),
-            ),
-            GlassIconButton(
-              icon: CupertinoIcons.location,
-              label: '定位当前章节',
-              onPressed: _locateCurrent,
-            ),
-            GlassIconButton(
-              icon: CupertinoIcons.xmark,
-              label: '关闭目录',
-              onPressed: () => Navigator.pop(context),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        CupertinoSearchTextField(
-          key: const ValueKey('reader-chapter-search'),
-          controller: _search,
-          borderRadius: BorderRadius.circular(ArchiveDesign.panelRadius),
-          backgroundColor: Theme.of(context).colorScheme.surface,
-          placeholder: '搜索章节名或输入章序',
-          onChanged: _filterChanged,
-          onSubmitted: (_) => FocusScope.of(context).unfocus(),
-          onSuffixTap: () {
-            _search.clear();
-            _filterChanged('');
-          },
-        ),
-        const SizedBox(height: 10),
-        Text(
-          _search.text.trim().isEmpty
-              ? '共 ${widget.novel.chapters.length} 章 · 当前第 ${widget.currentChapter + 1} 章'
-              : '找到 ${_matches.length} 章',
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+        Visibility(
+          visible: !_previewing,
+          maintainSize: true,
+          maintainState: true,
+          maintainAnimation: true,
+          child: Row(
+            children: [
+              const Expanded(
+                child: ArchiveSection(title: '目录', code: 'READER / CONTENTS'),
+              ),
+              GlassIconButton(
+                icon: CupertinoIcons.location,
+                label: '定位当前章节',
+                onPressed: _locateCurrent,
+              ),
+              GlassIconButton(
+                icon: CupertinoIcons.xmark,
+                label: '关闭目录',
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 8),
-        Expanded(child: _chapters(context)),
+        if (widget.position != null) ...[
+          const SizedBox(height: 8),
+          Visibility(
+            visible: !_previewing,
+            maintainSize: true,
+            maintainState: true,
+            maintainAnimation: true,
+            child: AppControls.segments<String>(
+              context,
+              groupValue: _tab,
+              children: const {
+                'chapters': AppText('章节目录'),
+                'progress': AppText('本章进度'),
+              },
+              onValueChanged: (value) {
+                if (value != null) setState(() => _tab = value);
+              },
+            ),
+          ),
+        ],
+        const SizedBox(height: 10),
+        Expanded(
+          child: _tab == 'progress'
+              ? SingleChildScrollView(
+                  primary: false,
+                  child: ReaderChapterProgress(
+                    position: widget.position,
+                    onPreview: widget.onProgressPreview,
+                    onCommitted: widget.onProgressCommitted,
+                    onPreviewChanged: (active) {
+                      setState(() => _previewing = active);
+                      widget.onPreviewChanged?.call(active);
+                    },
+                    onSeek: (value) =>
+                        Navigator.pop(context, ReaderSeekProgress(value)),
+                    onFind: () =>
+                        Navigator.pop(context, const ReaderOpenFind()),
+                  ),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AppSearchField(
+                      inputKey: const ValueKey('reader-chapter-search'),
+                      controller: _search,
+                      hint: '搜索章节名或输入章序',
+                      onChanged: _filterChanged,
+                      onSubmitted: (_) => FocusScope.of(context).unfocus(),
+                    ),
+                    const SizedBox(height: 10),
+                    AppText(
+                      _search.text.trim().isEmpty
+                          ? '共 ${widget.novel.chapters.length} 章 · 当前第 ${widget.currentChapter + 1} 章'
+                          : '找到 ${_matches.length} 章',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(child: _chapters(context)),
+                  ],
+                ),
+        ),
       ],
     ),
   );
 
   Widget _chapters(BuildContext context) {
     if (_matches.isEmpty) {
-      return const Center(child: Text('没有匹配的章节'));
+      return const Center(child: AppText('没有匹配的章节'));
     }
     final matches = _matches.toSet();
     final rows = <({NovelVolume? volume, int? chapter})>[
@@ -220,7 +278,7 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
           child: Row(
             children: [
               Expanded(
-                child: Text(
+                child: AppText(
                   volume.title,
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
@@ -229,7 +287,10 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
                 ),
               ),
               const SizedBox(width: 8),
-              Text('${volume.length} 章', style: const TextStyle(fontSize: 11)),
+              AppText(
+                '${volume.length} 章',
+                style: const TextStyle(fontSize: 11),
+              ),
               const SizedBox(width: 10),
               Icon(
                 expanded
@@ -271,7 +332,7 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
-                  child: Text(
+                  child: AppText(
                     '${index + 1}',
                     style: const TextStyle(fontSize: 12),
                   ),
@@ -279,7 +340,7 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
               ),
               const SizedBox(width: 7),
               Expanded(
-                child: Text(
+                child: AppText(
                   chapter.title,
                   style: const TextStyle(fontSize: 14, height: 1.45),
                 ),
@@ -290,7 +351,7 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   if (current)
-                    const Text('正在阅读', style: TextStyle(fontSize: 10)),
+                    const AppText('正在阅读', style: TextStyle(fontSize: 10)),
                   if (widget.cache case final OfflineCacheStore cache)
                     AnimatedBuilder(
                       animation: cache.bookChanges(widget.novel.id),
@@ -300,7 +361,7 @@ class _ReaderCatalogueState extends State<ReaderCatalogue> {
                                   ?.chapterBytes
                                   .containsKey(chapter.id) ==
                               true
-                          ? const Text('已缓存', style: TextStyle(fontSize: 10))
+                          ? const AppText('已缓存', style: TextStyle(fontSize: 10))
                           : const SizedBox.shrink(),
                     ),
                 ],

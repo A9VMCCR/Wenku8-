@@ -13,6 +13,7 @@ import 'package:wenku8_flutter/reader_chrome.dart';
 
 class _Reader extends DemoNovelRepository {
   int calls = 0;
+  int adjacentCalls = 0;
   bool empty = false;
   final book = Novel(
     id: 81234,
@@ -28,7 +29,11 @@ class _Reader extends DemoNovelRepository {
   );
   @override
   Future<String> chapterContent(int novelId, NovelChapter chapter) async {
-    calls++;
+    if (chapter.id == book.chapters.first.id) {
+      calls++;
+    } else {
+      adjacentCalls++;
+    }
     if (empty) return '  \n ';
     return List.generate(
       220,
@@ -65,12 +70,15 @@ ParagraphPosition _anchor(WidgetTester tester) {
   final registry = tester
       .widget<ReaderParagraph>(find.byType(ReaderParagraph).first)
       .registry;
-  final context = tester.element(find.byType(ReaderPage));
   return registry.capture(
     _scroll(tester).position.pixels +
-        MediaQuery.paddingOf(context).top +
         FrostedHeader.toolbarHeight +
-        12,
+        12 -
+        tester
+            .widget<ReaderPage>(find.byType(ReaderPage))
+            .state
+            .readerPreferences
+            .marginTop,
   )!;
 }
 
@@ -93,7 +101,11 @@ void main({
   late _Reader repository;
   late GlobalKey boundary;
   setUp(() async {
-    SharedPreferences.setMockInitialValues({'reduceMotion': true});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+      'reduceMotion': true,
+    });
     state = await LibraryState.load();
     repository = _Reader();
     boundary = GlobalKey();
@@ -211,16 +223,23 @@ void main({
       expect(find.byType(GlassIconButton), findsNothing);
       expect(tester.element(find.byType(FrostedHeader)), same(header));
       expect(find.byType(ReaderEdgeBlur), findsNothing);
-      expect(tester.element(find.byType(ReaderEdgeBlur, skipOffstage: false)), same(underlay));
+      expect(
+        tester.element(find.byType(ReaderEdgeBlur, skipOffstage: false)),
+        same(underlay),
+      );
       expect(tester.widget(paragraph), same(original));
       expect(_scroll(tester).position.pixels, offset);
       if (capture != null) await capture(tester, boundary, 'reader-focus-dark');
       await tester.tapAt(const Offset(210, 310));
       await tester.pumpAndSettle();
-      expect(find.byType(GlassIconButton), findsNWidgets(3));
+      expect(find.byType(GlassIconButton), findsNWidgets(2));
+      expect(
+        find.byKey(const ValueKey('reader-settings-entry')),
+        findsOneWidget,
+      );
       expect(
         find.byKey(const ValueKey('reader-bookmarks-entry')),
-        findsOneWidget,
+        findsNothing,
       );
       expect(tester.widget(paragraph), same(original));
       expect(repository.calls, 1);

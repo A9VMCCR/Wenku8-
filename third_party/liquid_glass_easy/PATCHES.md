@@ -1,5 +1,63 @@
 # Wenku8 performance patch
 
+## 2026-10-18 — Share geometry prefixes within one scene
+
+Moving lenses now share their ancestor-surface lookup and render-transform
+prefixes through the current `SceneBuilder`. Matrix multiplication retains
+Flutter's root-to-leaf order. The scene-only cache is discarded with its
+builder, so scrolling, route motion, opacity subpasses and overscroll filters
+resolve fresh coordinates on every frame. The actual layer-clip traversal and
+all optical parameters remain unchanged.
+
+`test/glass_scene_geometry_test.dart` compares the cached matrices and subpass
+identity against Flutter's original lookups in four changing scenes. Twelve
+lenses with ten shared ancestors require 10 rather than 120 ancestor-transform
+applications per scene, with exactly matching matrices. Native clipped,
+rotated, fading and filtered pixel comparisons are in
+`integration_test/glass_uniform_retention_test.dart`.
+Android API 35 / Impeller OpenGLES produced identical pixels in all four
+scenes (maximum channel difference 0). This is geometry-cost and rendering
+evidence; target-device frame times still need physical-device validation.
+
+## 2026-10-18 — Retain unchanged lens uniforms and filters
+
+The Impeller lens still resolves its actual transform and ancestor clip at scene
+composition. If geometry, clipping, material, shader and sampling frame are
+unchanged, it now reuses its packed uniforms and immutable image filter instead
+of uploading the same parameters and creating another native filter every
+frame. Background pixels remain live; movement invalidates the retained state
+in that same frame. Blur sigma, refraction, tint, shapes and animation timings
+are unchanged.
+
+`integration_test/glass_uniform_retention_test.dart` compares the previous path
+with retention on Android API 35 / Impeller OpenGLES. Sixteen changing-background
+frames caused 18 repeated packs before and 0 after; the moved-lens output had
+maximum channel difference 0. This verifies eliminated repeated parameter work
+and pixel parity, not Xiaomi 14 frame rate.
+
+## 2026-10-17 — Share scroll-edge input, not its masked result
+
+`LiquidGlassScrollEdgeGroup` gives a separated top/bottom pair one backdrop
+input. Each edge retains its original Gaussian sigma, clip, plateau, eight-stop
+feather and independent `dstIn` output. Different filters prevent Impeller's
+equal-filter result coalescing, which is incompatible with these internal masks.
+The page's glass controls never join this input group. Nested pages own fresh
+groups; overlapping Gaussian halos, additional bands and partially transparent
+routes keep the previous independent-input path.
+
+The implementation uses Flutter's native Impeller backdrop IDs. It adds no
+platform view, CPU frame readback, sampled-frame cache or reduced-quality kernel.
+Outside this new group the upstream scroll-edge batch behavior is preserved.
+
+Validation: identical source pixels on Android API 35 / Impeller OpenGLES,
+maximum and mean channel differences both zero. Live-source movement, overlapping
+bands and alpha transitions are checked in `integration_test/scroll_edge_input_test.dart`.
+The host emulator is capped at 60 Hz; its profile trace does not establish a
+physical-device 120 fps result.
+
+References: [Flutter BackdropFilter](https://api.flutter.dev/flutter/widgets/BackdropFilter-class.html),
+[Impeller backdrop input and result caching](https://github.com/flutter/flutter/blob/master/engine/src/flutter/impeller/display_list/canvas.cc).
+
 Based on the unmodified **liquid_glass_easy 5.0.0** pub.dev source archive,
 by Ahmed Gamil. The upstream MIT license is retained in `LICENSE`.
 

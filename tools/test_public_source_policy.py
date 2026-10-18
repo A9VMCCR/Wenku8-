@@ -33,6 +33,36 @@ class PublicSourcePolicyTest(unittest.TestCase):
             (root / 'libcpp.so').write_bytes(b'\x7fELF\xff\x00')
             self.assertEqual(policy.inspect(root), [])
 
+    def test_worker_secret_files_and_local_state_are_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ['tools/update-mirror/.dev.vars.production',
+                         'tools/content-gateway/.env.local',
+                         'tools/update-mirror/.wrangler/state/local.txt']:
+                file = root / name
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text('fixture')
+            self.assertEqual(len(policy.inspect(root)), 3)
+
+    def test_windows_sdk_version_is_not_an_ip_but_actual_lan_address_is(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'sdk.xml'
+            source.write_text('WindowsTargetPlatformVersion=10.0.19041.0')
+            self.assertEqual(policy.inspect(root), [])
+            source.write_text('https://' + '192.168.' + '2.10/')
+            self.assertEqual(len(policy.inspect(root)), 1)
+
+    def test_only_exact_upstream_examples_are_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'third_party/libmobi/src/read.c'
+            source.parent.mkdir(parents=True)
+            source.write_text(policy.UPSTREAM_PATH_EXAMPLES[source.relative_to(root).as_posix()])
+            self.assertEqual(policy.inspect(root), [])
+            source.write_text(source.read_text() + '\n/' + 'Users/private/local-book')
+            self.assertEqual(len(policy.inspect(root)), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

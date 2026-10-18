@@ -1,6 +1,5 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_interactions.dart';
 import 'app_ui.dart';
@@ -63,8 +62,7 @@ class _LocalImportReviewState extends State<LocalImportReview> {
     setState(() => _busy = true);
     LocalLibraryPreferences? prefs;
     try {
-      prefs = LocalLibraryPreferences(await SharedPreferences.getInstance())
-        ..load();
+      prefs = widget.library.organization;
       for (final group in _groups.where((g) => _selected.contains(g.seed))) {
         try {
           final playing = listening?.snapshot.value.novel?.id;
@@ -103,7 +101,6 @@ class _LocalImportReviewState extends State<LocalImportReview> {
     } catch (_) {
       if (mounted) showNovelFeedback(context, '分卷配置读取失败，请重试');
     } finally {
-      prefs?.dispose();
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -138,7 +135,7 @@ class _LocalImportReviewState extends State<LocalImportReview> {
                   MediaQuery.paddingOf(context).bottom + 32,
                 ),
                 children: [
-                  Text(
+                  AppText(
                     widget.report.summary,
                     style: const TextStyle(fontSize: 17, height: 1.6),
                   ),
@@ -149,7 +146,7 @@ class _LocalImportReviewState extends State<LocalImportReview> {
                       code: 'REVIEW / MERGE',
                     ),
                     const SizedBox(height: 12),
-                    const Text(
+                    const AppText(
                       '确认后合并为一本书，也可以保留各卷独立显示。',
                       style: TextStyle(height: 1.7),
                     ),
@@ -163,7 +160,7 @@ class _LocalImportReviewState extends State<LocalImportReview> {
                               Row(
                                 children: [
                                   Expanded(
-                                    child: Text(
+                                    child: AppText(
                                       group.title,
                                       style: const TextStyle(
                                         fontSize: 17,
@@ -197,7 +194,7 @@ class _LocalImportReviewState extends State<LocalImportReview> {
                                 ],
                               ),
                               const SizedBox(height: 12),
-                              Text(
+                              AppText(
                                 '${group.volumes.length} 卷${group.targetId == null ? '' : ' · 加入已有合订本'}',
                                 style: TextStyle(
                                   color: Theme.of(
@@ -209,7 +206,7 @@ class _LocalImportReviewState extends State<LocalImportReview> {
                               for (final volume in group.volumes)
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 6),
-                                  child: Text(
+                                  child: AppText(
                                     '${volume.title} · ${widget.books.book(volume.bookId)!.title}',
                                     style: const TextStyle(
                                       fontSize: 13,
@@ -218,7 +215,7 @@ class _LocalImportReviewState extends State<LocalImportReview> {
                                   ),
                                 ),
                               if (_errors[group.seed] case final error?)
-                                Text(
+                                AppText(
                                   error,
                                   style: TextStyle(
                                     color: Theme.of(context).colorScheme.error,
@@ -229,7 +226,7 @@ class _LocalImportReviewState extends State<LocalImportReview> {
                                 GlassTextButton(
                                   key: ValueKey('import-edit-${group.seed}'),
                                   onPressed: _busy ? null : () => _edit(group),
-                                  child: Text(
+                                  child: AppText(
                                     group.needsTarget
                                         ? '选择合订本并确认'
                                         : '调整书名与分卷顺序',
@@ -246,12 +243,45 @@ class _LocalImportReviewState extends State<LocalImportReview> {
                       title: '未导入的文件',
                       code: 'IMPORT / RETRY',
                     ),
-                    for (final failure in widget.report.failures)
+                    for (final (index, failure)
+                        in widget.report.failures.indexed)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
-                        child: Text(
-                          '${failure.name}\n${failure.message}',
-                          style: const TextStyle(height: 1.7),
+                        child: ContentPanel(
+                          key: ValueKey('import-failure-$index'),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(CupertinoIcons.doc_text, size: 20),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: AppText(
+                                      failure.name,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        height: 1.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              AppText(
+                                failure.message,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.6,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                   ],
@@ -275,7 +305,7 @@ class _LocalImportReviewState extends State<LocalImportReview> {
                     GlassTextButton(
                       key: const ValueKey('import-keep-separate'),
                       onPressed: _busy ? null : () => Navigator.pop(context),
-                      child: const Text('暂不合并'),
+                      child: const AppText('暂不合并'),
                     ),
                   ],
                 ],

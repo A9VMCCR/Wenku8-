@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 
 import 'app_interactions.dart';
 import 'app_ui.dart';
@@ -6,7 +7,19 @@ import 'feature_pages.dart';
 import 'legacy_import.dart';
 import 'library_state.dart';
 import 'local_platform.dart';
-import 'wenku_account.dart';
+
+String legacyImportError(Object error) {
+  if (error is FormatException) return error.message;
+  if (error is PlatformException) {
+    if (error.code.startsWith('legacy_')) {
+      return error.message ?? '旧版记录读取失败，请重新选择目录';
+    }
+    if (error.code == 'picker') return '文件选择器未能打开，请启用文件应用后重试';
+    if (error.code == 'busy') return '请先完成当前文件操作，再选择旧版目录';
+    if (error.code == 'document') return '无法读取旧版记录，请重新选择 saves 目录并允许访问';
+  }
+  return '旧版记录未能读取，请重新选择目录；原有书架和进度未改变';
+}
 
 class LegacyImportPage extends StatefulWidget {
   const LegacyImportPage({super.key, required this.state});
@@ -31,7 +44,7 @@ class _LegacyImportPageState extends State<LegacyImportPage> {
       final preview = await LegacyImportPreview.parse(bundle);
       if (mounted) setState(() => _preview = preview);
     } catch (error) {
-      if (mounted) setState(() => _error = WenkuAccount.describeError(error));
+      if (mounted) setState(() => _error = legacyImportError(error));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -50,7 +63,7 @@ class _LegacyImportPageState extends State<LegacyImportPage> {
         showNovelFeedback(context, '旧版记录已合并，现有较新进度已保留');
       }
     } catch (error) {
-      if (mounted) setState(() => _error = WenkuAccount.describeError(error));
+      if (mounted) setState(() => _error = legacyImportError(error));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -68,16 +81,16 @@ class _LegacyImportPageState extends State<LegacyImportPage> {
         child: ListView(
           padding: featurePadding(context),
           children: [
-            const Text(
+            const AppText(
               '让原来的收藏接着读',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
-            const Text(
+            const AppText(
               '选择旧版的 wenku8 或 saves 目录。读取本机书架、阅读进度和搜索记录；不读取账号密码，也不改动旧目录。',
             ),
             const SizedBox(height: 12),
-            const Text(
+            const AppText(
               '旧分页阅读进度恢复到对应章节。上下滑动记录通过 intro 目录中的章节索引匹配；本机已有较新的进度优先保留。',
             ),
             const SizedBox(height: 24),
@@ -110,18 +123,18 @@ class _LegacyImportPageState extends State<LegacyImportPage> {
                     children: [
                       sectionHeader(context, '导入预览', ''),
                       const SizedBox(height: 14),
-                      Text(
+                      AppText(
                         '${preview.backup.shelfCount} 本收藏 · ${preview.backup.positionCount} 条阅读进度',
                       ),
                       const SizedBox(height: 10),
-                      Text(
+                      AppText(
                         '${(preview.backup.records['recentSearches'] as List).length} 条最近搜索',
                       ),
                       if (preview.damagedRecords > 0 ||
                           preview.unmappedChapters > 0 ||
                           preview.skippedFiles > 0) ...[
                         const SizedBox(height: 14),
-                        Text(
+                        AppText(
                           '跳过 ${preview.damagedRecords} 条损坏记录、${preview.unmappedChapters} 条未匹配章节及 ${preview.skippedFiles} 个过大 / 非 UTF-8 文件。旧文件仍保留。',
                         ),
                       ],
@@ -129,7 +142,7 @@ class _LegacyImportPageState extends State<LegacyImportPage> {
                       GlassTextButton(
                         key: const ValueKey('legacy-merge'),
                         onPressed: _busy ? null : _restore,
-                        child: const Text('确认合并到本机'),
+                        child: const AppText('确认合并到本机'),
                       ),
                     ],
                   ),

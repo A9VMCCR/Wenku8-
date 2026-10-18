@@ -11,7 +11,10 @@ import 'package:wenku8_flutter/main.dart';
 
 void main() {
   testWidgets('发现页和空书架可以打开', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+    });
     final state = await LibraryState.load();
     await tester.pumpWidget(
       NovelApp(state: state, repository: const DemoNovelRepository()),
@@ -25,7 +28,10 @@ void main() {
   });
 
   testWidgets('底部 Dock 可以拖拽吸附切换页面', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+    });
     final state = await LibraryState.load();
     await tester.pumpWidget(
       NovelApp(state: state, repository: const DemoNovelRepository()),
@@ -44,7 +50,10 @@ void main() {
   });
 
   testWidgets('Dock 胶囊来回形变保持紧凑，不被两端裁切', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+    });
     final state = await LibraryState.load();
     await tester.pumpWidget(
       NovelApp(state: state, repository: const DemoNovelRepository()),
@@ -87,16 +96,28 @@ void main() {
   });
 
   testWidgets('外观选择弹层可弹出并切换黑白主题', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+    });
     final state = await LibraryState.load();
     await tester.pumpWidget(
       NovelApp(state: state, repository: const DemoNovelRepository()),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('设置'));
+    await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('跟随系统'));
+    await tester.tap(find.byKey(const ValueKey('my-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-reading-entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('settings-appearance')),
+        matching: find.text('跟随系统'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.text('外观模式'), findsWidgets);
     await tester.tap(find.text('深色'));
@@ -105,7 +126,10 @@ void main() {
   });
 
   test('书架与章节进度持久化', () async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+    });
     final state = await LibraryState.load();
     await state.toggleShelf(1);
     await state.setChapter(1, 2);
@@ -127,7 +151,10 @@ void main() {
   });
 
   testWidgets('精选书籍可进入详情与阅读器', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+    });
     final state = await LibraryState.load();
     await tester.pumpWidget(
       NovelApp(state: state, repository: const DemoNovelRepository()),

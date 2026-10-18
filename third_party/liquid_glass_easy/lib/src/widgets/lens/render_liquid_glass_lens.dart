@@ -71,7 +71,13 @@ class _ImpellerShaderBackdropLayer extends ContainerLayer {
   void addToScene(ui.SceneBuilder builder) {
     final RenderLiquidGlassLens? lens = renderObject;
     if (lens == null || !lens.attached) return;
-    lens._packImpellerMainUniforms();
+    var reuseGeometry = true;
+    assert(() {
+      reuseGeometry = !RenderLiquidGlassLens.debugDisableSceneGeometry;
+      return true;
+    }());
+    lens._packImpellerMainUniforms(
+        reuseGeometry ? LiquidGlassSceneGeometry.forScene(builder) : null);
     engineLayer = builder.pushBackdropFilter(
       lens._impellerFilter,
       oldLayer: engineLayer as ui.BackdropFilterEngineLayer?,
@@ -105,6 +111,10 @@ class _ImpellerShaderBackdropLayer extends ContainerLayer {
 /// The child itself is clipped by the widget layer, not here.
 class RenderLiquidGlassLens extends RenderProxyBox
     with LensTransformTrackingMixin {
+  @visibleForTesting
+  static bool debugDisableUniformRetention = false;
+  @visibleForTesting
+  static bool debugDisableSceneGeometry = false;
   RenderLiquidGlassLens({
     required LiquidGlassLensRenderMode mode,
     required ui.FragmentShader mainShader,
@@ -417,6 +427,10 @@ class RenderLiquidGlassLens extends RenderProxyBox
       LayerHandle<ClipPathLayer>();
   final LayerHandle<ClipRRectLayer> _skiaBlurClipLayerHandle =
       LayerHandle<ClipRRectLayer>();
+  Object? _packedImpellerInputs;
+  ui.ImageFilter? _retainedImpellerFilter;
+  @visibleForTesting
+  int debugUniformPackCount = 0;
 
   /// The lens-local rect the shader pass was pushed inside this paint: the
   /// bound of whichever clip layer holds [_shaderLayerHandle]'s layer. Known
@@ -561,7 +575,7 @@ class RenderLiquidGlassLens extends RenderProxyBox
   /// Called from [_ImpellerShaderBackdropLayer.addToScene] during scene
   /// building — after all layout and paint — so the transform is final
   /// for the frame, scroll offsets included.
-  void _packImpellerMainUniforms() {
+  void _packImpellerMainUniforms(LiquidGlassSceneGeometry? geometry) {
     // That surface is not always the window. An ancestor can render this
     // lens into a filtered subpass — Android's stretch overscroll does,
     // for exactly as long as the pull lasts — and the fragments then
@@ -569,9 +583,12 @@ class RenderLiquidGlassLens extends RenderProxyBox
     // and lands correctly regardless. Measuring the geometry from the same
     // corner the fragments do is what keeps the two together; a null
     // ancestor is the ordinary case and means the window.
-    final RenderObject? subpassAncestor =
-        liquidGlassFilterSubpassAncestor(this);
-    final Matrix4 transform = getTransformTo(subpassAncestor);
+    final RenderObject? subpassAncestor = geometry == null
+        ? liquidGlassFilterSubpassAncestor(this)
+        : geometry.surfaceFor(this);
+    final Matrix4 transform = geometry == null
+        ? getTransformTo(subpassAncestor)
+        : geometry.transformFor(this, subpassAncestor);
     // Column-major storage: [0]=a, [4]=b, [1]=c, [5]=d, [12..13]=t.
     final s = transform.storage;
     // Ancestor scale/rotation? The clip rides the layer tree and gets it
@@ -623,6 +640,40 @@ class RenderLiquidGlassLens extends RenderProxyBox
             _shaderClip == LiquidGlassShaderClip.outlineTracked)
         ? _passRounding(transform, subpassAncestor, subpassSize)
         : Offset.zero;
+    final inputs = (
+      _mainShader,
+      _mode,
+      _shape,
+      _shapeScale,
+      _refraction,
+      _appearance,
+      _borderAlpha,
+      size,
+      subpassSize ?? _screenSize,
+      _devicePixelRatio,
+      physicalRect,
+      linearXform,
+      s[0],
+      s[1],
+      s[4],
+      s[5],
+      s[12],
+      s[13],
+      clipInScreen,
+      track,
+    );
+    var retain = true;
+    assert(() {
+      retain = !debugDisableUniformRetention;
+      return true;
+    }());
+    if (retain && inputs == _packedImpellerInputs) return;
+    _packedImpellerInputs = inputs;
+    _retainedImpellerFilter = null;
+    assert(() {
+      debugUniformPackCount++;
+      return true;
+    }());
     _packUniforms(
       _mainShader,
       resolution: subpassSize ?? _screenSize,
@@ -961,9 +1012,10 @@ class RenderLiquidGlassLens extends RenderProxyBox
   /// one, the blur rides along as the composed inner filter so the whole lens
   /// is a single read.
   ui.ImageFilter get _impellerFilter {
+    if (_retainedImpellerFilter case final retained?) return retained;
     final ui.ImageFilter shaderFilter = ui.ImageFilter.shader(_mainShader);
-    if (_batchClip == null) return shaderFilter;
-    return ui.ImageFilter.compose(
+    if (_batchClip == null) return _retainedImpellerFilter = shaderFilter;
+    return _retainedImpellerFilter = ui.ImageFilter.compose(
       outer: shaderFilter,
       // Sigma is LOGICAL px here, like every other blur the package hands the
       // engine — scaling it by dpr would over-blur by that factor.

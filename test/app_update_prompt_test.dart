@@ -114,7 +114,9 @@ void main() {
   });
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'completedReleaseNotes': '0.3.1+30',
+    });
     source = _Source();
     platform = _Platform();
     directory = await Directory.systemTemp.createTemp('wenku-update-prompt-');

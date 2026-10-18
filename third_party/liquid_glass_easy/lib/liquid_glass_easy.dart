@@ -67,6 +67,8 @@ export 'package:liquid_glass_easy/src/widgets/components/liquid_glass_adaptive_c
 // dimming variant of iOS 26's scroll edge effect).
 export 'package:liquid_glass_easy/src/widgets/components/liquid_glass_scroll_edge.dart'
     show LiquidGlassScrollEdge, LiquidGlassEdge, LiquidGlassScrollEdgeStyle;
+export 'package:liquid_glass_easy/src/widgets/components/scroll_edge_input_group.dart'
+    show LiquidGlassScrollEdgeGroup;
 // The two clip helpers are shared between the widget-level clip and the
 // render object's own, so they are library-wide but not API.
 export 'package:liquid_glass_easy/src/widgets/utils/liquid_glass_shape.dart'

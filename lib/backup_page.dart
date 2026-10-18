@@ -113,12 +113,12 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                 MediaQuery.paddingOf(context).bottom + 32,
               ),
               children: [
-                const Text(
+                const AppText(
                   '带走你的阅读记录',
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 12),
-                const Text('备份书架、阅读进度、书签、阅读历史、最近搜索和偏好。离线正文与账号信息不包含在备份中。'),
+                const AppText('备份书架、阅读进度、书签、阅读历史、最近搜索和偏好。离线正文与账号信息不包含在备份中。'),
                 const SizedBox(height: 24),
                 ContentPanel(
                   child: Column(
@@ -128,12 +128,12 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                         GlassTextButton(
                           key: const ValueKey('backup-export-file'),
                           onPressed: _busy == null ? _export : null,
-                          child: const Text('导出备份文件'),
+                          child: const AppText('导出备份文件'),
                         ),
                         GlassTextButton(
                           key: const ValueKey('backup-import-file'),
                           onPressed: _busy == null ? _import : null,
-                          child: const Text('选择备份文件'),
+                          child: const AppText('选择备份文件'),
                         ),
                         const Divider(height: 24),
                       ],
@@ -142,14 +142,14 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                         onPressed: _busy == null
                             ? () => _export(clipboard: true)
                             : null,
-                        child: const Text('复制备份文本'),
+                        child: const AppText('复制备份文本'),
                       ),
                       GlassTextButton(
                         key: const ValueKey('backup-paste'),
                         onPressed: _busy == null
                             ? () => _import(clipboard: true)
                             : null,
-                        child: const Text('从剪贴板读取备份'),
+                        child: const AppText('从剪贴板读取备份'),
                       ),
                     ],
                   ),
@@ -159,7 +159,7 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                     padding: const EdgeInsets.symmetric(vertical: 24),
                     child: Row(
                       children: [
-                        Expanded(child: Text(_busy!)),
+                        Expanded(child: AppText(_busy!)),
                         const SizedBox(width: 12),
                         const SizedBox(
                           width: 120,
@@ -176,7 +176,7 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                     padding: const EdgeInsets.only(top: 20),
                     child: Semantics(
                       liveRegion: true,
-                      child: Text(
+                      child: AppText(
                         _error!,
                         key: const ValueKey('backup-error'),
                         style: TextStyle(
@@ -199,17 +199,17 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text('备份时间 ${_date(backup.createdAt)}'),
+                          AppText('备份时间 ${_date(backup.createdAt)}'),
                           const SizedBox(height: 12),
-                          Text(
+                          AppText(
                             '${backup.shelfCount} 本书架收藏 · ${backup.positionCount} 条阅读进度\n${backup.bookmarkCount} 个书签 · ${backup.historyCount} 本阅读记录',
                           ),
                           const SizedBox(height: 14),
-                          const Text('恢复将合并到本机，不清空已有书架和书签；同一本书保留更新时间较新的进度。'),
+                          const AppText('恢复将合并到本机，不清空已有书架和书签；同一本书保留更新时间较新的进度。'),
                           const Divider(height: 24),
                           Row(
                             children: [
-                              const Expanded(child: Text('同时恢复外观与阅读偏好')),
+                              const Expanded(child: AppText('同时恢复外观与阅读偏好')),
                               AppControls.toggle(
                                 context,
                                 key: const ValueKey(
@@ -227,13 +227,13 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                           GlassTextButton(
                             key: const ValueKey('backup-confirm'),
                             onPressed: _busy == null ? _restore : null,
-                            child: const Text('确认合并恢复'),
+                            child: const AppText('确认合并恢复'),
                           ),
                           GlassTextButton(
                             onPressed: _busy == null
                                 ? () => setState(() => _preview = null)
                                 : null,
-                            child: const Text('取消恢复'),
+                            child: const AppText('取消恢复'),
                           ),
                         ],
                       ),

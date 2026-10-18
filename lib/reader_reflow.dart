@@ -58,10 +58,12 @@ class ReaderFragmentMotion extends StatelessWidget {
     required this.index,
     required this.count,
     required this.child,
+    this.previousBuilder,
   });
   final ReaderPageFragment fragment;
   final int index, count;
   final Widget child;
+  final Widget Function(ReaderPageFragment)? previousBuilder;
   @override
   Widget build(BuildContext context) {
     final scope = ReaderReflowScope.maybeOf(context);
@@ -83,6 +85,12 @@ class ReaderFragmentMotion extends StatelessWidget {
       }
     }
     final old = previous;
+    final previousChild =
+        old != null &&
+            previousBuilder != null &&
+            (old.text != fragment.text || old.rect.size != fragment.rect.size)
+        ? previousBuilder!(old)
+        : null;
     final start = scope.delayFor(index, count, reverse: reverse);
     return AnimatedBuilder(
       animation: scope.animation,
@@ -100,13 +108,129 @@ class ReaderFragmentMotion extends StatelessWidget {
         final correction = old == null
             ? Offset.zero
             : (old.rect.topLeft - fragment.rect.topLeft) * (1 - progress);
+        final content = previousChild == null
+            ? child!
+            : _FragmentReplacement(
+                progress: progress,
+                previous: previousChild,
+                previousSize: old!.rect.size,
+                size: fragment.rect.size,
+                child: child!,
+              );
         return Transform.translate(
           offset:
               scope.displacementFor(index, count, reverse: reverse) +
               correction,
-          child: child,
+          child: content,
         );
       },
+    );
+  }
+}
+
+/// Old and new ink occupy complementary clips on the same moving paragraph.
+/// Publishing a taller fragment must not expose its extra lines immediately;
+/// shrinking one must retain its old tail until that tail actually leaves.
+class _FragmentReplacement extends StatelessWidget {
+  const _FragmentReplacement({
+    required this.progress,
+    required this.previous,
+    required this.previousSize,
+    required this.size,
+    required this.child,
+  });
+  final double progress;
+  final Widget previous, child;
+  final Size previousSize, size;
+  @override
+  Widget build(BuildContext context) {
+    final height = previousSize.height > size.height
+        ? previousSize.height
+        : size.height;
+    final seam = height * progress;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned(
+          left: 0,
+          top: 0,
+          width: size.width,
+          height: size.height,
+          child: ClipRect(
+            clipper: _ViewportClip(Rect.fromLTRB(0, 0, size.width, seam)),
+            child: child,
+          ),
+        ),
+        Positioned(
+          left: 0,
+          top: 0,
+          width: previousSize.width,
+          height: previousSize.height,
+          child: IgnorePointer(
+            child: ExcludeSemantics(
+              child: SelectionContainer.disabled(
+                child: ClipRect(
+                  clipper: _ViewportClip(
+                    Rect.fromLTRB(
+                      0,
+                      seam.clamp(0, previousSize.height),
+                      previousSize.width,
+                      previousSize.height,
+                    ),
+                  ),
+                  child: previous,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A paragraph that no longer fits leaves in the same stagger as retained
+/// paragraphs, instead of disappearing when the new pagination is published.
+class ReaderLeavingFragment extends StatelessWidget {
+  const ReaderLeavingFragment({
+    super.key,
+    required this.fragment,
+    required this.index,
+    required this.count,
+    required this.child,
+  });
+  final ReaderPageFragment fragment;
+  final int index, count;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) {
+    final scope = ReaderReflowScope.maybeOf(context);
+    if (scope == null) return const SizedBox.shrink();
+    final reverse = scope.originDelta.dy < 0;
+    return IgnorePointer(
+      child: ExcludeSemantics(
+        child: SelectionContainer.disabled(
+          child: AnimatedBuilder(
+            animation: scope.animation,
+            child: child,
+            builder: (context, child) => Transform.translate(
+              offset: scope.displacementFor(index, count, reverse: reverse),
+              child: ClipRect(
+                clipper: _ViewportClip(
+                  Rect.fromLTWH(
+                    0,
+                    0,
+                    fragment.rect.width,
+                    fragment.rect.height *
+                        (1 - scope.progressFor(index, count, reverse: reverse)),
+                  ),
+                ),
+                child: child,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -121,14 +245,12 @@ class ReaderIncrementalViewport extends StatelessWidget {
     required this.toSize,
     required this.originDelta,
     required this.child,
-    this.removedTail,
     this.horizontalOverflow = 0,
   });
   final Animation<double> animation;
   final Size fromSize, toSize;
   final Offset originDelta;
   final Widget child;
-  final Widget? removedTail;
   final double horizontalOverflow;
   Rect viewportAt(double value) {
     final t = Curves.easeOutCubic.transform(value.clamp(0, 1));
@@ -142,31 +264,7 @@ class ReaderIncrementalViewport extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: animation,
-    child: Stack(
-      clipBehavior: Clip.none,
-      fit: StackFit.expand,
-      children: [
-        child,
-        if (removedTail != null)
-          IgnorePointer(
-            child: ExcludeSemantics(
-              child: SelectionContainer.disabled(
-                child: ClipRect(
-                  clipper: _TailClip(toSize.height, fromSize),
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: fromSize.width,
-                    maxWidth: fromSize.width,
-                    minHeight: fromSize.height,
-                    maxHeight: fromSize.height,
-                    child: removedTail,
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    ),
+    child: child,
     builder: (context, child) {
       final viewport = viewportAt(animation.value);
       return ClipRect(
@@ -191,20 +289,4 @@ class _ViewportClip extends CustomClipper<Rect> {
   Rect getClip(Size size) => rect;
   @override
   bool shouldReclip(_ViewportClip oldClipper) => oldClipper.rect != rect;
-}
-
-class _TailClip extends CustomClipper<Rect> {
-  const _TailClip(this.top, this.original);
-  final double top;
-  final Size original;
-  @override
-  Rect getClip(Size size) => Rect.fromLTRB(
-    0,
-    top.clamp(0, original.height),
-    original.width,
-    original.height,
-  );
-  @override
-  bool shouldReclip(_TailClip oldClipper) =>
-      oldClipper.top != top || oldClipper.original != original;
 }

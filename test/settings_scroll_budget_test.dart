@@ -23,6 +23,8 @@ void main() {
         tester.getCenter(find.byKey(const ValueKey('dock-tab-3'))),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('my-settings')));
+      await tester.pumpAndSettle();
       final list = find.byKey(const PageStorageKey('settings'));
       final original = tester.widget<ListView>(list);
       final values = (state.fontSize, state.glassBlur, state.glassOpacity);

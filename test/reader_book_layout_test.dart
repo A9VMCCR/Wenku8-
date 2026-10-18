@@ -114,7 +114,7 @@ void main({
       expect(paged.pagesPerSpread, 2);
       expect(paged.visiblePages, [0, 1]);
       expect(paged.pageSize!.width, lessThan(500));
-      expect(find.textContaining('本章 1–2 /'), findsOneWidget);
+      expect(find.textContaining('1–2/'), findsOneWidget);
       final layout = paged.debugBookLayout!;
       expect(layout.pages.first.overlaps(layout.pages.last), false);
       if (mode == ReaderMode.vertical) {

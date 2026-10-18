@@ -12,6 +12,10 @@ import 'reader_preferences.dart';
 import 'library_backup.dart';
 import 'performance_preferences.dart';
 import 'app_typography.dart';
+import 'app_language.dart';
+import 'local_library_preferences.dart';
+import 'user_fonts.dart';
+import 'illustration_placement.dart';
 
 class ReadingPosition {
   const ReadingPosition({
@@ -90,8 +94,8 @@ class ReadingPosition {
           ? value['textOffset']
           : null,
       textScale: number('textScale', 1).clamp(.5, 5),
-      typeface: value['typeface'] == 'sourceHanSerif'
-          ? 'sourceHanSerif'
+      typeface: validFontChoice(value['typeface'])
+          ? value['typeface']
           : 'system',
       layout: value['layout'] is String ? value['layout'] : '',
     );
@@ -103,34 +107,45 @@ class ReaderBookmark {
     required this.id,
     required this.chapterTitle,
     required this.position,
+    this.quote = '',
   });
   final String id;
   final String chapterTitle;
   final ReadingPosition position;
+  final String quote;
 
   Map<String, Object> toJson() => {
     'id': id,
     'chapterTitle': chapterTitle,
     'position': position.toJson(),
+    if (quote.isNotEmpty) 'quote': quote,
   };
 
   factory ReaderBookmark.fromJson(Map<String, dynamic> json) {
     final id = json['id'];
     final title = json['chapterTitle'];
     final position = json['position'];
-    if (id is! String || id.isEmpty || title is! String || position is! Map) {
+    final quote = json['quote'] ?? '';
+    if (id is! String ||
+        id.isEmpty ||
+        title is! String ||
+        position is! Map ||
+        quote is! String ||
+        quote.length > 12000) {
       throw const FormatException('Damaged bookmark');
     }
     return ReaderBookmark(
       id: id,
       chapterTitle: title,
       position: ReadingPosition.fromJson(Map<String, dynamic>.from(position)),
+      quote: quote,
     );
   }
 }
 
 class LibraryState extends ChangeNotifier {
-  LibraryState(this._prefs) {
+  LibraryState(this._prefs, {UserFontStore? fonts})
+    : fonts = fonts ?? UserFontStore() {
     _shelf.addAll(
       ((_prefs.get('shelf') is List<String>)
               ? _prefs.getStringList('shelf')!
@@ -146,6 +161,14 @@ class LibraryState extends ChangeNotifier {
           .map(int.tryParse)
           .whereType<int>()
           .where((id) => id > 0),
+    );
+    _hiddenLocalBooks.addAll(
+      (_prefs.get('local_shelf_hidden') is List<String>
+              ? _prefs.getStringList('local_shelf_hidden')!
+              : const <String>[])
+          .map(int.tryParse)
+          .whereType<int>()
+          .where(isLocalBook),
     );
     for (final key in _prefs.getKeys()) {
       if (key.startsWith('chapter_')) {
@@ -178,6 +201,29 @@ class LibraryState extends ChangeNotifier {
           );
         } catch (_) {
           // The legacy chapter index remains usable without a position record.
+        }
+      }
+      if (key.startsWith('illustration_layout_')) {
+        final id = int.tryParse(key.substring('illustration_layout_'.length));
+        if (id == null || id <= 0) continue;
+        try {
+          final records = jsonDecode(_prefs.getString(key)!);
+          if (records is! List) continue;
+          final placements = <IllustrationPlacement>[];
+          final ids = <String>{};
+          for (final record in records.take(2000)) {
+            try {
+              final placement = IllustrationPlacement.fromJson(
+                Map<String, dynamic>.from(record as Map),
+              );
+              if (ids.add(placement.id)) placements.add(placement);
+            } catch (_) {
+              /* Isolate damaged placement records. */
+            }
+          }
+          _illustrations[id] = placements;
+        } catch (_) {
+          /* Original chapter text is independent of local layout. */
         }
       }
       if (key.startsWith('reader_bookmarks_')) {
@@ -223,6 +269,15 @@ class LibraryState extends ChangeNotifier {
     _lineHeight = preference('readerLineHeight', 1.72, 1.3, 2.2);
     _reduceMotion = _prefs.get('reduceMotion') == true;
     _appTypeface = AppTypeface.fromRecord(_prefs.get('appTypeface'));
+    final custom = _prefs.get('appCustomFont');
+    _appCustomFont =
+        validFontChoice(custom) && (custom as String).startsWith('font_')
+        ? custom
+        : null;
+    final reader = _prefs.get('readerTypeface');
+    _readerTypeface = validFontChoice(reader, follow: true)
+        ? reader as String
+        : followAppFont;
     _performance = PerformancePreferences.fromRecords({
       for (final key in [
         PerformancePreferences.modeKey,
@@ -248,8 +303,14 @@ class LibraryState extends ChangeNotifier {
       _ => 'all',
     };
     _shelfLayout = _prefs.get('shelfLayout') == 'list' ? 'list' : 'shelf';
+    _shelfSourceFilter =
+        ['local', 'cached', 'online'].contains(_prefs.get('shelfSourceFilter'))
+        ? _prefs.get('shelfSourceFilter') as String
+        : 'all';
     _adaptWhenOffline = _prefs.get('adaptWhenOffline') != false;
     _localReaderMode = _prefs.get('localReaderMode') == true;
+    _directReading = _prefs.get('directReading') == true;
+    _combinedShelf = _prefs.get('combinedShelf') == true;
     final recent = _prefs.get('recentSearches');
     if (recent is List<String>) {
       final seen = <String>{};
@@ -265,6 +326,11 @@ class LibraryState extends ChangeNotifier {
   }
 
   final SharedPreferences _prefs;
+  final UserFontStore fonts;
+  String? fontError;
+  LocalLibraryPreferences? _organization;
+  LocalLibraryPreferences get organization =>
+      _organization ??= (LocalLibraryPreferences(_prefs)..load());
   final _appearance = ChangeNotifier();
   final _application = ChangeNotifier();
   final _glassChanges = ChangeNotifier();
@@ -272,25 +338,30 @@ class LibraryState extends ChangeNotifier {
   final _settings = ChangeNotifier();
   final _history = ChangeNotifier();
   final _bookmarkChanges = ChangeNotifier();
+  final _illustrationChanges = ChangeNotifier();
   final _searchChanges = ChangeNotifier();
   final _shelfViewChanges = ChangeNotifier();
   final _readerBehaviorChanges = ChangeNotifier();
   final _navigationChanges = ChangeNotifier();
   final Set<int> _shelf = {};
   final Set<int> _hiddenHistory = {};
+  final Set<int> _hiddenLocalBooks = {};
   final Map<int, Novel> _known = {};
   final Map<int, Novel> _persistedNovels = {};
   final Map<int, int> _chapters = {};
   final Map<int, ReadingPosition> _positions = {};
   final Map<int, int> _added = {};
   final Map<int, List<ReaderBookmark>> _bookmarks = {};
+  final Map<int, List<IllustrationPlacement>> _illustrations = {};
   final Map<int, int> _shelfRevisions = {};
   List<String> _recentSearches = const [];
   String _shelfSort = 'recentRead';
   String _shelfFilter = 'all';
+  String _shelfSourceFilter = 'all';
   String _shelfLayout = 'shelf';
   bool _keepScreenOn = false;
   bool _adaptWhenOffline = true, _localReaderMode = false;
+  bool _directReading = false, _combinedShelf = false;
   ReaderPreferences _readerPreferences = const ReaderPreferences();
   int _metadataEncodes = 0;
   Future<void> _positionWrites = Future.value();
@@ -300,6 +371,8 @@ class LibraryState extends ChangeNotifier {
   double _lineHeight = 1.72;
   bool _reduceMotion = false;
   AppTypeface _appTypeface = AppTypeface.system;
+  String? _appCustomFont;
+  String _readerTypeface = followAppFont;
   PerformancePreferences _performance = const PerformancePreferences();
   double _glassBlur = 8;
   double _glassOpacity = .87;
@@ -322,23 +395,145 @@ class LibraryState extends ChangeNotifier {
     return state;
   }
 
+  Future<void> loadFonts() async {
+    try {
+      await fonts.load();
+      await fonts.ensureLoaded(appFontId);
+      await fonts.ensureLoaded(readerFontId);
+      fontError = null;
+      if (!_disposed) {
+        _application.notifyListeners();
+        _appearance.notifyListeners();
+        _readerSettings.notifyListeners();
+        _settings.notifyListeners();
+      }
+    } catch (_) {
+      fontError = '自定义字体读取失败，暂用系统字体；可在字体设置中重试。';
+    }
+  }
+
   Set<int> get shelf => Set.unmodifiable(_shelf);
   Listenable get appearanceChanges => _appearance;
   Listenable get applicationChanges => _application;
+  AppLanguage get language => AppLanguage.fromRecord(_prefs.get('appLanguage'));
+  Future<void> setLanguage(AppLanguage value) async {
+    if (chineseLocale(
+          value.locale ?? WidgetsBinding.instance.platformDispatcher.locale,
+        ).countryCode !=
+        'CN') {
+      await ChineseText.prepare();
+    }
+    await _queuePositionWrite(() async {
+      await writeLibraryPreference(_prefs, 'appLanguage', value.name);
+      if (!_disposed) {
+        _application.notifyListeners();
+        _settings.notifyListeners();
+      }
+    });
+  }
+
+  bool get readerChromeVisible => _prefs.get('readerChromeVisible') == true;
+  bool get readerChromeHintSeen => _prefs.get('readerChromeHintSeen') == true;
+  Future<void> setReaderChromeVisible(bool visible) => _queuePositionWrite(
+    () => writeLibraryPreference(_prefs, 'readerChromeVisible', visible),
+  );
+  Future<void> markReaderChromeHintSeen() => _queuePositionWrite(
+    () => writeLibraryPreference(_prefs, 'readerChromeHintSeen', true),
+  );
   Listenable get glassChanges => _glassChanges;
   Listenable get readerSettingsChanges => _readerSettings;
   Listenable get settingsChanges => _settings;
   Listenable get historyChanges => _history;
   Listenable get bookmarkChanges => _bookmarkChanges;
+  Listenable get illustrationChanges => _illustrationChanges;
+  List<IllustrationPlacement> illustrationsFor(int id, {int? chapterId}) =>
+      List.unmodifiable(
+        (_illustrations[id] ?? const <IllustrationPlacement>[]).where(
+          (item) => chapterId == null || item.chapterId == chapterId,
+        ),
+      );
+
+  Future<void> putIllustration(int id, IllustrationPlacement placement) async {
+    if (_restoreBarrier case final barrier?) {
+      await barrier.future;
+      return putIllustration(id, placement);
+    }
+    await _queuePositionWrite(() async {
+      final next = [...?_illustrations[id]]
+        ..removeWhere((item) => item.url == placement.url);
+      if (next.length >= 2000) throw const FormatException('本书插图排版已达上限，请先整理');
+      next.add(placement);
+      await writeLibraryPreference(
+        _prefs,
+        'illustration_layout_$id',
+        jsonEncode(next.map((item) => item.toJson()).toList()),
+      );
+      _illustrations[id] = next;
+      if (!_disposed) _illustrationChanges.notifyListeners();
+    });
+  }
+
+  Future<void> removeIllustration(int id, String placementId) async {
+    if (_restoreBarrier case final barrier?) {
+      await barrier.future;
+      return removeIllustration(id, placementId);
+    }
+    await _queuePositionWrite(() async {
+      final next = [...?_illustrations[id]]
+        ..removeWhere((item) => item.id == placementId);
+      await writeLibraryPreference(
+        _prefs,
+        'illustration_layout_$id',
+        jsonEncode(next.map((item) => item.toJson()).toList()),
+      );
+      _illustrations[id] = next;
+      if (!_disposed) _illustrationChanges.notifyListeners();
+    });
+  }
+
   Listenable get searchChanges => _searchChanges;
   Listenable get shelfViewChanges => _shelfViewChanges;
+  Set<int> get hiddenLocalBooks => Set.unmodifiable(_hiddenLocalBooks);
+  bool localBookVisible(int id) => !_hiddenLocalBooks.contains(id);
+  Future<void> setLocalBookHidden(int id, bool hidden) =>
+      setLocalBooksHidden([id], hidden);
+
+  Future<void> setLocalBooksHidden(Iterable<int> ids, bool hidden) {
+    final targets = ids.where(isLocalBook).toSet();
+    if (targets.isEmpty) return Future.value();
+    if (_restoreBarrier case final barrier?) {
+      return barrier.future.then((_) => setLocalBooksHidden(targets, hidden));
+    }
+    return _queuePositionWrite(() async {
+      final next = {..._hiddenLocalBooks};
+      if (hidden) {
+        next.addAll(targets);
+      } else {
+        next.removeAll(targets);
+      }
+      if (setEquals(next, _hiddenLocalBooks)) return;
+      await writeLibraryPreference(
+        _prefs,
+        'local_shelf_hidden',
+        next.map((id) => '$id').toList(),
+      );
+      _hiddenLocalBooks
+        ..clear()
+        ..addAll(next);
+      if (!_disposed) _shelfViewChanges.notifyListeners();
+    });
+  }
+
   Listenable get readerBehaviorChanges => _readerBehaviorChanges;
   Listenable get navigationChanges => _navigationChanges;
   bool get adaptWhenOffline => _adaptWhenOffline;
   bool get localReaderMode => _localReaderMode;
+  bool get directReading => _directReading;
+  bool get combinedShelf => _combinedShelf;
   List<String> get recentSearches => List.unmodifiable(_recentSearches);
   String get shelfSort => _shelfSort;
   String get shelfFilter => _shelfFilter;
+  String get shelfSourceFilter => _shelfSourceFilter;
   String get shelfLayout => _shelfLayout;
   bool get keepScreenOn => _keepScreenOn;
   ReaderPreferences get readerPreferences => _readerPreferences;
@@ -348,6 +543,21 @@ class LibraryState extends ChangeNotifier {
   int get debugMetadataEncodeCount => _metadataEncodes;
   bool get reduceMotion => _reduceMotion;
   AppTypeface get appTypeface => _appTypeface;
+  String get appFontChoice => _appCustomFont ?? _appTypeface.name;
+  String get appFontId =>
+      fonts.available(appFontChoice) ? appFontChoice : 'system';
+  String? get appFontFamily => fonts.family(appFontId);
+  String get readerTypeface => _readerTypeface;
+  String get readerFontId => _readerTypeface == followAppFont
+      ? appFontId
+      : fonts.available(_readerTypeface)
+      ? _readerTypeface
+      : 'system';
+  String? get readerFontFamily => fonts.family(readerFontId);
+  String fontLabel(String choice) =>
+      choice == followAppFont || fonts.available(choice)
+      ? fonts.label(choice)
+      : '字体未在本机导入';
   PerformancePreferences get performance => _performance;
   bool get effectiveReduceMotion => _reduceMotion || !_performance.motion;
   double get glassBlur => _glassBlur;
@@ -359,6 +569,20 @@ class LibraryState extends ChangeNotifier {
   ReadingPosition? positionFor(int id) => _positions[id];
   List<ReaderBookmark> bookmarksFor(int id) =>
       List.unmodifiable(_bookmarks[id] ?? const <ReaderBookmark>[]);
+
+  List<({int novelId, ReaderBookmark bookmark})> get bookmarkEntries {
+    final entries =
+        [
+          for (final entry in _bookmarks.entries)
+            for (final mark in entry.value)
+              (novelId: entry.key, bookmark: mark),
+        ]..sort(
+          (a, b) => b.bookmark.position.updatedAt.compareTo(
+            a.bookmark.position.updatedAt,
+          ),
+        );
+    return List.unmodifiable(entries);
+  }
 
   int? chapterForPosition(Novel novel, ReadingPosition position) {
     if (position.chapterId > 0) {
@@ -376,6 +600,7 @@ class LibraryState extends ChangeNotifier {
       _chapters.containsKey(id) || _positions.containsKey(id);
   int addedAt(int id) => _added[id] ?? 0;
   int shelfRevision(int id) => _shelfRevisions[id] ?? 0;
+  Map<int, int> get shelfRevisions => Map.unmodifiable(_shelfRevisions);
   int lastReadAt(int id) => _positions[id]?.updatedAt ?? 0;
 
   bool finishedReading(Novel novel) {
@@ -432,10 +657,16 @@ class LibraryState extends ChangeNotifier {
     String? sort,
     String? filter,
     String? layout,
+    String? source,
   }) async {
     if (_restoreBarrier case final barrier?) {
       return barrier.future.then(
-        (_) => setShelfView(sort: sort, filter: filter, layout: layout),
+        (_) => setShelfView(
+          sort: sort,
+          filter: filter,
+          layout: layout,
+          source: source,
+        ),
       );
     }
     await _queuePositionWrite(() async {
@@ -449,17 +680,23 @@ class LibraryState extends ChangeNotifier {
       final nextLayout = ['shelf', 'list'].contains(layout)
           ? layout!
           : _shelfLayout;
+      final nextSource = ['all', 'local', 'cached', 'online'].contains(source)
+          ? source!
+          : _shelfSourceFilter;
       await _commitLibraryRecords({
         'shelfSort': nextSort,
         'shelfFilter': nextFilter,
         'shelfLayout': nextLayout,
+        'shelfSourceFilter': nextSource,
       });
       if (nextSort != _shelfSort ||
           nextFilter != _shelfFilter ||
-          nextLayout != _shelfLayout) {
+          nextLayout != _shelfLayout ||
+          nextSource != _shelfSourceFilter) {
         _shelfSort = nextSort;
         _shelfFilter = nextFilter;
         _shelfLayout = nextLayout;
+        _shelfSourceFilter = nextSource;
         if (!_disposed) _shelfViewChanges.notifyListeners();
       }
     });
@@ -484,29 +721,50 @@ class LibraryState extends ChangeNotifier {
   Future<void> setNavigationMode({
     bool? adaptWhenOffline,
     bool? localReaderMode,
+    bool? combinedShelf,
   }) async {
     if (_restoreBarrier case final barrier?) {
       return barrier.future.then(
         (_) => setNavigationMode(
           adaptWhenOffline: adaptWhenOffline,
           localReaderMode: localReaderMode,
+          combinedShelf: combinedShelf,
         ),
       );
     }
     await _queuePositionWrite(() async {
       final offline = adaptWhenOffline ?? _adaptWhenOffline;
       final local = localReaderMode ?? _localReaderMode;
-      if (offline == _adaptWhenOffline && local == _localReaderMode) return;
+      final combined = combinedShelf ?? _combinedShelf;
+      if (offline == _adaptWhenOffline &&
+          local == _localReaderMode &&
+          combined == _combinedShelf) {
+        return;
+      }
       await _commitLibraryRecords({
         'adaptWhenOffline': offline,
         'localReaderMode': local,
+        'combinedShelf': combined,
       });
       _adaptWhenOffline = offline;
       _localReaderMode = local;
+      _combinedShelf = combined;
       if (!_disposed) {
         _navigationChanges.notifyListeners();
+        _shelfViewChanges.notifyListeners();
         _settings.notifyListeners();
       }
+    });
+  }
+
+  Future<void> setDirectReading(bool value) async {
+    if (_restoreBarrier case final barrier?) {
+      return barrier.future.then((_) => setDirectReading(value));
+    }
+    await _queuePositionWrite(() async {
+      await writeLibraryPreference(_prefs, 'directReading', value);
+      _directReading = value;
+      if (!_disposed) _settings.notifyListeners();
     });
   }
 
@@ -685,13 +943,18 @@ class LibraryState extends ChangeNotifier {
   Future<ReaderBookmark?> addBookmark({
     required Novel novel,
     required ReadingPosition position,
+    String quote = '',
   }) async {
     if (_restoreBarrier case final barrier?) {
       return barrier.future.then(
-        (_) => addBookmark(novel: novel, position: position),
+        (_) => addBookmark(novel: novel, position: position, quote: quote),
       );
     }
     final index = chapterForPosition(novel, position);
+    final excerpt = quote.trim();
+    if (excerpt.length > 12000) {
+      throw const FormatException('摘录过长，请选择不超过 12000 字的内容');
+    }
     if (novel.id <= 0 ||
         index == null ||
         !position.offset.isFinite ||
@@ -708,7 +971,11 @@ class LibraryState extends ChangeNotifier {
     await _queuePositionWrite(() async {
       final marks = _bookmarks[novel.id] ?? const <ReaderBookmark>[];
       for (final mark in marks) {
-        if (chapterForPosition(novel, mark.position) == index &&
+        if (mark.quote == excerpt &&
+            chapterForPosition(novel, mark.position) == index &&
+            (excerpt.isEmpty ||
+                mark.position.paragraphIndex == position.paragraphIndex &&
+                    mark.position.textOffset == position.textOffset) &&
             (mark.position.offset - position.offset).abs() < 12 &&
             (mark.position.fontSize - position.fontSize).abs() < .01 &&
             (mark.position.lineHeight - position.lineHeight).abs() < .01 &&
@@ -717,13 +984,20 @@ class LibraryState extends ChangeNotifier {
           return;
         }
       }
+      if (marks.length >= 1000) {
+        throw const FormatException('本书书签已达 1000 个，请先整理书签');
+      }
       final mark = ReaderBookmark(
         id: '${DateTime.now().microsecondsSinceEpoch}-${marks.length}',
         chapterTitle: novel.chapters[index].title,
         position: position,
+        quote: excerpt,
       );
       final next = [mark, ...marks];
+      final snapshot = _novelSnapshot(novel);
+      if (snapshot != null) await _writeNovel(novel, snapshot);
       await _writeBookmarks(novel.id, next);
+      _known[novel.id] = novel;
       _bookmarks[novel.id] = next;
       if (!_disposed) _bookmarkChanges.notifyListeners();
       result = mark;
@@ -777,6 +1051,55 @@ class LibraryState extends ChangeNotifier {
       _shelf.addAll(additions);
       for (final id in additions) {
         _added[id] = now;
+        _shelfRevisions[id] = shelfRevision(id) + 1;
+      }
+      if (!_disposed) notifyListeners();
+    });
+  }
+
+  Future<void> applyCloudShelf({
+    required Set<int> add,
+    required Set<int> remove,
+    required Map<int, int> expectedRevisions,
+  }) {
+    if (_restoreBarrier case final barrier?) {
+      return barrier.future.then(
+        (_) => applyCloudShelf(
+          add: add,
+          remove: remove,
+          expectedRevisions: expectedRevisions,
+        ),
+      );
+    }
+    return _queuePositionWrite(() async {
+      final next = {..._shelf};
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final added = <int>{};
+      for (final id in {...add, ...remove}) {
+        if (id <= 0 ||
+            isLocalBook(id) ||
+            shelfRevision(id) != (expectedRevisions[id] ?? 0)) {
+          continue;
+        }
+        if (add.contains(id)) {
+          if (next.add(id)) added.add(id);
+        } else {
+          next.remove(id);
+        }
+      }
+      if (setEquals(next, _shelf)) return;
+      final changed = {...next.difference(_shelf), ..._shelf.difference(next)};
+      await _commitLibraryRecords({
+        'shelf': next.map((id) => '$id').toList(),
+        for (final id in added) 'shelf_added_$id': now,
+      });
+      _shelf
+        ..clear()
+        ..addAll(next);
+      for (final id in added) {
+        _added[id] = now;
+      }
+      for (final id in changed) {
         _shelfRevisions[id] = shelfRevision(id) + 1;
       }
       if (!_disposed) notifyListeners();
@@ -889,6 +1212,7 @@ class LibraryState extends ChangeNotifier {
             id: mark.id,
             chapterTitle: mark.chapterTitle,
             position: move(mark.position, identity, target) ?? mark.position,
+            quote: mark.quote,
           ),
       ];
       final markIds = bookmarks.map((m) => m.id).toSet();
@@ -918,6 +1242,7 @@ class LibraryState extends ChangeNotifier {
             id: id,
             chapterTitle: target.chapters[mapped.chapter].title,
             position: mapped,
+            quote: mark.quote,
           );
           if (fingerprints.add(_bookmarkFingerprint(copied)) &&
               markIds.add(id)) {
@@ -1080,7 +1405,7 @@ class LibraryState extends ChangeNotifier {
       paragraphFraction: paragraphFraction.clamp(0, 1),
       textOffset: textOffset != null && textOffset >= 0 ? textOffset : null,
       textScale: textScale.clamp(.5, 5),
-      typeface: AppTypeface.fromRecord(typeface ?? appTypeface.name).name,
+      typeface: validFontChoice(typeface) ? typeface! : readerFontId,
       layout: _readerPreferences.layoutKey,
     );
     _positions[novel.id] = position;
@@ -1127,22 +1452,52 @@ class LibraryState extends ChangeNotifier {
     await writeLibraryPreference(_prefs, 'theme', mode.name);
   }
 
-  Future<void> setAppTypeface(AppTypeface value) async {
+  Future<void> setAppTypeface(AppTypeface value) => setAppFont(value.name);
+
+  Future<void> setAppFont(String choice) => _setFont(choice, reader: false);
+  Future<void> setReaderTypeface(String choice) =>
+      _setFont(choice, reader: true);
+  Future<void> _setFont(String choice, {required bool reader}) async {
     if (_restoreBarrier case final barrier?) {
-      return barrier.future.then((_) => setAppTypeface(value));
+      return barrier.future.then((_) => _setFont(choice, reader: reader));
     }
+    if (!(reader && choice == followAppFont) && !fonts.available(choice)) {
+      throw const FormatException('请先导入这款字体');
+    }
+    await fonts.ensureLoaded(choice);
     await _queuePositionWrite(() async {
-      if (_appTypeface == value) return;
-      await _commitLibraryRecords({'appTypeface': value.name});
-      _appTypeface = value;
+      if ((reader ? _readerTypeface : appFontChoice) == choice) return;
+      final oldReader = readerFontId;
+      if (reader) {
+        await _commitLibraryRecords({'readerTypeface': choice});
+        _readerTypeface = choice;
+      } else {
+        final builtin = AppTypeface.fromRecord(choice);
+        final custom = choice.startsWith('font_') ? choice : '';
+        await _commitLibraryRecords({
+          'appTypeface': builtin.name,
+          'appCustomFont': custom,
+        });
+        _appTypeface = builtin;
+        _appCustomFont = custom.isEmpty ? null : custom;
+      }
       if (!_disposed) {
-        _application.notifyListeners();
-        _appearance.notifyListeners();
-        _readerSettings.notifyListeners();
+        if (!reader) {
+          _application.notifyListeners();
+          _appearance.notifyListeners();
+        }
+        if (oldReader != readerFontId) _readerSettings.notifyListeners();
         _settings.notifyListeners();
         notifyListeners();
       }
     });
+  }
+
+  Future<void> removeUserFont(String id) async {
+    if (appFontChoice == id) await setAppFont('system');
+    if (_readerTypeface == id) await setReaderTypeface(followAppFont);
+    await fonts.remove(id);
+    if (!_disposed) _settings.notifyListeners();
   }
 
   Future<void> setFontSize(double size, {bool persist = true}) =>
@@ -1263,18 +1618,26 @@ class LibraryState extends ChangeNotifier {
   }
 
   Map<String, Object> _backupRecords() => {
+    for (final entry in _illustrations.entries)
+      'illustration_layout_${entry.key}': jsonEncode(
+        entry.value.map((item) => item.toJson()).toList(),
+      ),
     for (final key in _prefs.getKeys().where(
       (k) => k.startsWith('book_merge_'),
     ))
       key: _prefs.getStringList(key) ?? <String>[],
     'shelf': _shelf.map((id) => '$id').toList(),
     'reading_history_hidden': _hiddenHistory.map((id) => '$id').toList(),
+    'local_shelf_hidden': _hiddenLocalBooks.map((id) => '$id').toList(),
     'recentSearches': _recentSearches,
     'theme': _theme.name,
     'readerFontSize': _fontSize,
+    'appLanguage': language.name,
     'readerLineHeight': _lineHeight,
     'reduceMotion': _reduceMotion,
     'appTypeface': _appTypeface.name,
+    'appCustomFont': _appCustomFont ?? '',
+    'readerTypeface': _readerTypeface,
     ..._performance.toRecords(),
     'glassBlur': _glassBlur,
     'glassOpacity': _glassOpacity,
@@ -1282,9 +1645,12 @@ class LibraryState extends ChangeNotifier {
     'readerPreferences': jsonEncode(_readerPreferences.toJson()),
     'shelfSort': _shelfSort,
     'shelfFilter': _shelfFilter,
+    'shelfSourceFilter': _shelfSourceFilter,
     'shelfLayout': _shelfLayout,
     'adaptWhenOffline': _adaptWhenOffline,
     'localReaderMode': _localReaderMode,
+    'directReading': _directReading,
+    'combinedShelf': _combinedShelf,
     for (final entry in _added.entries) 'shelf_added_${entry.key}': entry.value,
     for (final entry in _known.entries)
       'novel_meta_${entry.key}': jsonEncode(entry.value.toSnapshot()),
@@ -1322,6 +1688,18 @@ class LibraryState extends ChangeNotifier {
     final barrier = Completer<void>();
     _restoreBarrier = barrier;
     try {
+      if (importPreferences && backup.records.containsKey('appLanguage')) {
+        final restoredLanguage = AppLanguage.fromRecord(
+          backup.records['appLanguage'],
+        );
+        if (chineseLocale(
+              restoredLanguage.locale ??
+                  WidgetsBinding.instance.platformDispatcher.locale,
+            ).countryCode !=
+            'CN') {
+          await ChineseText.prepare();
+        }
+      }
       await _queuePositionWrite(() async {
         final records = backup.records;
         final shelf = {
@@ -1338,6 +1716,13 @@ class LibraryState extends ChangeNotifier {
           for (final entry in _bookmarks.entries) entry.key: [...entry.value],
         };
         final hidden = {..._hiddenHistory};
+        final hiddenLocal = {
+          ..._hiddenLocalBooks,
+          ...(records['local_shelf_hidden'] as List<String>? ??
+                  const <String>[])
+              .map(int.parse)
+              .where(isLocalBook),
+        };
         final changed = <String, Object>{};
         final oldRead = {..._chapters.keys, ..._positions.keys};
         for (final entry in records.entries) {
@@ -1377,6 +1762,26 @@ class LibraryState extends ChangeNotifier {
               changed[key] = jsonEncode(incoming.toJson());
               changed['chapter_$id'] = incoming.chapter;
             }
+          } else if (key.startsWith('illustration_layout_')) {
+            final id = int.parse(key.substring('illustration_layout_'.length));
+            final values = {
+              for (final item in illustrationsFor(id)) item.url: item,
+            };
+            for (final raw in jsonDecode(entry.value as String) as List) {
+              final incoming = IllustrationPlacement.fromJson(
+                Map<String, dynamic>.from(raw),
+              );
+              if (values[incoming.url] == null ||
+                  values[incoming.url]!.updatedAt < incoming.updatedAt) {
+                values[incoming.url] = incoming;
+              }
+            }
+            if (values.length > 2000) {
+              throw const FormatException('合并后的插图排版超过上限');
+            }
+            changed[key] = jsonEncode(
+              values.values.map((item) => item.toJson()).toList(),
+            );
           } else if (key.startsWith('reader_bookmarks_')) {
             final id = int.parse(key.substring('reader_bookmarks_'.length));
             final current = marks.putIfAbsent(id, () => []);
@@ -1397,6 +1802,7 @@ class LibraryState extends ChangeNotifier {
                   id: candidate,
                   chapterTitle: mark.chapterTitle,
                   position: mark.position,
+                  quote: mark.quote,
                 );
               }
               current.add(mark);
@@ -1431,13 +1837,36 @@ class LibraryState extends ChangeNotifier {
         ].where((term) => seen.add(term.toLowerCase())).take(12).toList();
         changed['shelf'] = shelf.map((id) => '$id').toList();
         changed['reading_history_hidden'] = hidden.map((id) => '$id').toList();
+        changed['local_shelf_hidden'] = hiddenLocal.map((id) => '$id').toList();
         changed['recentSearches'] = searches;
         if (importPreferences) {
           for (final key in backupPreferenceKeys) {
             if (records[key] case final value?) changed[key] = value;
           }
+          if (records.containsKey('appTypeface') &&
+              !records.containsKey('appCustomFont')) {
+            changed['appCustomFont'] = '';
+          }
+        }
+        if (importPreferences) {
+          for (final choice in [
+            records['appCustomFont'],
+            records['readerTypeface'],
+          ].whereType<String>()) {
+            await fonts.ensureLoaded(choice);
+          }
         }
         await _commitLibraryRecords(changed);
+        for (final entry in changed.entries.where(
+          (entry) => entry.key.startsWith('illustration_layout_'),
+        )) {
+          _illustrations[int.parse(
+            entry.key.substring('illustration_layout_'.length),
+          )] = [
+            for (final raw in jsonDecode(entry.value as String) as List)
+              IllustrationPlacement.fromJson(Map<String, dynamic>.from(raw)),
+          ];
+        }
         final oldShelf = {..._shelf};
         _shelf
           ..clear()
@@ -1468,6 +1897,9 @@ class LibraryState extends ChangeNotifier {
         _hiddenHistory
           ..clear()
           ..addAll(hidden);
+        _hiddenLocalBooks
+          ..clear()
+          ..addAll(hiddenLocal);
         _recentSearches = searches;
         if (importPreferences) {
           if (records['theme'] case final String value) {
@@ -1490,6 +1922,13 @@ class LibraryState extends ChangeNotifier {
           }
           if (records['appTypeface'] case final String value) {
             _appTypeface = AppTypeface.fromRecord(value);
+            if (!records.containsKey('appCustomFont')) _appCustomFont = null;
+          }
+          if (records['appCustomFont'] case final String value) {
+            _appCustomFont = value.isEmpty ? null : value;
+          }
+          if (records['readerTypeface'] case final String value) {
+            _readerTypeface = value;
           }
           _performance = PerformancePreferences.fromRecords({
             ..._performance.toRecords(),
@@ -1506,6 +1945,9 @@ class LibraryState extends ChangeNotifier {
           if (records['shelfFilter'] case final String value) {
             _shelfFilter = value;
           }
+          if (records['shelfSourceFilter'] case final String value) {
+            _shelfSourceFilter = value;
+          }
           if (records['shelfLayout'] case final String value) {
             _shelfLayout = value;
           }
@@ -1515,10 +1957,17 @@ class LibraryState extends ChangeNotifier {
           if (records['localReaderMode'] case final bool value) {
             _localReaderMode = value;
           }
+          if (records['directReading'] case final bool value) {
+            _directReading = value;
+          }
+          if (records['combinedShelf'] case final bool value) {
+            _combinedShelf = value;
+          }
         }
         if (!_disposed) {
           _historyChanged();
           _bookmarkChanges.notifyListeners();
+          _illustrationChanges.notifyListeners();
           _searchChanges.notifyListeners();
           _shelfViewChanges.notifyListeners();
           if (importPreferences) {
@@ -1541,6 +1990,7 @@ class LibraryState extends ChangeNotifier {
 
   static String _bookmarkFingerprint(ReaderBookmark bookmark) {
     final position = {...bookmark.position.toJson()}..remove('updatedAt');
+    if (bookmark.quote.isNotEmpty) position['quote'] = bookmark.quote;
     return jsonEncode(position);
   }
 
@@ -1579,10 +2029,13 @@ class LibraryState extends ChangeNotifier {
     _settings.dispose();
     _history.dispose();
     _bookmarkChanges.dispose();
+    _illustrationChanges.dispose();
     _searchChanges.dispose();
     _shelfViewChanges.dispose();
     _readerBehaviorChanges.dispose();
     _navigationChanges.dispose();
+    _organization?.dispose();
+    fonts.dispose();
     super.dispose();
   }
 }

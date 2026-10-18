@@ -517,7 +517,10 @@ class RenderReaderVerticalText extends RenderBox
         final seam = column.bounds.height * progress;
         canvas.save();
         canvas.translate(displacement.dx, displacement.dy);
-        canvas.clipRect(column.bounds);
+        // Paragraph gaps can shift the old column across a new column's
+        // midpoint. Pictures already contain only their owned glyphs; clipping
+        // them horizontally would slice the retained ink at publication.
+        canvas.clipRect(Rect.fromLTRB(0, 0, size.width, column.bounds.bottom));
         canvas.drawPicture(
           _picture(column, 0, (target) {
             for (final band in _speechBands.entries) {
@@ -532,9 +535,7 @@ class RenderReaderVerticalText extends RenderBox
           }),
         );
         canvas.save();
-        canvas.clipRect(
-          Rect.fromLTRB(column.bounds.left, 0, column.bounds.right, seam),
-        );
+        canvas.clipRect(Rect.fromLTRB(0, 0, size.width, seam));
         canvas.translate(0, 10 * (1 - progress));
         canvas.drawPicture(
           _picture(column, 1, (target) {
@@ -546,12 +547,7 @@ class RenderReaderVerticalText extends RenderBox
         canvas.restore();
         canvas.save();
         canvas.clipRect(
-          Rect.fromLTRB(
-            column.bounds.left,
-            seam,
-            column.bounds.right,
-            column.bounds.bottom,
-          ),
+          Rect.fromLTRB(0, seam, size.width, column.bounds.bottom),
         );
         canvas.translate(0, -4 * progress);
         canvas.drawPicture(
@@ -705,12 +701,8 @@ class RenderReaderVerticalText extends RenderBox
         }
       case GranularlyExtendSelectionEvent():
         final position = event.isEnd ? _end : _start;
-        final glyph = _glyphFor(
-          (position + (event.forward ? 0 : -1)).clamp(0, _page.text.length),
-          end: !event.forward,
-        );
-        if (glyph != null) {
-          final next = event.forward ? glyph.end : glyph.start;
+        if (position >= 0) {
+          final next = _selectionStep(position, event.forward);
           if (event.isEnd) {
             _end = next;
           } else {
@@ -722,15 +714,12 @@ class RenderReaderVerticalText extends RenderBox
             event.direction == SelectionExtendDirection.forward ||
             event.direction == SelectionExtendDirection.nextLine;
         final position = event.isEnd ? _end : _start;
-        final glyph = _glyphFor(
-          (position + (forward ? 0 : -1)).clamp(0, _page.text.length),
-          end: !forward,
-        );
-        if (glyph != null) {
+        if (position >= 0) {
+          final next = _selectionStep(position, forward);
           if (event.isEnd) {
-            _end = forward ? glyph.end : glyph.start;
+            _end = next;
           } else {
-            _start = forward ? glyph.end : glyph.start;
+            _start = next;
           }
         }
       default:
@@ -740,6 +729,23 @@ class RenderReaderVerticalText extends RenderBox
     _clearPictures();
     markNeedsPaint();
     return SelectionResult.end;
+  }
+
+  int _selectionStep(int position, bool forward) {
+    // Selection edges are UTF-16 boundaries, not character indices. In
+    // particular, stepping backward from 1 must reach 0, never the last glyph.
+    // Reading-order glyphs also bridge unpainted paragraph separators and keep
+    // multi-code-unit graphemes intact.
+    if (forward) {
+      for (final glyph in _page.glyphs) {
+        if (glyph.end > position) return glyph.end;
+      }
+      return _page.text.length;
+    }
+    for (final glyph in _page.glyphs.reversed) {
+      if (glyph.start < position) return glyph.start;
+    }
+    return 0;
   }
 
   @override
@@ -763,11 +769,12 @@ class RenderReaderVerticalText extends RenderBox
   void pushHandleLayers(LayerLink? startHandle, LayerLink? endHandle) {
     _startLink = startHandle;
     _endLink = endHandle;
-    markNeedsPaint();
+    if (attached) markNeedsPaint();
   }
 
   @override
   void dispose() {
+    registrar = null;
     _clearPictures();
     _turn?.animation.removeListener(markNeedsPaint);
     _motion?.animation.removeListener(markNeedsPaint);

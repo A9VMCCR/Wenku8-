@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'app_language.dart';
 
 import 'archive_motion.dart';
 import 'library_reflow.dart';
@@ -63,7 +64,7 @@ class ArchiveMasthead extends StatelessWidget {
               height: 34,
               alignment: Alignment.center,
               color: Theme.of(context).colorScheme.onSurface,
-              child: Text(
+              child: AppText(
                 'W8',
                 textScaler: TextScaler.noScaling,
                 style: TextStyle(
@@ -91,7 +92,7 @@ class ArchiveMasthead extends StatelessWidget {
                 children: [
                   // Keep the navigation landmark immediately readable; the
                   // archive address below it performs the terminal assembly.
-                  Text(
+                  AppText(
                     title,
                     maxLines: 1,
                     style: const TextStyle(
@@ -123,7 +124,7 @@ class ArchiveCode extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final label = Text(
+    final label = AppText(
       text,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
@@ -204,7 +205,7 @@ class ArchiveSection extends StatelessWidget {
         ArchivePart(
           start: .16,
           end: .82,
-          child: Text(
+          child: AppText(
             title,
             style: const TextStyle(
               fontSize: 18,
@@ -216,7 +217,7 @@ class ArchiveSection extends StatelessWidget {
         ),
         if (subtitle.isNotEmpty) ...[
           const SizedBox(height: 5),
-          Text(
+          AppText(
             subtitle,
             style: TextStyle(
               fontSize: 12,
@@ -245,7 +246,7 @@ class ArchiveRouteTitle extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
+            AppText(
               title,
               textAlign: TextAlign.center,
               maxLines: 1,

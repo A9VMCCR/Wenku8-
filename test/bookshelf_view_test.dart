@@ -64,7 +64,7 @@ void main() {
             .length,
         10,
       );
-      expect(find.text('全部书籍'), findsOneWidget);
+      expect(find.text('全部书籍'), findsNWidgets(2));
       final view = find.byKey(const ValueKey('shelf-view'));
       await tester.tap(view);
       await tester.pumpAndSettle();

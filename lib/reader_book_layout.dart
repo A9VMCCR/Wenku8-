@@ -90,11 +90,13 @@ class ReaderBookSpread extends StatelessWidget {
     required this.pages,
     this.rightToLeft = false,
     this.edgeOverflow = 0,
+    this.verticalOverflow = 0,
   });
   final ReaderBookLayout layout;
   final List<Widget> pages;
   final bool rightToLeft;
   final double edgeOverflow;
+  final double verticalOverflow;
 
   @override
   Widget build(BuildContext context) => Stack(
@@ -125,9 +127,10 @@ class ReaderBookSpread extends StatelessWidget {
           child: Semantics(
             sortKey: OrdinalSortKey(index.toDouble()),
             child: ClipRect(
-              clipper: edgeOverflow == 0
+              clipper: edgeOverflow == 0 && verticalOverflow == 0
                   ? null
                   : _BookTurnClip(
+                      vertical: verticalOverflow,
                       left:
                           (rightToLeft ? layout.count - 1 - index : index) == 0
                           ? edgeOverflow
@@ -147,12 +150,22 @@ class ReaderBookSpread extends StatelessWidget {
 }
 
 class _BookTurnClip extends CustomClipper<Rect> {
-  const _BookTurnClip({required this.left, required this.right});
-  final double left, right;
+  const _BookTurnClip({
+    required this.left,
+    required this.right,
+    this.vertical = 0,
+  });
+  final double left, right, vertical;
   @override
-  Rect getClip(Size size) =>
-      Rect.fromLTRB(-left, 0, size.width + right, size.height);
+  Rect getClip(Size size) => Rect.fromLTRB(
+    -left,
+    -vertical,
+    size.width + right,
+    size.height + vertical,
+  );
   @override
   bool shouldReclip(_BookTurnClip oldClipper) =>
-      left != oldClipper.left || right != oldClipper.right;
+      left != oldClipper.left ||
+      right != oldClipper.right ||
+      vertical != oldClipper.vertical;
 }

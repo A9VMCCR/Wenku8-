@@ -3,15 +3,41 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'local_book_media.dart';
 import 'local_image_layout.dart';
+import 'app_language.dart';
 
 List<String> _splitParagraphs(String source) => source.split('\n\n');
 
 class ReaderContent {
-  const ReaderContent(this.paragraphs);
+  const ReaderContent(
+    this.paragraphs, {
+    this.readingOrder,
+    this.inlineOwners = const {},
+    this.placementIds = const {},
+  });
   final List<String> paragraphs;
-  List<String> get illustrations => List.unmodifiable([
-    for (final paragraph in paragraphs) ?readerIllustrationUrl(paragraph),
+  final List<int>? readingOrder;
+  final Map<int, int> inlineOwners;
+  final Map<int, String> placementIds;
+  Iterable<int> get order =>
+      readingOrder ?? Iterable.generate(paragraphs.length);
+  static final _imageLists = Expando<List<String>>('chapter-illustrations');
+  List<String> get illustrations => _imageLists[this] ??= List.unmodifiable([
+    for (final index in order) ?readerIllustrationUrl(paragraphs[index]),
   ]);
+  ReaderContent localized(Locale locale) {
+    if (chineseLocale(locale).countryCode == 'CN') return this;
+    return ReaderContent(
+      List.unmodifiable([
+        for (final text in paragraphs)
+          readerIllustrationUrl(text) != null || text.trim() == '[插图]'
+              ? text
+              : ChineseText.convert(text, locale, reader: true),
+      ]),
+      readingOrder: readingOrder,
+      inlineOwners: inlineOwners,
+      placementIds: placementIds,
+    );
+  }
 
   static Future<ReaderContent> parse(String source) async {
     if (source.trim().isEmpty) throw const FormatException('章节正文为空');
@@ -19,6 +45,16 @@ class ReaderContent {
         ? await compute(_splitParagraphs, source)
         : _splitParagraphs(source);
     return ReaderContent(List.unmodifiable(paragraphs));
+  }
+
+  Future<ReaderContent> localizedAsync(Locale locale) async {
+    if (chineseLocale(locale).countryCode == 'CN') return this;
+    return ReaderContent(
+      List.unmodifiable(await ChineseText.readerParagraphs(paragraphs, locale)),
+      readingOrder: readingOrder,
+      inlineOwners: inlineOwners,
+      placementIds: placementIds,
+    );
   }
 }
 
@@ -71,6 +107,8 @@ typedef _MeasuredParagraph = ({int index, double top, double height});
 /// saving or explicitly changing the reading layout.
 class ReaderParagraphRegistry {
   final Map<int, _ReaderParagraphRender> _rows = {};
+  @visibleForTesting
+  int debugParagraphMounts = 0;
 
   List<_MeasuredParagraph> _measure() {
     final result = <_MeasuredParagraph>[];
@@ -318,6 +356,10 @@ class _ReaderParagraphRender extends RenderProxyBox {
   void attach(PipelineOwner owner) {
     super.attach(owner);
     registry._rows[index] = this;
+    assert(() {
+      registry.debugParagraphMounts++;
+      return true;
+    }());
   }
 
   @override

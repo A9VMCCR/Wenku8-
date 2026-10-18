@@ -234,7 +234,10 @@ void main({
       await fixture.settleReader(tester);
       final safe = find.byKey(const ValueKey('reader-scroll-safe-viewport'));
       final top = MediaQuery.viewPaddingOf(tester.element(safe)).top;
-      expect(tester.getTopLeft(safe).dy, top);
+      expect(
+        tester.getTopLeft(safe).dy,
+        top + state.readerPreferences.marginTop,
+      );
       expect(
         tester.renderObject<RenderClipRect>(safe).clipBehavior,
         Clip.hardEdge,
@@ -242,7 +245,10 @@ void main({
       final scroll = find.byKey(const ValueKey('reader-scroll'));
       await tester.drag(scroll, const Offset(0, -483));
       await tester.pumpAndSettle();
-      expect(tester.getTopLeft(scroll).dy, top);
+      expect(
+        tester.getTopLeft(scroll).dy,
+        top + state.readerPreferences.marginTop,
+      );
       await capture?.call(tester, boundary, 'scroll-hidden-status-safe-area');
       expect(tester.takeException(), isNull);
     },

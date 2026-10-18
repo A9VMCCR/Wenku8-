@@ -33,6 +33,17 @@ Full upstream notice: assets/licenses/edge-tts.txt.
 
 See docs/THIRD_PARTY.md for component provenance and license boundaries.
 
+MOBI import: libmobi 0.12, Copyright (c) 2014-2022 Bartek Fabiszewski,
+LGPL version 3 or later. Unmodified library sources and license are retained
+in third_party/libmobi/. Linked dynamically as libmobi.so; the app-specific
+JNI/export wrapper is in android/app/src/main/cpp/. Encryption is disabled.
+Full license also supplied in assets/licenses/libmobi.txt.
+
 Liquid Glass Easy 5.0.0: Copyright (c) 2025 Ahmed Gamil, MIT License.
 Source and license: third_party/liquid_glass_easy/. Modified 2026-10-15 to
 bound unnecessary single-lens shader output; see its PATCHES.md.
+
+OpenCC 1.1.9 dictionaries: BYVoid and contributors, Apache License 2.0.
+Unmodified dictionaries and provenance: assets/opencc/.
+Full license: assets/licenses/opencc.txt. The Dart display converter is
+implemented in this project; the OpenCC native engine is not included.

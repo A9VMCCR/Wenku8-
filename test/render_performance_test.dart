@@ -282,7 +282,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
     await tester.pumpAndSettle();
-    final trigger = find.text('跟随系统');
+    await tester.tap(find.byKey(const ValueKey('my-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-reading-entry')));
+    await tester.pumpAndSettle();
+    final trigger = find.descendant(
+      of: find.byKey(const ValueKey('settings-appearance')),
+      matching: find.text('跟随系统'),
+    );
     final anchorOpacity = find
         .descendant(
           of: find.ancestor(
@@ -351,8 +358,17 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('my-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-reading-entry')));
+    await tester.pumpAndSettle();
     for (var i = 0; i < 3; i++) {
-      await tester.tap(find.text('跟随系统'));
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('settings-appearance')),
+          matching: find.text('跟随系统'),
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 70));
       final stretch = tester.renderObject<GlassMenuStretchRender>(
@@ -364,7 +380,13 @@ void main() {
       expect(stretch.currentRect, before);
       await tester.pumpAndSettle();
       expect(find.byType(GlassMenuSurface), findsNothing);
-      expect(find.text('跟随系统'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('settings-appearance')),
+          matching: find.text('跟随系统'),
+        ),
+        findsOneWidget,
+      );
       expect(tester.binding.transientCallbackCount, 0);
     }
     expect(tester.takeException(), isNull);

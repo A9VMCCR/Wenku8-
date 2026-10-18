@@ -140,6 +140,52 @@ void main() {
     clock.dispose();
   });
 
+  testWidgets(
+    'landed rows stop repainting while their shared batch continues and still reverse',
+    (tester) async {
+      final clock = AnimationController(
+        vsync: tester,
+        duration: NovelMotion.reveal,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: ArchiveReveal(
+              animation: clock,
+              start: .1,
+              end: .4,
+              child: const SizedBox(
+                width: 200,
+                height: 60,
+                child: Text('已到达的内容'),
+              ),
+            ),
+          ),
+        ),
+      );
+      final render = tester.renderObject<ArchiveRevealRender>(
+        find.byType(ArchiveReveal),
+      );
+      clock.value = .4;
+      await tester.pump();
+      final paints = render.debugPaintCount;
+      final layouts = render.debugLayoutCount;
+      for (var step = 41; step <= 100; step++) {
+        clock.value = step / 100;
+        await tester.pump();
+      }
+      expect(render.debugPaintCount, paints);
+      expect(render.debugLayoutCount, layouts);
+      expect(render.progress, 1);
+      clock.value = .25;
+      await tester.pump();
+      expect(render.debugPaintCount, paints + 1);
+      expect(render.progress, allOf(greaterThan(0), lessThan(1)));
+      await tester.pumpWidget(const SizedBox.shrink());
+      clock.dispose();
+    },
+  );
+
   testWidgets('terminal rules open before codes and headings on one clock', (
     tester,
   ) async {

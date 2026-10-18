@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_ui.dart';
+import 'app_interactions.dart';
+import 'local_platform.dart';
 import 'cover_arrival.dart';
 import 'legacy_transport.dart';
 import 'local_book_media.dart';
@@ -291,7 +293,9 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
               : ReaderIllustrationFrame(
                   imageSize: snapshot.data?.size,
                   fitPage: widget.fullScreen || widget.fitPage,
-                  preserveSize: widget.url.startsWith('wenku-local:'),
+                  preserveSize:
+                      !widget.fullScreen &&
+                      widget.url.startsWith('wenku-local:'),
                   localLayout: widget.localLayout,
                   fontSize: widget.fontSize,
                   child: child,
@@ -327,7 +331,7 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
                   children: [
                     const Icon(CupertinoIcons.photo, size: 28),
                     const SizedBox(height: 12),
-                    const Text('插图加载失败'),
+                    const AppText('插图加载失败'),
                     GlassTextButton(
                       onPressed: () {
                         _cache.evict(widget.url);
@@ -335,7 +339,7 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
                           _future = _load();
                         });
                       },
-                      child: const Text('重试插图'),
+                      child: const AppText('重试插图'),
                     ),
                   ],
                 ),
@@ -373,12 +377,7 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
                                       .clamp(1, 1600))
                             .clamp(
                               1,
-                              widget.url.startsWith('wenku-local:')
-                                  ? snapshot.data!.size!.width.round().clamp(
-                                      1,
-                                      2400,
-                                    )
-                                  : 2400,
+                              snapshot.data!.size!.width.round().clamp(1, 2400),
                             ),
                     frameBuilder: (context, child, frame, sync) => CoverArrival(
                       bytes: bytes,
@@ -400,7 +399,7 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
                                   _future = _load();
                                 });
                               },
-                              child: const Text('重新读取插图'),
+                              child: const AppText('重新读取插图'),
                             ),
                           ),
                   ),
@@ -420,10 +419,13 @@ class ReaderIllustrationGallery extends StatefulWidget {
     required this.urls,
     required this.initialUrl,
     this.cache,
+    this.title = '章节插图',
+    this.fileNamePrefix = '文库插图',
   }) : assert(urls.length > 0);
   final List<String> urls;
   final String initialUrl;
   final ReaderIllustrationCache? cache;
+  final String title, fileNamePrefix;
   @override
   State<ReaderIllustrationGallery> createState() =>
       _ReaderIllustrationGalleryState();
@@ -434,8 +436,72 @@ class _ReaderIllustrationGalleryState extends State<ReaderIllustrationGallery> {
       .indexOf(widget.initialUrl)
       .clamp(0, widget.urls.length - 1);
   late final _pages = PageController(initialPage: _page);
+  bool _saving = false;
+  int? _dragPage;
+  void _dragStart(ScaleStartDetails details) {
+    _dragCancel();
+    _dragPage = _pages.page!.round();
+    _pages.jumpTo(_pages.offset);
+  }
+
+  void _dragUpdate(ScaleUpdateDetails details) {
+    if (_dragPage == null) return;
+    final position = _pages.position;
+    _pages.jumpTo(
+      (position.pixels - details.focalPointDelta.dx).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      ),
+    );
+  }
+
+  void _dragEnd(ScaleEndDetails details) {
+    final origin = _dragPage;
+    _dragPage = null;
+    if (origin == null) return;
+    final distance = _pages.page! - origin;
+    final velocity = -details.velocity.pixelsPerSecond.dx;
+    final step = velocity.abs() > 350
+        ? velocity.sign.toInt()
+        : distance.abs() > .2
+        ? distance.sign.toInt()
+        : 0;
+    _pages.animateToPage(
+      (origin + step).clamp(0, widget.urls.length - 1),
+      duration: NovelMotion.contact,
+      curve: NovelMotion.ease,
+    );
+  }
+
+  void _dragCancel() {
+    final origin = _dragPage;
+    _dragPage = null;
+    if (origin != null) _pages.jumpToPage(origin);
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final page = _page;
+    setState(() => _saving = true);
+    try {
+      final bytes = await (widget.cache ?? ReaderIllustrationCache.shared).load(
+        widget.urls[page],
+      );
+      final saved = await LocalPlatform.saveBookImage(
+        bytes,
+        '${widget.fileNamePrefix}-${page + 1}',
+      );
+      if (mounted && saved) showNovelFeedback(context, '图片已保存');
+    } catch (_) {
+      if (mounted) showNovelFeedback(context, '图片保存失败，请重试');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   void dispose() {
+    _dragPage = null;
     _pages.dispose();
     super.dispose();
   }
@@ -447,28 +513,46 @@ class _ReaderIllustrationGalleryState extends State<ReaderIllustrationGallery> {
         header: ArchiveHeaderBar(
           leading: GlassIconButton(
             icon: CupertinoIcons.back,
-            label: '返回阅读',
+            label: '返回',
             onPressed: () => Navigator.pop(context),
           ),
           title: ArchiveRouteTitle(
-            title: '章节插图',
+            title: widget.title,
             code: 'IMAGE / ${_page + 1} OF ${widget.urls.length}',
           ),
+          actions: [
+            GlassIconButton(
+              key: const ValueKey('book-image-save'),
+              icon: CupertinoIcons.arrow_down_to_line,
+              label: _saving ? '正在保存图片' : '保存图片',
+              onPressed: _saving ? null : _save,
+            ),
+          ],
         ),
-        body: Padding(
-          padding: EdgeInsets.only(
-            top:
-                MediaQuery.paddingOf(context).top + FrostedHeader.toolbarHeight,
-            bottom: MediaQuery.paddingOf(context).bottom,
-          ),
+        body: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => Navigator.maybePop(context),
           child: PageView.builder(
+            key: const ValueKey('book-image-canvas'),
             controller: _pages,
+            // InteractiveViewer owns both contacts from the first finger.
+            // Its one-finger callbacks drive this PageView, so a small drift
+            // before the second finger arrives cannot steal the pinch arena.
+            physics: const NeverScrollableScrollPhysics(),
+            // A drag activity ignores new pointers in its child subtree. Keep
+            // paging under the image's recognizer so a second finger can land.
+            pageSnapping: false,
             itemCount: widget.urls.length,
-            onPageChanged: (page) => setState(() => _page = page),
-            itemBuilder: (context, index) => InteractiveViewer(
-              key: ValueKey(widget.urls[index]),
-              minScale: 1,
-              maxScale: 5,
+            onPageChanged: (page) => setState(() {
+              _page = page;
+            }),
+            itemBuilder: (context, index) => _ZoomableBookImage(
+              key: ValueKey((widget.urls[index], index)),
+              onDragStart: _dragStart,
+              onDragUpdate: _dragUpdate,
+              onDragEnd: _dragEnd,
+              onDragCancel: _dragCancel,
+              onClose: () => Navigator.maybePop(context),
               child: SizedBox.expand(
                 child: ReaderIllustration(
                   url: widget.urls[index],
@@ -481,5 +565,157 @@ class _ReaderIllustrationGalleryState extends State<ReaderIllustrationGallery> {
         ),
       ),
     ),
+  );
+}
+
+class _ZoomableBookImage extends StatefulWidget {
+  const _ZoomableBookImage({
+    super.key,
+    required this.child,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+    required this.onDragCancel,
+    required this.onClose,
+  });
+  final Widget child;
+  final ValueChanged<ScaleStartDetails> onDragStart;
+  final ValueChanged<ScaleUpdateDetails> onDragUpdate;
+  final ValueChanged<ScaleEndDetails> onDragEnd;
+  final VoidCallback onDragCancel;
+  final VoidCallback onClose;
+  @override
+  State<_ZoomableBookImage> createState() => _ZoomableBookImageState();
+}
+
+class _ZoomableBookImageState extends State<_ZoomableBookImage>
+    with SingleTickerProviderStateMixin {
+  static const _initialScale = .9;
+  final _transform = TransformationController();
+  Size? _viewport;
+  late final AnimationController _settle;
+  void _applySettle() {
+    if (_target != null) {
+      _transform.value = _target!.lerp(
+        NovelMotion.ease.transform(_settle.value),
+      );
+    }
+  }
+
+  Matrix4Tween? _target;
+  // Keep the unused Z scale in step as InteractiveViewer uses the maximum
+  // axis scale internally, including when the image is smaller than its fit.
+  double get _scale => _transform.value.entry(0, 0).abs();
+  Offset _tap = Offset.zero;
+  final _contacts = <int>{};
+  bool _multiple = false, _paging = false, _zoomed = false;
+  @override
+  void initState() {
+    super.initState();
+    _settle = AnimationController(vsync: this, duration: NovelMotion.contact)
+      ..addListener(_applySettle);
+    _transform.addListener(_changed);
+  }
+
+  void _changed() {
+    final zoomed = (_scale - _initialScale).abs() > .01;
+    if (mounted && zoomed != _zoomed) setState(() => _zoomed = zoomed);
+  }
+
+  void _animateTo(Matrix4 target) {
+    _settle.stop();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _transform.value = target;
+    } else {
+      _target = Matrix4Tween(begin: _transform.value.clone(), end: target);
+      _settle.forward(from: 0);
+    }
+  }
+
+  Matrix4 _bounded(Size size, double scale, double x, double y) =>
+      Matrix4.identity()
+        ..translateByDouble(
+          scale < 1
+              ? size.width * (1 - scale) / 2
+              : x.clamp(size.width * (1 - scale), 0),
+          scale < 1
+              ? size.height * (1 - scale) / 2
+              : y.clamp(size.height * (1 - scale), 0),
+          0,
+          1,
+        )
+        ..scaleByDouble(scale, scale, scale, 1);
+  @override
+  void dispose() {
+    _settle.dispose();
+    _transform.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final size = constraints.biggest;
+      if (_viewport != size) {
+        final scale = _viewport == null ? _initialScale : _scale;
+        final translation = _transform.value.getTranslation();
+        _viewport = size;
+        _transform.value = _bounded(size, scale, translation.x, translation.y);
+      }
+      return Listener(
+        onPointerDown: (event) {
+          _contacts.add(event.pointer);
+          if (_contacts.length > 1) {
+            _multiple = true;
+            _paging = false;
+            widget.onDragCancel();
+          }
+        },
+        onPointerUp: (event) => _contacts.remove(event.pointer),
+        onPointerCancel: (event) => _contacts.remove(event.pointer),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onClose,
+          onDoubleTapDown: (details) => _tap = details.localPosition,
+          onDoubleTap: () {
+            _animateTo(
+              (_scale - _initialScale).abs() > .01
+                  ? _bounded(size, _initialScale, 0, 0)
+                  : _bounded(size, 2, -_tap.dx, -_tap.dy),
+            );
+          },
+          child: InteractiveViewer(
+            transformationController: _transform,
+            panEnabled: _zoomed,
+            minScale: .25,
+            maxScale: 5,
+            boundaryMargin: const EdgeInsets.all(double.infinity),
+            onInteractionStart: (details) {
+              _settle.stop();
+              _multiple = _contacts.length > 1 || details.pointerCount > 1;
+              _paging = !_multiple && !_zoomed;
+              if (_paging) widget.onDragStart(details);
+            },
+            onInteractionUpdate: (details) {
+              if (details.pointerCount > 1) {
+                _multiple = true;
+                _paging = false;
+                widget.onDragCancel();
+              } else if (_paging && !_multiple) {
+                widget.onDragUpdate(details);
+              }
+            },
+            onInteractionEnd: (details) {
+              if (_paging && !_multiple) widget.onDragEnd(details);
+              _paging = false;
+              final scale = _scale.clamp(.25, 5.0);
+              final translation = _transform.value.getTranslation();
+              _animateTo(_bounded(size, scale, translation.x, translation.y));
+            },
+            child: widget.child,
+          ),
+        ),
+      );
+    },
   );
 }

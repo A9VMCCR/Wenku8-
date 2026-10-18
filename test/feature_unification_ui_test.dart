@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/reader_panels.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_interactions.dart';
 import 'package:wenku8_flutter/app_ui.dart';
@@ -56,6 +57,8 @@ void main({
       );
     }
     SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
       'reduceMotion': true,
       'shelfLayout': 'list',
     });
@@ -106,8 +109,7 @@ void main({
   }
 
   Future<void> findPanel(WidgetTester tester) async {
-    await tester.tap(_button('阅读设置'));
-    await tester.pumpAndSettle();
+    await openReaderChapterProgress(tester);
     await tester.ensureVisible(find.byKey(const ValueKey('reader-open-find')));
     await tester.tap(find.text('章内查找'));
     await tester.pumpAndSettle();
@@ -166,7 +168,10 @@ void main({
       expect(repository.calls.length, requests);
       await shot(tester, 'chapter-find-highlight');
       await tester.pump(const Duration(seconds: 9));
-      expect(tester.widget<Text>(paragraph).data, paragraphs[95]);
+      expect(
+        tester.widget<Text>(paragraph).textSpan!.toPlainText(),
+        paragraphs[95],
+      );
       expect(scroll.position.pixels, closeTo(position, 1));
       expect(state.positionFor(71)!.paragraphIndex, 95);
       expect(tester.takeException(), isNull);
@@ -304,15 +309,17 @@ void main({
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('shelf-book-71')), findsOneWidget);
       await tester.enterText(find.byKey(const ValueKey('shelf-search')), '');
-      await tester.tap(find.text('全部'));
+      await tester.tap(find.byKey(const ValueKey('shelf-view')));
       await tester.pumpAndSettle();
       await tester.tap(
         find.descendant(
-          of: find.byType(GlassMenuItem),
+          of: find.byType(GlassTextButton),
           matching: find.text('已读完'),
         ),
       );
       await io(tester);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('shelf-book-72')), findsOneWidget);
       expect(find.byKey(const ValueKey('shelf-book-71')), findsNothing);
       expect((await LibraryState.load()).shelfFilter, 'finished');

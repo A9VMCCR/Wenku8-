@@ -9,16 +9,31 @@ import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart';
 
 import 'app_ui.dart';
-import 'app_typography.dart';
+import 'app_search_field.dart';
+import 'setting_menu.dart';
+import 'cover_images.dart';
+import 'book_download_page.dart';
+import 'font_settings_page.dart';
+import 'my_page.dart';
+import 'illustration_layout_page.dart';
+import 'illustration_placement.dart';
+import 'automatic_illustrations.dart';
+import 'local_book_series.dart';
+import 'local_book_batch_page.dart';
 import 'app_interactions.dart';
 import 'author_works_page.dart';
 import 'archive_carousel.dart';
 import 'backup_page.dart';
 import 'book_collection_layout.dart';
+import 'book_categories.dart';
+import 'bookshelf_scope.dart';
+import 'book_source_badge.dart';
+import 'book_search.dart';
 import 'catalog.dart';
 import 'glass_dock.dart';
 import 'home_navigation.dart';
 import 'library_state.dart';
+import 'library_toolbar.dart';
 import 'library_workspace.dart';
 import 'library_reflow.dart';
 import 'library_search_repository.dart';
@@ -30,18 +45,24 @@ import 'local_platform.dart';
 import 'local_books.dart';
 import 'local_library_page.dart';
 import 'local_book_editor.dart';
+import 'local_book_removal.dart';
+import 'local_book_importer.dart';
 import 'native_effects.dart' show NativeGlassGroup;
 import 'network_status.dart';
 import 'novel_feed_controller.dart';
 import 'offline_repository.dart';
 import 'offline_widgets.dart';
 import 'low_performance_page.dart';
+import 'frame_rate_settings.dart';
 import 'reader_catalogue.dart';
 import 'reader_chrome.dart';
 import 'reader_appearance.dart';
 import 'reader_content.dart';
+import 'reader_scroll_sliver.dart';
+import 'discovery_filters.dart';
 import 'reader_follow_scroll.dart';
 import 'reader_illustrations.dart';
+import 'reader_volume_illustrations.dart';
 import 'local_image_layout.dart';
 import 'reader_find.dart';
 import 'reader_pagination.dart';
@@ -52,7 +73,9 @@ import 'reader_turn_motion.dart';
 import 'reader_selection.dart';
 import 'reader_landing_highlight.dart';
 import 'reader_tools.dart';
+import 'reader_status.dart';
 import 'reader_preferences.dart';
+import 'reader_text.dart';
 import 'reading_history.dart';
 import 'recent_searches.dart';
 import 'ui_notifiers.dart';
@@ -61,8 +84,6 @@ import 'wenku_features.dart';
 import 'legacy_import_page.dart';
 import 'legacy_transport.dart';
 import 'review_pages.dart';
-import 'updates/update_page.dart';
-import 'updates/app_updates.dart';
 
 export 'app_ui.dart' show sectionHeader;
 
@@ -86,12 +107,11 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   late List<int> _visibleTabs;
   final _visitedTabs = <int>{};
   bool _catalogStarted = false;
-  bool _cachedShelf = false;
   static const _dockItems = [
     GlassDockItem(CupertinoIcons.house, '发现'),
     GlassDockItem(CupertinoIcons.book, '书架'),
     GlassDockItem(CupertinoIcons.folder, '本地'),
-    GlassDockItem(CupertinoIcons.settings, '设置'),
+    GlassDockItem(CupertinoIcons.person_crop_circle, '我的'),
   ];
   late final _catalog = NovelFeedController(
     widget.repository,
@@ -106,7 +126,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       source: widget.repository,
       state: widget.state,
       local: _localBooks,
-      cachedOnly: () => _navigation.cachedShelf,
+      cachedOnly: () => _navigation.readableShelfOnly,
     ),
     search: true,
   );
@@ -169,7 +189,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _visibleTabs = _navigation.tabs;
-    _cachedShelf = _navigation.cachedShelf;
     _tab = _navigation.destination(_tab);
     _visitedTabs.add(_tab);
     _navigation.addListener(_navigationChanged);
@@ -194,7 +213,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       onSearch: _openSearch,
       navigation: _navigation,
     );
-    final settings = SettingsPage(
+    final settings = MyPage(
       state: widget.state,
       repository: widget.repository,
       showHeader: false,
@@ -231,7 +250,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
         [
               discover,
               shelf,
-              localPage ?? const Center(child: Text('当前演示数据源未启用本地书库')),
+              localPage ?? const Center(child: AppText('当前演示数据源未启用本地书库')),
               settings,
             ]
             .map((page) => RepaintBoundary(child: Atmosphere(child: page)))
@@ -254,13 +273,11 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     final tabs = _navigation.tabs;
     final next = _navigation.destination(_tab);
     if (_searchOpen && !tabs.contains(_searchScope)) _closeSearch();
-    final cacheChanged = _cachedShelf != _navigation.cachedShelf;
     setState(() {
       _visibleTabs = tabs;
-      _cachedShelf = _navigation.cachedShelf;
     });
     if (next != _tab) _selectTab(next, feedback: false);
-    if (cacheChanged && _searchOpen && _searchScope == 1) {
+    if (_searchOpen && _searchScope == 1) {
       _shelfSearch.refresh();
     }
     _ensureCatalog();
@@ -515,6 +532,12 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                                 state: widget.state,
                                 repository: widget.repository,
                                 onOpenBook: _dismissSearchKeyboard,
+                                showSources:
+                                    _searchScope == 1 &&
+                                    widget.state.combinedShelf,
+                                fromCache:
+                                    _searchScope == 1 &&
+                                    _navigation.readableShelfOnly,
                                 onRecall: _searchScope == 0
                                     ? _recallSearch
                                     : null,
@@ -730,39 +753,37 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
 
   Widget _searchField(BuildContext context) => Row(
     children: [
-      const SizedBox(width: 46, child: Icon(CupertinoIcons.search, size: 21)),
+      const SizedBox(width: 44, child: Icon(CupertinoIcons.search, size: 19)),
       Expanded(
-        child: ValueListenableBuilder<TextEditingValue>(
-          valueListenable: _searchText,
-          builder: (context, value, _) => TextField(
-            key: const ValueKey('expanded-search-input'),
-            controller: _searchText,
-            focusNode: _searchFocus,
-            textInputAction: TextInputAction.search,
-            style: const TextStyle(fontSize: 14),
-            onSubmitted: (query) {
-              _activeSearch.searchFor(query);
-              _dismissSearchKeyboard();
-            },
-            decoration: InputDecoration(
-              border: InputBorder.none,
-              hintText: switch (_searchScope) {
-                1 => '书架：书名、作者、标签',
-                2 => '本地：书名、作者、标签',
-                _ => '书名、作者',
-              },
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
-              suffixIcon: value.text.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: '清空搜索',
-                      icon: const Icon(
-                        CupertinoIcons.xmark_circle_fill,
-                        size: 17,
-                      ),
-                      onPressed: _searchText.clear,
-                    ),
+        child: AppSearchField(
+          inputKey: const ValueKey('expanded-search-input'),
+          embedded: true,
+          showLeading: false,
+          hint: _activeSearch.searchField.hint,
+          controller: _searchText,
+          focusNode: _searchFocus,
+          onSubmitted: (query) {
+            _activeSearch.searchFor(query);
+            _dismissSearchKeyboard();
+          },
+        ),
+      ),
+      GlassMenuAnchor(
+        child: Builder(
+          builder: (anchor) => SizedBox(
+            width: 42,
+            height: 46,
+            child: IconButton(
+              key: const ValueKey('search-field-filter'),
+              tooltip: '搜索范围：${_activeSearch.searchField.label}',
+              icon: Icon(
+                CupertinoIcons.line_horizontal_3_decrease,
+                size: 19,
+                color: _activeSearch.searchField == BookSearchField.all
+                    ? null
+                    : Theme.of(context).colorScheme.primary,
+              ),
+              onPressed: () => _chooseSearchField(anchor),
             ),
           ),
         ),
@@ -779,6 +800,30 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       ),
     ],
   );
+
+  Future<void> _chooseSearchField(BuildContext context) async {
+    _dismissSearchKeyboard();
+    final field = await showGlassMenu<BookSearchField>(
+      context: context,
+      reduceMotion: _reduceMotion,
+      builder: (menu) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final (index, field) in BookSearchField.values.indexed)
+            GlassMenuItem(
+              order: index,
+              label: field.label,
+              selected: _activeSearch.searchField == field,
+              onPressed: () => Navigator.pop(menu, field),
+            ),
+        ],
+      ),
+    );
+    if (field == null || !mounted) return;
+    final pending = _activeSearch.selectSearchField(field);
+    setState(() {});
+    await pending;
+  }
 }
 
 class DiscoverPage extends StatelessWidget {
@@ -877,7 +922,7 @@ class DiscoverPage extends StatelessWidget {
           return false;
         },
         child: KeyedSubtree(
-          key: ValueKey(feed?.sort),
+          key: ValueKey((feed?.sort, feed?.tags.join('|'))),
           child: CustomScrollView(
             key: const PageStorageKey('discover'),
             clipBehavior: LibraryReflowScope.clipOf(context),
@@ -904,7 +949,7 @@ class DiscoverPage extends StatelessWidget {
                       if (books.isEmpty)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 90),
-                          child: Center(child: Text('暂无书籍')),
+                          child: Center(child: AppText('暂无书籍')),
                         )
                       else ...[
                         ArchiveFileCarousel(
@@ -996,7 +1041,11 @@ class DiscoverPage extends StatelessWidget {
       Expanded(
         child: sectionHeader(
           context,
-          categoryTitle ?? feed?.sort.label ?? '最近更新',
+          categoryTitle ??
+              (feed?.tags.isNotEmpty == true
+                  ? feed!.tags.join(' · ')
+                  : feed?.sort.label) ??
+              '最近更新',
           '',
         ),
       ),
@@ -1016,30 +1065,20 @@ class DiscoverPage extends StatelessWidget {
   );
 
   Future<void> _chooseSort(BuildContext context) async {
-    final selected = await showGlassMenu<NovelSort>(
+    final selected = await showJellySheet<DiscoverySelection>(
       context: context,
       reduceMotion: state.reduceMotion,
-      builder: (menuContext) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(menuContext).height * .62,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final sort in NovelSort.values)
-                GlassMenuItem(
-                  order: sort.index,
-                  label: sort.label,
-                  selected: feed!.sort == sort,
-                  onPressed: () => Navigator.of(menuContext).pop(sort),
-                ),
-            ],
-          ),
-        ),
+      heightFactor: .75,
+      builder: (_) => DiscoveryFilters(
+        sort: feed!.sort,
+        books: feed!.items,
+        selectedTags: feed!.tags.toSet(),
+        availableTags: feed!.tagSuggestions,
       ),
     );
-    if (selected != null) await feed!.selectSort(selected);
+    if (!context.mounted || selected == null) return;
+    if (selected.sort case final sort?) await feed!.selectSort(sort);
+    if (selected.tags case final tags?) await feed!.selectTags(tags);
   }
 }
 
@@ -1098,18 +1137,21 @@ class FeedFooter extends StatelessWidget {
         if (feed.loading)
           const BookCollectionSkeleton(rows: 2, label: '正在加载更多书籍')
         else if (feed.error != null) ...[
-          Text(
+          AppText(
             feed.refreshFailed ? '刷新失败，已保留原列表' : '加载下一页失败',
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontSize: 12,
             ),
           ),
-          GlassTextButton(onPressed: feed.retry, child: const Text('重试')),
+          GlassTextButton(onPressed: feed.retry, child: const AppText('重试')),
         ] else if (feed.hasMore)
-          GlassTextButton(onPressed: feed.loadMore, child: const Text('加载更多'))
+          GlassTextButton(
+            onPressed: feed.loadMore,
+            child: const AppText('加载更多'),
+          )
         else if (feed.items.isNotEmpty)
-          Text(
+          AppText(
             '已经到底了',
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1128,7 +1170,24 @@ void openDetail(
   NovelRepository repository, {
   Object? coverHeroTag,
   bool fromCache = false,
+  bool forceDetails = false,
 }) {
+  if (state.directReading && !forceDetails) {
+    unawaited(
+      pushNovelPage<void>(
+        context,
+        ReaderLoaderPage(
+          novel: novel,
+          state: state,
+          repository: repository,
+          fromCache: fromCache,
+        ),
+        reduceMotion: state.reduceMotion,
+        slot: ('reader-entry', novel.id),
+      ),
+    );
+    return;
+  }
   if (LibraryWorkspace.open(
     context,
     novel.id,
@@ -1163,7 +1222,137 @@ void openDetail(
       reduceMotion: state.reduceMotion,
       paperFlight: coverHeroTag != null,
       slot: 'detail',
+      explorationKey: ('book', novel.id),
     ),
+  );
+}
+
+/// One destination owns directory loading and reading, so Back never exposes
+/// a transient loading route or a details page that the user chose to skip.
+class ReaderLoaderPage extends StatefulWidget {
+  const ReaderLoaderPage({
+    super.key,
+    required this.novel,
+    required this.state,
+    required this.repository,
+    this.fromCache = false,
+  });
+  final Novel novel;
+  final LibraryState state;
+  final NovelRepository repository;
+  final bool fromCache;
+  @override
+  State<ReaderLoaderPage> createState() => _ReaderLoaderPageState();
+}
+
+class _ReaderLoaderPageState extends State<ReaderLoaderPage> {
+  late Future<Novel> _book = _load();
+  Future<Novel> _load() async {
+    Novel? book;
+    if (widget.repository case final OfflineNovelRepository offline) {
+      if (widget.fromCache || offline.offline) {
+        if (!isLocalBook(widget.novel.id)) await offline.loadCache();
+        book = await offline.cachedBook(widget.novel.id);
+      }
+    }
+    book ??= (await widget.repository.detail(
+      widget.novel,
+    )).withChapters(await widget.repository.chapters(widget.novel.id));
+    if (book.tags.isEmpty && widget.novel.tags.isNotEmpty) {
+      book = book.withGenre(widget.novel.genre);
+    }
+    if (book.chapters.isEmpty) throw const FormatException('本书暂无可阅读的章节');
+    await widget.state.rememberNovel(book);
+    return book;
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Novel>(
+    future: _book,
+    builder: (context, snapshot) {
+      if (snapshot.data case final book?) {
+        var chapter = widget.state.chapterForNovel(book);
+        if (widget.repository case final OfflineNovelRepository offline) {
+          if (offline.offline &&
+              !isLocalBook(book.id) &&
+              offline.cache
+                      .book(book.id)
+                      ?.chapterBytes
+                      .containsKey(book.chapters[chapter].id) !=
+                  true) {
+            final cached = book.chapters.indexWhere(
+              (c) =>
+                  offline.cache.book(book.id)?.chapterBytes.containsKey(c.id) ==
+                  true,
+            );
+            if (cached >= 0) chapter = cached;
+          }
+        }
+        return ReaderPage(
+          novel: book,
+          state: widget.state,
+          repository: widget.repository,
+          initialChapter: chapter,
+          directEntry: true,
+        );
+      }
+      final preferences = widget.state.readerPreferences;
+      final chromeVisible = widget.state.readerChromeVisible;
+      return ReaderAppearance(
+        state: widget.state,
+        appTheme: Theme.of(context),
+        child: Scaffold(
+          body: Atmosphere(
+            archiveBackdrop: false,
+            child: GlassHeaderLayout(
+              showHeader: chromeVisible || snapshot.hasError,
+              header: ArchiveHeaderBar(
+                leading: GlassIconButton(
+                  icon: CupertinoIcons.back,
+                  label: '返回',
+                  onPressed: () => Navigator.pop(context),
+                ),
+                title: ArchiveRouteTitle(
+                  title: widget.novel.title,
+                  code: 'READ / OPEN',
+                ),
+              ),
+              body: snapshot.hasError
+                  ? ContentNotice(
+                      icon: CupertinoIcons.exclamationmark_triangle,
+                      title: '暂时无法打开本书',
+                      message: snapshot.error is FormatException
+                          ? (snapshot.error as FormatException).message
+                          : '请检查网络或本机缓存后重试',
+                      onRetry: () => setState(() => _book = _load()),
+                    )
+                  : SafeArea(
+                      top:
+                          !(preferences.hideSystemStatus &&
+                              preferences.mode == ReaderMode.scroll),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          preferences.leftMargin,
+                          preferences.marginTop +
+                              (chromeVisible
+                                  ? FrostedHeader.toolbarHeight + 16
+                                  : 16),
+                          preferences.rightMargin,
+                          preferences.marginBottom + 24,
+                        ),
+                        child: ReaderSkeleton(
+                          vertical:
+                              widget.state.readerPreferences.mode ==
+                              ReaderMode.vertical,
+                          expand: widget.state.readerPreferences.mode.paginated,
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+        ),
+      );
+    },
   );
 }
 
@@ -1203,11 +1392,13 @@ class NovelRow extends StatelessWidget {
     required this.onTap,
     this.trailing,
     this.coverHeroTag,
+    this.sourceLabel,
   });
   final Novel novel;
   final VoidCallback onTap;
   final Widget? trailing;
   final Object? coverHeroTag;
+  final String? sourceLabel;
 
   @override
   Widget build(BuildContext context) => JellyTapSurface(
@@ -1221,7 +1412,26 @@ class NovelRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          NovelCover(novel, width: 56, height: 76, heroTag: coverHeroTag),
+          Stack(
+            children: [
+              Semantics(
+                label: novel.title,
+                image: true,
+                child: NovelCover(
+                  novel,
+                  width: 56,
+                  height: 76,
+                  heroTag: coverHeroTag,
+                ),
+              ),
+              if (sourceLabel != null)
+                Positioned(
+                  top: 3,
+                  right: 3,
+                  child: BookSourceBadge(sourceLabel!),
+                ),
+            ],
+          ),
           const SizedBox(width: 15),
           Expanded(
             child: Column(
@@ -1229,7 +1439,7 @@ class NovelRow extends StatelessWidget {
               children: [
                 ArchiveCode(ArchiveDesign.fileCode(novel.id)),
                 const SizedBox(height: 4),
-                Text(
+                AppText(
                   novel.title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -1239,7 +1449,7 @@ class NovelRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 7),
-                Text(
+                AppText(
                   novel.author,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1275,27 +1485,55 @@ class ShelfPage extends StatefulWidget {
   final VoidCallback? onSearch;
   final HomeNavigation? navigation;
 
-  Widget buildHeader(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: const ArchiveMasthead(
-          title: '书架',
-          code: '02 / PERSONAL ARCHIVE',
+  Widget buildHeader(BuildContext context, {VoidCallback? search}) =>
+      AnimatedBuilder(
+        animation: state.navigationChanges,
+        builder: (context, _) => Row(
+          children: [
+            Expanded(
+              child: const ArchiveMasthead(
+                title: '书架',
+                code: '02 / PERSONAL ARCHIVE',
+              ),
+            ),
+            GlassIconButton(
+              icon: CupertinoIcons.clock,
+              label: '阅读历史',
+              onPressed: () => openReadingHistory(context, state, repository),
+            ),
+            if (state.combinedShelf && repository is OfflineNovelRepository)
+              if ((repository as OfflineNovelRepository).local
+                  case final local?)
+                LocalBookImportButton(
+                  books: local,
+                  library: state,
+                  onManage: () => pushNovelPage<void>(
+                    context,
+                    LocalLibraryPage(
+                      books: local,
+                      state: state,
+                      onOpen: (page, book) =>
+                          openDetail(page, book, state, repository),
+                      onOpenWithCover: (page, book, tag) => openDetail(
+                        page,
+                        book,
+                        state,
+                        repository,
+                        coverHeroTag: tag,
+                      ),
+                    ),
+                    reduceMotion: state.reduceMotion,
+                  ),
+                ),
+            GlassIconButton(
+              key: const ValueKey('shelf-search-entry'),
+              icon: CupertinoIcons.search,
+              label: '搜索书架',
+              onPressed: onSearch ?? search,
+            ),
+          ],
         ),
-      ),
-      GlassIconButton(
-        icon: CupertinoIcons.clock,
-        label: '阅读历史',
-        onPressed: () => openReadingHistory(context, state, repository),
-      ),
-      GlassIconButton(
-        key: const ValueKey('shelf-search-entry'),
-        icon: CupertinoIcons.search,
-        label: '搜索书架',
-        onPressed: onSearch,
-      ),
-    ],
-  );
+      );
 
   @override
   State<ShelfPage> createState() => _ShelfPageState();
@@ -1314,7 +1552,11 @@ class _ShelfPageState extends State<ShelfPage>
       widget.repository is OfflineNovelRepository
       ? widget.repository as OfflineNovelRepository
       : null;
-  bool get _cacheOnly => widget.navigation?.cachedShelf ?? false;
+  bool get _cacheOnly =>
+      widget.navigation?.readableShelfOnly ??
+      (state.localReaderMode ||
+          (state.adaptWhenOffline && _offline?.offline == true));
+  bool _lastCombined = false;
   final Map<int, Future<Novel?>> _requests = {};
   String? _previewKey;
   Future<List<Novel>>? _previewRequest;
@@ -1329,6 +1571,7 @@ class _ShelfPageState extends State<ShelfPage>
     state.shelfViewChanges,
     if (widget.navigation != null) widget.navigation!,
     _cacheAvailability,
+    state.organization,
     if (_offline?.local != null) _offline!.local!,
   ]);
 
@@ -1341,13 +1584,24 @@ class _ShelfPageState extends State<ShelfPage>
       value: 1,
     );
     _lastCacheOnly = _cacheOnly;
+    _lastCombined = state.combinedShelf;
     _offline?.addListener(_offlineCacheChanged);
     widget.navigation?.addListener(_modeChanged);
+    state.navigationChanges.addListener(_modeChanged);
+    if (state.combinedShelf && _offline != null) {
+      unawaited(_offline!.loadCache().catchError((Object _) {}));
+    }
   }
 
   void _modeChanged() {
-    if (_lastCacheOnly == _cacheOnly) return;
+    if (_lastCacheOnly == _cacheOnly && _lastCombined == state.combinedShelf) {
+      return;
+    }
     _lastCacheOnly = _cacheOnly;
+    _lastCombined = state.combinedShelf;
+    if (state.combinedShelf && _offline?.cache.loaded == false) {
+      unawaited(_offline!.loadCache().catchError((Object _) {}));
+    }
     if (state.effectiveReduceMotion ||
         MediaQuery.disableAnimationsOf(context) ||
         !TickerMode.valuesOf(context).enabled) {
@@ -1373,7 +1627,7 @@ class _ShelfPageState extends State<ShelfPage>
   );
 
   void _offlineCacheChanged() {
-    if (!_cacheOnly) return;
+    if (!_cacheOnly && !state.combinedShelf) return;
     final source = _offline!;
     final ids = {
       for (final book in source.cache.books)
@@ -1395,6 +1649,7 @@ class _ShelfPageState extends State<ShelfPage>
   @override
   void dispose() {
     widget.navigation?.removeListener(_modeChanged);
+    state.navigationChanges.removeListener(_modeChanged);
     _modeTransition.dispose();
     _offline?.removeListener(_offlineCacheChanged);
     _cacheAvailability.dispose();
@@ -1404,6 +1659,7 @@ class _ShelfPageState extends State<ShelfPage>
 
   bool _matches(int id) {
     if (_cacheOnly && _offline?.availableOffline(id) != true) return false;
+    if (!bookshelfMatchesCategory(id, state)) return false;
     final book = _known(id);
     final term = _query.text.trim().toLowerCase();
     if (term.isNotEmpty &&
@@ -1425,7 +1681,7 @@ class _ShelfPageState extends State<ShelfPage>
   Novel? _known(int id) {
     final local = _offline?.local?.book(id);
     if (local != null) return local;
-    if (_cacheOnly) {
+    if (_cacheOnly || state.combinedShelf) {
       final cached = _offline?.cache.book(id)?.novel;
       if (cached != null) return cached;
     }
@@ -1468,10 +1724,18 @@ class _ShelfPageState extends State<ShelfPage>
 
   Widget _preview(List<int> ids) {
     Widget carousel(List<Novel> books) => ArchiveFileCarousel(
-      key: ValueKey(('bookshelf-preview', state.shelfSort, state.shelfFilter)),
+      key: ValueKey((
+        'bookshelf-preview',
+        state.shelfSort,
+        state.shelfFilter,
+        state.organization.shelfSelected,
+      )),
       books: books,
       reduceMotion: state.reduceMotion,
       animateEntrance: true,
+      sourceLabel: state.combinedShelf
+          ? (book) => bookshelfSource(book.id, _offline)
+          : null,
       onOpen: (book, tag) => openDetail(
         context,
         book,
@@ -1503,7 +1767,7 @@ class _ShelfPageState extends State<ShelfPage>
           padding: const EdgeInsets.symmetric(vertical: 28),
           child: Column(
             children: [
-              const Text('立体书架暂未载入，下方列表仍可整理书籍。'),
+              const AppText('立体书架暂未载入，下方列表仍可整理书籍。'),
               const SizedBox(height: 12),
               GlassTextButton(
                 onPressed: () => setState(() {
@@ -1512,7 +1776,7 @@ class _ShelfPageState extends State<ShelfPage>
                   }
                   _previewKey = null;
                 }),
-                child: const Text('重新载入'),
+                child: const AppText('重新载入'),
               ),
             ],
           ),
@@ -1525,31 +1789,45 @@ class _ShelfPageState extends State<ShelfPage>
     final result = switch (_sort) {
       _ShelfSort.recentRead =>
         state.lastReadAt(b).compareTo(state.lastReadAt(a)),
-      _ShelfSort.recentAdded => state.addedAt(b).compareTo(state.addedAt(a)),
+      _ShelfSort.recentAdded => _addedAt(b).compareTo(_addedAt(a)),
       _ShelfSort.title => (_known(a)?.title ?? '$a').compareTo(
         _known(b)?.title ?? '$b',
       ),
     };
     if (result != 0) return result;
-    final added = state.addedAt(b).compareTo(state.addedAt(a));
+    final added = _addedAt(b).compareTo(_addedAt(a));
     return added != 0 ? added : a.compareTo(b);
   }
+
+  int _addedAt(int id) => isLocalBook(id)
+      ? _offline?.local?.importedAt(id) ?? 0
+      : state.addedAt(id);
 
   @override
   Widget build(BuildContext context) => ActiveListenableBuilder(
     listenable: _changes,
     builder: (context) {
-      final saved = state.shelf.where(_matches).toList()..sort(_compare);
+      final all = bookshelfIds(
+        state,
+        _offline,
+        readableOnly: _cacheOnly,
+        filterCategory: false,
+      );
+      final saved = all.where(_matches).toList()..sort(_compare);
       final cacheLoading =
-          _cacheOnly &&
+          (_cacheOnly || state.combinedShelf) &&
           _offline?.cache.loaded == false &&
           _offline?.cacheError == null;
       final showPreview = state.shelfLayout == 'shelf' && saved.isNotEmpty;
       final previewRows = showPreview ? 2 : 0;
       return GlassHeaderLayout(
         showHeader: widget.showHeader,
-        header: widget.onSearch != null
-            ? widget.buildHeader(context)
+        header: widget.onSearch != null || state.combinedShelf
+            ? widget.buildHeader(
+                context,
+                search: () =>
+                    setState(() => _standaloneSearch = !_standaloneSearch),
+              )
             : Row(
                 children: [
                   const Expanded(
@@ -1597,73 +1875,44 @@ class _ShelfPageState extends State<ShelfPage>
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           if (_standaloneSearch)
-                            CupertinoSearchTextField(
-                              key: const ValueKey('shelf-search'),
+                            AppSearchField(
+                              inputKey: const ValueKey('shelf-search'),
                               controller: _query,
-                              borderRadius: BorderRadius.circular(
-                                ArchiveDesign.panelRadius,
-                              ),
-                              backgroundColor: Theme.of(
-                                context,
-                              ).colorScheme.surface,
-                              placeholder: '在书架中查找书名、作者或 ID',
+                              hint: '在书架中查找书名、作者或 ID',
                               onChanged: (_) => setState(() {}),
                             ),
                           if (_standaloneSearch) const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  _cacheOnly
-                                      ? '离线可读 · ${saved.length} 本'
-                                      : saved.length == state.shelf.length
-                                      ? '${saved.length} 本书'
-                                      : '${saved.length} / ${state.shelf.length} 本书',
-                                  style: TextStyle(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ),
-                              GlassMenuAnchor(
-                                child: Builder(
-                                  builder: (buttonContext) => GlassTextButton(
-                                    key: const ValueKey('shelf-filter'),
-                                    onPressed: () =>
-                                        _chooseFilter(buttonContext),
-                                    child: Text(switch (state.shelfFilter) {
-                                      'unread' => '未读',
-                                      'reading' => '阅读中',
-                                      'finished' => '已读完',
-                                      _ => '全部',
-                                    }),
-                                  ),
-                                ),
-                              ),
-                              GlassMenuAnchor(
-                                child: Builder(
-                                  builder: (buttonContext) => GlassIconButton(
-                                    icon: CupertinoIcons
-                                        .line_horizontal_3_decrease,
-                                    label: '书架排序',
-                                    onPressed: () => _chooseSort(buttonContext),
-                                  ),
-                                ),
-                              ),
-                              GlassMenuAnchor(
-                                child: Builder(
-                                  builder: (buttonContext) => GlassIconButton(
-                                    key: const ValueKey('shelf-view'),
-                                    icon: state.shelfLayout == 'shelf'
-                                        ? CupertinoIcons.square_grid_2x2
-                                        : CupertinoIcons.list_bullet,
-                                    label: '书架视图',
-                                    onPressed: () => _chooseView(buttonContext),
-                                  ),
-                                ),
-                              ),
-                            ],
+                          LibraryToolbar(
+                            categoryKey: const ValueKey('shelf-category'),
+                            optionsKey: const ValueKey('shelf-view'),
+                            manageKey: const ValueKey('shelf-manage-local'),
+                            onManage:
+                                state.combinedShelf &&
+                                    _offline?.local != null &&
+                                    _offline!.local!.books.isNotEmpty
+                                ? () => openLocalBookBatch(
+                                    context,
+                                    books: _offline!.local!,
+                                    library: state,
+                                  )
+                                : null,
+                            category: state.organization.nameOf(
+                              state.organization.shelfSelected,
+                            ),
+                            count: saved.length,
+                            activeFilters:
+                                (state.shelfFilter == 'all' ? 0 : 1) +
+                                (state.combinedShelf &&
+                                        state.shelfSourceFilter != 'all'
+                                    ? 1
+                                    : 0),
+                            onCategory: () => showBookCategories(
+                              context,
+                              state.organization,
+                              shelf: true,
+                              reduceMotion: state.reduceMotion,
+                            ),
+                            onOptions: _libraryOptions,
                           ),
                         ],
                       ),
@@ -1682,8 +1931,12 @@ class _ShelfPageState extends State<ShelfPage>
                             size: 34,
                           ),
                           const SizedBox(height: 18),
-                          Text(
-                            _cacheOnly
+                          AppText(
+                            all.isNotEmpty ||
+                                    state.combinedShelf &&
+                                        state.shelfSourceFilter != 'all'
+                                ? '没有符合条件的书'
+                                : _cacheOnly
                                 ? '没有可离线阅读的书'
                                 : state.shelf.isEmpty
                                 ? '书架还空着'
@@ -1694,9 +1947,13 @@ class _ShelfPageState extends State<ShelfPage>
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Text(
+                          AppText(
                             _cacheOnly
-                                ? '已缓存正文的收藏会显示在这里，本地导入请到「本地」阅读'
+                                ? state.combinedShelf
+                                      ? '缓存正文或导入本地书籍后即可在这里阅读'
+                                      : '已缓存正文的收藏会显示在这里，本地导入请到「本地」阅读'
+                                : state.combinedShelf && all.isEmpty
+                                ? '收藏、缓存或点击右上角 ＋ 导入书籍'
                                 : state.shelf.isEmpty
                                 ? '在发现页收藏喜欢的书'
                                 : '试试其他关键词或切回全部',
@@ -1760,12 +2017,12 @@ class _ShelfPageState extends State<ShelfPage>
                                     children: [
                                       const Icon(CupertinoIcons.book, size: 26),
                                       const SizedBox(width: 15),
-                                      Expanded(child: Text('书籍 $id 暂未载入')),
+                                      Expanded(child: AppText('书籍 $id 暂未载入')),
                                       GlassTextButton(
                                         onPressed: () => setState(() {
                                           _requests[id] = _resolve(id);
                                         }),
-                                        child: const Text('重试'),
+                                        child: const AppText('重试'),
                                       ),
                                       GlassMenuAnchor(
                                         child: Builder(
@@ -1796,6 +2053,9 @@ class _ShelfPageState extends State<ShelfPage>
   Widget _row(BuildContext context, Novel book) => NovelRow(
     key: ValueKey('shelf-book-${book.id}'),
     novel: book,
+    sourceLabel: state.combinedShelf
+        ? bookshelfSource(book.id, _offline)
+        : null,
     coverHeroTag: CoverHeroTag(this, book.id),
     onTap: () => openDetail(
       context,
@@ -1819,7 +2079,7 @@ class _ShelfPageState extends State<ShelfPage>
               ),
             ),
           ),
-          Text(
+          AppText(
             !state.hasRead(book.id)
                 ? '未读'
                 : state.finishedReading(book)
@@ -1837,103 +2097,107 @@ class _ShelfPageState extends State<ShelfPage>
     ),
   );
 
-  Future<void> _chooseView(BuildContext context) async {
-    final layout = await showGlassMenu<String>(
-      context: context,
-      reduceMotion: state.reduceMotion,
-      builder: (menu) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final (index, (value, label)) in [
-            ('shelf', '立体书架 + 列表'),
-            ('list', '仅列表'),
-          ].indexed)
-            GlassMenuItem(
-              order: index,
-              label: label,
-              selected: state.shelfLayout == value,
-              onPressed: () => Navigator.pop(menu, value),
-            ),
-        ],
-      ),
-    );
-    if (!mounted || layout == null) return;
-    try {
-      await state.setShelfView(layout: layout);
-    } catch (_) {
-      if (context.mounted) showNovelFeedback(context, '书架视图保存失败，请重试');
-    }
-  }
+  Future<void> _libraryOptions() => showJellySheet<void>(
+    context: context,
+    reduceMotion: state.reduceMotion,
+    heightFactor: .78,
+    builder: (_) => AnimatedBuilder(
+      animation: state.shelfViewChanges,
+      builder: (context, _) {
+        void save({
+          String? layout,
+          String? filter,
+          String? source,
+          String? sort,
+        }) {
+          unawaited(
+            state
+                .setShelfView(
+                  layout: layout,
+                  filter: filter,
+                  source: source,
+                  sort: sort,
+                )
+                .catchError((Object _) {
+                  if (mounted) showNovelFeedback(this.context, '书架偏好保存失败，请重试');
+                }),
+          );
+        }
 
-  Future<void> _chooseSort(BuildContext context) async {
-    final sort = await showGlassMenu<_ShelfSort>(
+        return LibraryViewOptions(
+          shelf: state.shelfLayout == 'shelf',
+          reading: state.shelfFilter,
+          sort: state.shelfSort,
+          source: state.combinedShelf ? state.shelfSourceFilter : null,
+          onView: (v) => save(layout: v ? 'shelf' : 'list'),
+          onReading: (v) => save(filter: v),
+          onSource: (v) => save(source: v),
+          onSort: (v) => save(sort: v),
+        );
+      },
+    ),
+  );
+
+  Future<void> _bookMenu(BuildContext context, int id, {Novel? book}) async {
+    if (isLocalBook(id) && book != null && _offline?.local != null) {
+      await pushNovelPage<LocalBookEditResult>(
+        context,
+        LocalBookEditor(book: book, books: _offline!.local!, library: state),
+        reduceMotion: state.reduceMotion,
+      );
+      return;
+    }
+    final action = await showGlassMenu<String>(
       context: context,
       reduceMotion: state.reduceMotion,
       builder: (menuContext) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (final (value, label) in [
-            (_ShelfSort.recentRead, '最近阅读'),
-            (_ShelfSort.recentAdded, '最近加入'),
-            (_ShelfSort.title, '书名'),
-          ])
-            GlassMenuItem(
-              order: value.index,
-              label: label,
-              selected: value == _sort,
-              onPressed: () => Navigator.of(menuContext).pop(value),
+          GlassMenuItem(
+            label: '移至分类',
+            onPressed: () => Navigator.pop(menuContext, 'category'),
+          ),
+          GlassMenuItem(
+            order: 1,
+            label: !state.contains(id)
+                ? '加入收藏书架'
+                : state.combinedShelf && _offline?.availableOffline(id) == true
+                ? '取消收藏（保留缓存）'
+                : '移出书架',
+            onPressed: () => Navigator.pop(
+              menuContext,
+              state.contains(id) ? 'remove' : 'add',
             ),
+          ),
         ],
       ),
     );
-    if (!mounted || sort == null) return;
-    try {
-      await state.setShelfView(sort: sort.name);
-    } catch (_) {
-      if (context.mounted) showNovelFeedback(context, '书架排序保存失败，请重试');
+    if (!mounted) return;
+    if (action == 'add') {
+      try {
+        await state.setShelfMembership(id, true, novel: book);
+      } catch (_) {
+        if (context.mounted) showNovelFeedback(context, '书架操作保存失败，请重试');
+      }
+      return;
     }
-  }
-
-  Future<void> _chooseFilter(BuildContext context) async {
-    final filter = await showGlassMenu<String>(
-      context: context,
-      reduceMotion: state.reduceMotion,
-      builder: (menu) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final (index, (value, label)) in [
-            ('all', '全部'),
-            ('unread', '未读'),
-            ('reading', '阅读中'),
-            ('finished', '已读完'),
-          ].indexed)
-            GlassMenuItem(
-              order: index,
-              label: label,
-              selected: state.shelfFilter == value,
-              onPressed: () => Navigator.pop(menu, value),
-            ),
-        ],
-      ),
-    );
-    if (!mounted || filter == null) return;
-    try {
-      await state.setShelfView(filter: filter);
-    } catch (_) {
-      if (context.mounted) showNovelFeedback(context, '书架筛选保存失败，请重试');
+    if (action == 'category') {
+      final group = await chooseBookCategory(
+        this.context,
+        state.organization,
+        bookId: id,
+        reduceMotion: state.reduceMotion,
+      );
+      if (group != null) {
+        try {
+          await state.organization.assign(id, group);
+        } catch (_) {
+          if (mounted) showNovelFeedback(this.context, '分类保存失败，请重试');
+        }
+      }
+      return;
     }
-  }
-
-  Future<void> _bookMenu(BuildContext context, int id, {Novel? book}) async {
-    final remove = await showGlassMenu<bool>(
-      context: context,
-      reduceMotion: state.reduceMotion,
-      builder: (menuContext) => GlassMenuItem(
-        label: '移出书架',
-        onPressed: () => Navigator.of(menuContext).pop(true),
-      ),
-    );
-    if (!mounted || remove != true || !state.contains(id)) return;
+    if (action != 'remove' || !state.contains(id)) return;
     final addedAt = state.addedAt(id);
     try {
       await state.setShelfMembership(id, false);
@@ -1945,7 +2209,9 @@ class _ShelfPageState extends State<ShelfPage>
     if (!mounted) return;
     showNovelFeedback(
       this.context,
-      '已移出书架',
+      state.combinedShelf && _offline?.availableOffline(id) == true
+          ? '已取消收藏，缓存仍在书架中'
+          : '已移出书架',
       actionLabel: '撤销',
       action: () async {
         if (!state.contains(id) && state.shelfRevision(id) == revision) {
@@ -2009,448 +2275,506 @@ class SettingsPage extends StatelessWidget {
           MediaQuery.paddingOf(context).bottom + 120,
         ),
         children: [
-          if (WenkuFeaturesScope.maybeOf(context) case final features?) ...[
-            sectionHeader(context, '文库账号', ''),
-            const SizedBox(height: 14),
-            FeatureEntry(
-              key: const ValueKey('settings-account'),
-              title: '账号与云书架',
-              subtitle: '登录、签到与云端收藏',
-              icon: CupertinoIcons.person_crop_circle,
-              onTap: repository == null
-                  ? null
-                  : () => pushNovelPage<void>(
-                      context,
-                      WenkuAccountPage(
-                        account: features.account,
-                        state: state,
-                        repository: repository!,
-                      ),
-                      reduceMotion: state.reduceMotion,
-                    ),
-            ),
-            const SizedBox(height: 24),
-          ],
-          sectionHeader(context, '使用方式', ''),
-          const SizedBox(height: 14),
-          ContentPanel(
-            child: Column(
-              children: [
-                _toggleSetting(
-                  context,
-                  keyName: 'settings-adapt-offline',
-                  icon: CupertinoIcons.wifi_slash,
-                  title: '离线适配',
-                  description: '断网后隐藏发现，书架只显示已缓存的收藏',
-                  value: state.adaptWhenOffline,
-                  onChanged: (value) =>
-                      state.setNavigationMode(adaptWhenOffline: value),
-                ),
-                const Divider(height: 22),
-                _toggleSetting(
-                  context,
-                  keyName: 'settings-local-reader-mode',
-                  icon: CupertinoIcons.book,
-                  title: '阅读器模式',
-                  description: '只显示本地和设置',
-                  value: state.localReaderMode,
-                  onChanged: (value) =>
-                      state.setNavigationMode(localReaderMode: value),
-                ),
-              ],
-            ),
+          _sectionEntry(
+            context,
+            id: 'usage',
+            title: '使用方式',
+            subtitle: '点书续读、合并书架与离线适配',
+            code: 'SYSTEM / USAGE',
+            icon: CupertinoIcons.square_grid_2x2,
+            options: _usageOptions,
           ),
-          const SizedBox(height: 24),
-          sectionHeader(context, '阅读偏好', ''),
           const SizedBox(height: 14),
-          ContentPanel(
-            child: Column(
-              children: [
-                _appearanceSetting(context),
-                const Divider(height: 22),
-                _toggleSetting(
-                  context,
-                  keyName: 'settings-serif-font',
-                  icon: CupertinoIcons.textformat,
-                  title: '内置思源宋体',
-                  description: '关闭后使用系统字体',
-                  value: state.appTypeface == AppTypeface.sourceHanSerif,
-                  onChanged: (value) => state.setAppTypeface(
-                    value ? AppTypeface.sourceHanSerif : AppTypeface.system,
-                  ),
-                ),
-                const Divider(height: 22),
-                ReaderValueSlider(
-                  sliderKey: const ValueKey('settings-font-slider'),
-                  label: '阅读字号',
-                  value: state.fontSize,
-                  min: 15,
-                  max: 27,
-                  divisions: 12,
-                  format: (value) => '${value.round()} pt',
-                  onCommitted: (value) =>
-                      _savePreference(context, () => state.setFontSize(value)),
-                ),
-                if (LocalPlatform.android)
-                  Row(
-                    children: [
-                      Icon(
-                        CupertinoIcons.sun_max,
-                        size: 21,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          '阅读时保持亮屏',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      AppControls.toggle(
-                        context,
-                        value: state.keepScreenOn,
-                        onChanged: (value) => _savePreference(
-                          context,
-                          () => state.setKeepScreenOn(value),
-                        ),
-                      ),
-                    ],
-                  ),
-                const Divider(height: 13),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    children: [
-                      Icon(
-                        CupertinoIcons.circle_grid_3x3,
-                        color: Theme.of(context).colorScheme.primary,
-                        size: 21,
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          '减少动态效果',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      AppControls.toggle(
-                        context,
-                        value: state.reduceMotion,
-                        onChanged: (value) => _savePreference(
-                          context,
-                          () => state.setReduceMotion(value),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+          _sectionEntry(
+            context,
+            id: 'reading',
+            title: '阅读与外观',
+            subtitle: '外观模式、字体、字号与听书',
+            code: 'SYSTEM / READING',
+            icon: CupertinoIcons.textformat,
+            options: _readingOptions,
           ),
-          const SizedBox(height: 24),
-          if (repository case final NovelRepository source) ...[
-            sectionHeader(context, '阅读记录', ''),
-            const SizedBox(height: 14),
-            ContentPanel(
-              onTap: () => openReadingHistory(context, state, source),
-              child: const Row(
-                children: [
-                  Icon(CupertinoIcons.clock, size: 21),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      '阅读历史',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  Icon(CupertinoIcons.chevron_right, size: 14),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-          if (repository case final OfflineNovelRepository offline) ...[
-            sectionHeader(context, '离线阅读', ''),
-            const SizedBox(height: 14),
-            ContentPanel(
-              onTap: () => pushNovelPage<void>(
-                context,
-                OfflineCachePage(
-                  repository: offline,
-                  reduceMotion: state.reduceMotion,
-                  onOpen: (pageContext, novel) => openDetail(
-                    pageContext,
-                    novel,
-                    state,
-                    offline,
-                    fromCache: true,
-                  ),
-                ),
-                reduceMotion: state.reduceMotion,
-              ),
-              child: const Row(
-                children: [
-                  Icon(CupertinoIcons.cloud_download, size: 21),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      '缓存管理',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  Icon(CupertinoIcons.chevron_right, size: 14),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-          sectionHeader(context, '玻璃外观', '实时预览'),
           const SizedBox(height: 14),
-          ContentPanel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _glassSettingLabel(
-                  context,
-                  '模糊度',
-                  '${state.glassBlur.round()}',
-                ),
-                AppControls.slider(
-                  context,
-                  key: const ValueKey('glass-blur-slider'),
-                  value: state.glassBlur,
-                  min: 0,
-                  max: 24,
-                  divisions: 24,
-                  onChanged: (value) =>
-                      state.setGlassBlur(value, persist: false),
-                  onChangeEnd: state.setGlassBlur,
-                ),
-                const Divider(height: 22),
-                _glassSettingLabel(
-                  context,
-                  '不透明度',
-                  '${(state.glassOpacity * 100).round()}%',
-                ),
-                AppControls.slider(
-                  context,
-                  key: const ValueKey('glass-opacity-slider'),
-                  value: state.glassOpacity,
-                  min: 0,
-                  max: 1,
-                  divisions: 100,
-                  onChanged: (value) =>
-                      state.setGlassOpacity(value, persist: false),
-                  onChangeEnd: state.setGlassOpacity,
-                ),
-                GlassTextButton(
-                  onPressed: () async {
-                    await state.setGlassBlur(8);
-                    await state.setGlassOpacity(.87);
-                  },
-                  child: const Text('恢复默认'),
-                ),
-              ],
-            ),
+          _sectionEntry(
+            context,
+            id: 'effects',
+            title: '性能与动效',
+            subtitle: '帧率偏好、玻璃材质与动态效果',
+            code: 'SYSTEM / EFFECTS',
+            icon: CupertinoIcons.speedometer,
+            options: _effectsOptions,
           ),
-          const SizedBox(height: 24),
-          sectionHeader(context, '本地数据', ''),
           const SizedBox(height: 14),
-          ContentPanel(
-            key: const ValueKey('settings-backup'),
-            onTap: () => pushNovelPage<void>(
-              context,
-              LibraryBackupPage(state: state),
-              reduceMotion: state.reduceMotion,
-            ),
-            child: const Row(
-              children: [
-                Icon(CupertinoIcons.folder, size: 21),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    '备份与恢复',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                Icon(CupertinoIcons.chevron_right, size: 14),
-              ],
-            ),
-          ),
-          if (LocalPlatform.android) ...[
-            if (ListeningScope.maybeOf(context) case final listening?)
-              if (listening.customSpeech case final settings?) ...[
-                const SizedBox(height: 14),
-                FeatureEntry(
-                  title: '自定义语音接口',
-                  subtitle: 'Microsoft SSML 兼容服务',
-                  icon: CupertinoIcons.waveform,
-                  onTap: () => pushNovelPage<void>(
-                    context,
-                    CustomSpeechPage(settings: settings, controller: listening),
-                    reduceMotion: state.reduceMotion,
-                  ),
-                ),
-              ],
-            const SizedBox(height: 14),
-            FeatureEntry(
-              key: const ValueKey('settings-legacy-import'),
-              title: '导入旧版文库记录',
-              icon: CupertinoIcons.folder_badge_plus,
-              subtitle: '预览后合并，保留较新的阅读进度',
-              onTap: () => pushNovelPage<void>(
-                context,
-                LegacyImportPage(state: state),
-                reduceMotion: state.reduceMotion,
-              ),
-            ),
-            const SizedBox(height: 14),
-            FeatureEntry(
-              title: '清理插图缓存',
-              icon: CupertinoIcons.photo,
-              subtitle: '不影响书架、正文缓存和阅读记录',
-              onTap: () async {
-                if (!await confirmNovelAction(
-                  context,
-                  title: '清理已下载的插图？',
-                  message: '插图下次查看时重新下载，正文和阅读记录仍保留。',
-                  confirmLabel: '清理插图',
-                  reduceMotion: state.reduceMotion,
-                )) {
-                  return;
-                }
-                try {
-                  await LegacyTransport.clearIllustrations();
-                  ReaderIllustrationCache.shared.clearMemory();
-                  if (context.mounted) showNovelFeedback(context, '插图缓存已清理');
-                } catch (_) {
-                  if (context.mounted) showNovelFeedback(context, '缓存清理失败，请重试');
-                }
-              },
-            ),
-          ],
-          const SizedBox(height: 24),
-          sectionHeader(context, '性能与流畅度', ''),
-          const SizedBox(height: 14),
-          ContentPanel(
-            key: const ValueKey('settings-performance'),
-            onTap: () => pushNovelPage<void>(
-              context,
-              LowPerformancePage(state: state),
-              reduceMotion: state.reduceMotion,
-            ),
-            child: const Row(
-              children: [
-                Icon(CupertinoIcons.speedometer, size: 21),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    '低性能设备模式',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                Icon(CupertinoIcons.chevron_right, size: 14),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          sectionHeader(context, '关于', ''),
-          const SizedBox(height: 14),
-          FeatureEntry(
-            key: const ValueKey('settings-app-update'),
-            title: '关于轻小说文库',
-            icon: CupertinoIcons.arrow_down_circle,
-            subtitle:
-                '版本 ${AppUpdatesScope.maybeOf(context)?.installed?.version ?? currentAppVersion}'
-                ' · 构建 ${AppUpdatesScope.maybeOf(context)?.installed?.build ?? currentAppBuild}'
-                '${AppUpdatesScope.maybeOf(context)?.available == true ? ' · 有新版本' : ''}',
-            onTap: () => pushNovelPage<void>(
-              context,
-              AppUpdatePage(updates: AppUpdatesScope.maybeOf(context)),
-              reduceMotion: state.reduceMotion,
-            ),
+          _sectionEntry(
+            context,
+            id: 'data',
+            title: '数据与存储',
+            subtitle: '阅读历史、缓存管理与备份恢复',
+            code: 'SYSTEM / STORAGE',
+            icon: CupertinoIcons.folder,
+            options: _dataOptions,
           ),
         ],
       ),
     ),
   );
 
-  Widget _appearanceSetting(BuildContext context) {
-    final label = Row(
-      children: [
-        Icon(
-          CupertinoIcons.moon_stars,
-          size: 21,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        const SizedBox(width: 12),
-        const Expanded(
-          child: Text('外观模式', style: TextStyle(fontWeight: FontWeight.w600)),
-        ),
-      ],
-    );
-    final selector = GlassMenuAnchor(
-      child: Builder(
-        builder: (anchorContext) => LiquidGlass(
-          radius: 20,
-          elevated: false,
-          semanticLabel: '选择外观模式',
-          onTap: () => _chooseTheme(anchorContext),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(switch (state.theme) {
-                ThemeMode.system => '跟随系统',
-                ThemeMode.light => '浅色',
-                ThemeMode.dark => '深色',
-              }),
-              const SizedBox(width: 7),
-              const Icon(CupertinoIcons.chevron_down, size: 14),
-            ],
+  Widget _sectionEntry(
+    BuildContext context, {
+    required String id,
+    required String title,
+    required String subtitle,
+    required String code,
+    required IconData icon,
+    required List<Widget> Function(BuildContext) options,
+  }) => FeatureEntry(
+    key: ValueKey('settings-$id-entry'),
+    title: title,
+    subtitle: subtitle,
+    icon: icon,
+    onTap: () => pushNovelPage<void>(
+      context,
+      ArchiveFeaturePage(
+        key: ValueKey('settings-$id-page'),
+        title: title,
+        code: code,
+        child: ActiveListenableBuilder(
+          listenable: state.settingsChanges,
+          builder: (context) => Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: ListView(
+                key: PageStorageKey('settings-$id'),
+                padding: featurePadding(context).add(
+                  EdgeInsets.only(
+                    left: MediaQuery.paddingOf(context).left,
+                    right: MediaQuery.paddingOf(context).right,
+                  ),
+                ),
+                children: options(context),
+              ),
+            ),
           ),
         ),
       ),
-    );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
-        if (constraints.maxWidth < 160 * scale + 70) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              label,
-              const SizedBox(height: 12),
-              Align(alignment: Alignment.centerRight, child: selector),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            Expanded(child: label),
-            const SizedBox(width: 12),
-            selector,
-          ],
-        );
-      },
-    );
-  }
+      reduceMotion: state.reduceMotion,
+      slot: ('settings', id),
+    ),
+  );
 
-  Widget _glassSettingLabel(
-    BuildContext context,
-    String title,
-    String value,
-  ) => Row(
-    children: [
-      Expanded(
-        child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+  List<Widget> _usageOptions(BuildContext context) => [
+    ContentPanel(
+      child: Column(
+        children: [
+          _toggleSetting(
+            context,
+            keyName: 'settings-direct-reading',
+            icon: CupertinoIcons.book_fill,
+            title: '点书直接阅读',
+            description: '从上次位置继续；书籍详情可在阅读器右上角打开',
+            value: state.directReading,
+            onChanged: state.setDirectReading,
+          ),
+          const Divider(height: 22),
+          _toggleSetting(
+            context,
+            keyName: 'settings-combined-shelf',
+            icon: CupertinoIcons.square_stack,
+            title: '合并书架',
+            description: '缓存与本地书统一显示在书架，隐藏底部本地入口',
+            value: state.combinedShelf,
+            onChanged: (value) => state.setNavigationMode(combinedShelf: value),
+          ),
+          const Divider(height: 22),
+          _toggleSetting(
+            context,
+            keyName: 'settings-adapt-offline',
+            icon: CupertinoIcons.wifi_slash,
+            title: '离线适配',
+            description: state.combinedShelf
+                ? '断网后隐藏发现，书架保留缓存和本地书籍'
+                : '断网后隐藏发现，书架只显示已缓存的收藏',
+            value: state.adaptWhenOffline,
+            onChanged: (value) =>
+                state.setNavigationMode(adaptWhenOffline: value),
+          ),
+          const Divider(height: 22),
+          _toggleSetting(
+            context,
+            keyName: 'settings-local-reader-mode',
+            icon: CupertinoIcons.book,
+            title: '阅读器模式',
+            description: state.combinedShelf ? '只显示离线可读的合并书架和我的' : '只显示本地和我的',
+            value: state.localReaderMode,
+            onChanged: (value) =>
+                state.setNavigationMode(localReaderMode: value),
+          ),
+        ],
       ),
-      Text(
-        value,
-        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+    ),
+  ];
+
+  List<Widget> _readingOptions(BuildContext context) => [
+    ContentPanel(
+      child: Column(
+        children: [
+          _appearanceSetting(context),
+          const Divider(height: 22),
+          LanguageSettingMenu(
+            key: const ValueKey('settings-language'),
+            state: state,
+          ),
+          const Divider(height: 22),
+          JellyTapSurface(
+            key: const ValueKey('settings-fonts'),
+            onTap: () => pushNovelPage<void>(
+              context,
+              FontSettingsPage(state: state),
+              reduceMotion: state.reduceMotion,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  const Icon(CupertinoIcons.textformat, size: 21),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: const AppText(
+                      '字体',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(CupertinoIcons.chevron_forward, size: 14),
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 22),
+          ReaderValueSlider(
+            sliderKey: const ValueKey('settings-font-slider'),
+            label: '阅读字号',
+            value: state.fontSize,
+            min: 15,
+            max: 27,
+            divisions: 12,
+            format: (value) => '${value.round()} pt',
+            onCommitted: (value) =>
+                _savePreference(context, () => state.setFontSize(value)),
+          ),
+          if (LocalPlatform.android)
+            Row(
+              children: [
+                Icon(
+                  CupertinoIcons.sun_max,
+                  size: 21,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: AppText(
+                    '阅读时保持亮屏',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                AppControls.toggle(
+                  context,
+                  value: state.keepScreenOn,
+                  onChanged: (value) => _savePreference(
+                    context,
+                    () => state.setKeepScreenOn(value),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    ),
+    if (LocalPlatform.android) ...[
+      if (ListeningScope.maybeOf(context) case final listening?)
+        if (listening.customSpeech case final settings?) ...[
+          const SizedBox(height: 14),
+          FeatureEntry(
+            title: '自定义语音接口',
+            subtitle: 'Microsoft SSML 兼容服务',
+            icon: CupertinoIcons.waveform,
+            onTap: () => pushNovelPage<void>(
+              context,
+              CustomSpeechPage(settings: settings, controller: listening),
+              reduceMotion: state.reduceMotion,
+            ),
+          ),
+        ],
+    ],
+  ];
+
+  List<Widget> _effectsOptions(BuildContext context) => [
+    sectionHeader(context, '玻璃外观', '实时预览'),
+    const SizedBox(height: 14),
+    ContentPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _glassSettingLabel(context, '模糊度', '${state.glassBlur.round()}'),
+          AppControls.slider(
+            context,
+            key: const ValueKey('glass-blur-slider'),
+            value: state.glassBlur,
+            min: 0,
+            max: 24,
+            divisions: 24,
+            onChanged: (value) => state.setGlassBlur(value, persist: false),
+            onChangeEnd: state.setGlassBlur,
+          ),
+          const Divider(height: 22),
+          _glassSettingLabel(
+            context,
+            '不透明度',
+            '${(state.glassOpacity * 100).round()}%',
+          ),
+          AppControls.slider(
+            context,
+            key: const ValueKey('glass-opacity-slider'),
+            value: state.glassOpacity,
+            min: 0,
+            max: 1,
+            divisions: 100,
+            onChanged: (value) => state.setGlassOpacity(value, persist: false),
+            onChangeEnd: state.setGlassOpacity,
+          ),
+          GlassTextButton(
+            onPressed: () async {
+              await state.setGlassBlur(8);
+              await state.setGlassOpacity(.87);
+            },
+            child: const AppText('恢复默认'),
+          ),
+        ],
+      ),
+    ),
+    const SizedBox(height: 24),
+    ContentPanel(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  CupertinoIcons.circle_grid_3x3,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 21,
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: AppText(
+                    '减少动态效果',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                AppControls.toggle(
+                  context,
+                  value: state.reduceMotion,
+                  onChanged: (value) => _savePreference(
+                    context,
+                    () => state.setReduceMotion(value),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+    const SizedBox(height: 24),
+    const FrameRateOptions(),
+    const SizedBox(height: 24),
+    ContentPanel(
+      key: const ValueKey('settings-performance'),
+      onTap: () => pushNovelPage<void>(
+        context,
+        LowPerformancePage(state: state),
+        reduceMotion: state.reduceMotion,
+      ),
+      child: const Row(
+        children: [
+          Icon(CupertinoIcons.speedometer, size: 21),
+          SizedBox(width: 12),
+          Expanded(
+            child: AppText(
+              '低性能设备模式',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Icon(CupertinoIcons.chevron_right, size: 14),
+        ],
+      ),
+    ),
+  ];
+
+  List<Widget> _dataOptions(BuildContext context) => [
+    if (repository case final NovelRepository source) ...[
+      sectionHeader(context, '阅读记录', ''),
+      const SizedBox(height: 14),
+      ContentPanel(
+        onTap: () => openReadingHistory(context, state, source),
+        child: const Row(
+          children: [
+            Icon(CupertinoIcons.clock, size: 21),
+            SizedBox(width: 12),
+            Expanded(
+              child: AppText(
+                '阅读历史',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            Icon(CupertinoIcons.chevron_right, size: 14),
+          ],
+        ),
+      ),
+      const SizedBox(height: 24),
+    ],
+    if (repository case final OfflineNovelRepository offline) ...[
+      if (offline.local != null) ...[
+        FeatureEntry(
+          key: const ValueKey('settings-removed-local-books'),
+          title: '已移出的本地书',
+          subtitle: '恢复保留在本机的书籍，或删除其文件',
+          icon: CupertinoIcons.book,
+          onTap: () => pushNovelPage<void>(
+            context,
+            RemovedLocalBooksPage(books: offline.local!, library: state),
+            reduceMotion: state.reduceMotion,
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+      sectionHeader(context, '离线阅读', ''),
+      const SizedBox(height: 14),
+      ContentPanel(
+        onTap: () => pushNovelPage<void>(
+          context,
+          OfflineCachePage(
+            repository: offline,
+            reduceMotion: state.reduceMotion,
+            onOpen: (pageContext, novel) =>
+                openDetail(pageContext, novel, state, offline, fromCache: true),
+          ),
+          reduceMotion: state.reduceMotion,
+        ),
+        child: const Row(
+          children: [
+            Icon(CupertinoIcons.cloud_download, size: 21),
+            SizedBox(width: 12),
+            Expanded(
+              child: AppText(
+                '缓存管理',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            Icon(CupertinoIcons.chevron_right, size: 14),
+          ],
+        ),
+      ),
+      const SizedBox(height: 24),
+    ],
+    sectionHeader(context, '备份与清理', ''),
+    const SizedBox(height: 14),
+    ContentPanel(
+      key: const ValueKey('settings-backup'),
+      onTap: () => pushNovelPage<void>(
+        context,
+        LibraryBackupPage(state: state),
+        reduceMotion: state.reduceMotion,
+      ),
+      child: const Row(
+        children: [
+          Icon(CupertinoIcons.folder, size: 21),
+          SizedBox(width: 12),
+          Expanded(
+            child: AppText(
+              '备份与恢复',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Icon(CupertinoIcons.chevron_right, size: 14),
+        ],
+      ),
+    ),
+    if (LocalPlatform.android) ...[
+      const SizedBox(height: 14),
+      FeatureEntry(
+        key: const ValueKey('settings-legacy-import'),
+        title: '导入旧版文库记录',
+        icon: CupertinoIcons.folder_badge_plus,
+        subtitle: '预览后合并，保留较新的阅读进度',
+        onTap: () => pushNovelPage<void>(
+          context,
+          LegacyImportPage(state: state),
+          reduceMotion: state.reduceMotion,
+        ),
+      ),
+      const SizedBox(height: 14),
+      FeatureEntry(
+        title: '清理插图缓存',
+        icon: CupertinoIcons.photo,
+        subtitle: '不影响书架、正文缓存和阅读记录',
+        onTap: () async {
+          if (!await confirmNovelAction(
+            context,
+            title: '清理已下载的插图？',
+            message: '插图下次查看时重新下载，正文和阅读记录仍保留。',
+            confirmLabel: '清理插图',
+            reduceMotion: state.reduceMotion,
+          )) {
+            return;
+          }
+          try {
+            await LegacyTransport.clearIllustrations();
+            ReaderIllustrationCache.shared.clearMemory();
+            if (context.mounted) showNovelFeedback(context, '插图缓存已清理');
+          } catch (_) {
+            if (context.mounted) showNovelFeedback(context, '缓存清理失败，请重试');
+          }
+        },
       ),
     ],
-  );
+  ];
+
+  Widget _appearanceSetting(BuildContext context) =>
+      GlassSettingMenu<ThemeMode>(
+        key: const ValueKey('settings-appearance'),
+        icon: CupertinoIcons.moon_stars,
+        label: '外观模式',
+        value: state.theme,
+        options: const {
+          ThemeMode.system: '跟随系统',
+          ThemeMode.light: '浅色',
+          ThemeMode.dark: '深色',
+        },
+        reduceMotion: state.reduceMotion,
+        onChanged: (value) =>
+            _savePreference(context, () => state.setTheme(value)),
+      );
+
+  Widget _glassSettingLabel(BuildContext context, String title, String value) =>
+      Row(
+        children: [
+          Expanded(
+            child: AppText(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          AppText(
+            value,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      );
 
   Widget _toggleSetting(
     BuildContext context, {
@@ -2468,7 +2792,7 @@ class SettingsPage extends StatelessWidget {
           Icon(icon, size: 21),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
+            child: AppText(
               title,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
@@ -2485,7 +2809,7 @@ class SettingsPage extends StatelessWidget {
       ),
       Padding(
         padding: const EdgeInsets.only(left: 33, top: 4),
-        child: Text(
+        child: AppText(
           description,
           style: TextStyle(
             fontSize: 12,
@@ -2496,33 +2820,6 @@ class SettingsPage extends StatelessWidget {
       ),
     ],
   );
-
-  Future<void> _chooseTheme(BuildContext context) async {
-    final selected = await showGlassMenu<ThemeMode>(
-      context: context,
-      reduceMotion:
-          state.reduceMotion || MediaQuery.disableAnimationsOf(context),
-      builder: (menuContext) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final (mode, label) in [
-            (ThemeMode.system, '跟随系统'),
-            (ThemeMode.light, '浅色'),
-            (ThemeMode.dark, '深色'),
-          ])
-            GlassMenuItem(
-              order: mode.index,
-              selected: state.theme == mode,
-              onPressed: () => Navigator.of(menuContext).pop(mode),
-              label: label,
-            ),
-        ],
-      ),
-    );
-    if (selected != null && context.mounted) {
-      await _savePreference(context, () => state.setTheme(selected));
-    }
-  }
 
   Future<void> _savePreference(
     BuildContext context,
@@ -2545,6 +2842,8 @@ class InlineSearchResults extends StatelessWidget {
     required this.onOpenBook,
     this.onRecall,
     this.emptyQueryTitle = '你可能会喜欢',
+    this.showSources = false,
+    this.fromCache = false,
   });
   final LibraryState state;
   final NovelRepository repository;
@@ -2552,6 +2851,7 @@ class InlineSearchResults extends StatelessWidget {
   final VoidCallback onOpenBook;
   final ValueChanged<String>? onRecall;
   final String emptyQueryTitle;
+  final bool showSources, fromCache;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -2586,12 +2886,15 @@ class InlineSearchResults extends StatelessWidget {
           else if (feed.error != null)
             Column(
               children: [
-                const Text('推荐载入失败，仍可搜索书名或作者'),
-                GlassTextButton(onPressed: feed.retry, child: const Text('重试')),
+                const AppText('推荐载入失败，仍可搜索书名或作者'),
+                GlassTextButton(
+                  onPressed: feed.retry,
+                  child: const AppText('重试'),
+                ),
               ],
             )
           else
-            const Text('搜索书名或作者，开始寻找故事。'),
+            const AppText('搜索书名或作者，开始寻找故事。'),
         ],
       );
     }
@@ -2653,7 +2956,7 @@ class InlineSearchResults extends StatelessWidget {
                     children: [
                       if (feed.query.isEmpty && onRecall != null)
                         RecentSearches(state: state, onRecall: onRecall!),
-                      Text(
+                      AppText(
                         feed.query.isEmpty
                             ? emptyQueryTitle
                             : '找到 ${feed.totalItems ?? books.length} 个结果',
@@ -2677,6 +2980,14 @@ class InlineSearchResults extends StatelessWidget {
               placeholder: const BookRowSkeleton(),
               child: NovelRow(
                 novel: book,
+                sourceLabel: showSources
+                    ? bookshelfSource(
+                        book.id,
+                        repository is OfflineNovelRepository
+                            ? repository as OfflineNovelRepository
+                            : null,
+                      )
+                    : null,
                 coverHeroTag: CoverHeroTag(context, book.id),
                 onTap: () {
                   onOpenBook();
@@ -2686,6 +2997,7 @@ class InlineSearchResults extends StatelessWidget {
                     state,
                     repository,
                     coverHeroTag: CoverHeroTag(context, book.id),
+                    fromCache: fromCache,
                   );
                 },
               ),
@@ -2790,6 +3102,7 @@ class DetailPage extends StatefulWidget {
     this.loadError,
     this.onRetry,
     this.fromCache = false,
+    this.onRead,
   });
   final Novel novel;
   final LibraryState state;
@@ -2800,6 +3113,7 @@ class DetailPage extends StatefulWidget {
   final Object? loadError;
   final VoidCallback? onRetry;
   final bool fromCache;
+  final ValueChanged<int>? onRead;
 
   @override
   State<DetailPage> createState() => _DetailPageState();
@@ -2875,6 +3189,10 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
   VoidCallback? get onRetry => widget.onRetry;
   bool get _reduceMotion =>
       state.reduceMotion || MediaQuery.disableAnimationsOf(context);
+
+  void _viewCover() {
+    openNovelCoverImage(context, novel, reduceMotion: state.reduceMotion);
+  }
 
   @override
   void didChangeDependencies() {
@@ -2981,12 +3299,22 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  NovelCover(
-                                    transitionNovel ?? novel,
-                                    width: 118,
-                                    height: 166,
-                                    heroTag: coverHeroTag,
-                                    isDetailCover: true,
+                                  Semantics(
+                                    button: novel.coverUrl != null,
+                                    label: '查看小说封面',
+                                    child: GestureDetector(
+                                      key: const ValueKey('detail-view-cover'),
+                                      onTap: novel.coverUrl == null
+                                          ? null
+                                          : _viewCover,
+                                      child: NovelCover(
+                                        transitionNovel ?? novel,
+                                        width: 118,
+                                        height: 166,
+                                        heroTag: coverHeroTag,
+                                        isDetailCover: true,
+                                      ),
+                                    ),
                                   ),
                                   const SizedBox(width: 22),
                                   Expanded(
@@ -3014,7 +3342,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                         SkeletonLayout.inline,
                                                   )
                                                 : null,
-                                            child: Text(
+                                            child: AppText(
                                               novel.title,
                                               maxLines: 4,
                                               overflow: TextOverflow.ellipsis,
@@ -3081,6 +3409,14 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                               ),
                                                               reduceMotion:
                                                                   _reduceMotion,
+                                                              explorationKey: (
+                                                                'author',
+                                                                novel.author
+                                                                    .trim(),
+                                                                isLocalBook(
+                                                                  novel.id,
+                                                                ),
+                                                              ),
                                                             ),
                                                       child: Padding(
                                                         padding:
@@ -3092,7 +3428,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                               MainAxisSize.min,
                                                           children: [
                                                             Flexible(
-                                                              child: Text(
+                                                              child: AppText(
                                                                 novel.author,
                                                                 style: TextStyle(
                                                                   color: Theme.of(
@@ -3148,7 +3484,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                     label: '正在加载章节信息',
                                                   )
                                                 else
-                                                  Text(
+                                                  AppText(
                                                     loadError != null
                                                         ? '目录暂未载入'
                                                         : '${novel.isComplete ? '已完结' : '连载中'}  ·  ${novel.chapters.length} 章',
@@ -3222,11 +3558,11 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                               if (isLoading) ...[
                                 const DetailSkeleton(),
                               ] else if (loadError != null) ...[
-                                const Center(child: Text('书籍详情加载失败')),
+                                const Center(child: AppText('书籍详情加载失败')),
                                 Center(
                                   child: GlassTextButton(
                                     onPressed: onRetry,
-                                    child: const Text('重试'),
+                                    child: const AppText('重试'),
                                   ),
                                 ),
                               ] else ...[
@@ -3242,9 +3578,78 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
+                                      if (novel.tags.isNotEmpty) ...[
+                                        Wrap(
+                                          key: const ValueKey(
+                                            'detail-book-tags',
+                                          ),
+                                          spacing: 7,
+                                          runSpacing: 7,
+                                          children: [
+                                            for (final tag in novel.tags)
+                                              GestureDetector(
+                                                key: ValueKey(
+                                                  'detail-tag-$tag',
+                                                ),
+                                                onTap: () =>
+                                                    pushNovelPage<void>(
+                                                      context,
+                                                      TagWorksPage(
+                                                        tag: tag,
+                                                        repository:
+                                                            widget.repository,
+                                                        state: widget.state,
+                                                      ),
+                                                      reduceMotion: widget
+                                                          .state
+                                                          .reduceMotion,
+                                                      explorationKey: (
+                                                        'tag',
+                                                        tag,
+                                                      ),
+                                                    ),
+                                                child: Semantics(
+                                                  button: true,
+                                                  label: '查看标签 $tag 的书籍',
+                                                  child: DecoratedBox(
+                                                    decoration: BoxDecoration(
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurface
+                                                          .withValues(
+                                                            alpha: .055,
+                                                          ),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            7,
+                                                          ),
+                                                    ),
+                                                    child: Padding(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 10,
+                                                            vertical: 6,
+                                                          ),
+                                                      child: AppText(
+                                                        tag,
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: Theme.of(context)
+                                                              .colorScheme
+                                                              .onSurfaceVariant,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 24),
+                                      ],
                                       sectionHeader(context, '简介', ''),
                                       const SizedBox(height: 13),
-                                      Text(
+                                      AppText(
                                         novel.summary,
                                         style: TextStyle(
                                           fontSize: 14,
@@ -3291,7 +3696,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                       sectionHeader(context, '目录', ''),
                                       const SizedBox(height: 7),
                                       if (novel.chapters.isEmpty)
-                                        const Text('暂无章节'),
+                                        const AppText('暂无章节'),
                                     ],
                                   ),
                                 ),
@@ -3409,7 +3814,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
           child: Row(
             children: [
               Expanded(
-                child: Text(
+                child: AppText(
                   volume.title,
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
@@ -3418,7 +3823,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                 ),
               ),
               const SizedBox(width: 12),
-              Text(
+              AppText(
                 '${volume.length} 章',
                 style: TextStyle(
                   fontSize: 12,
@@ -3452,7 +3857,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
         children: [
           SizedBox(
             width: 36,
-            child: Text(
+            child: AppText(
               (index + 1).toString().padLeft(2, '0'),
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -3461,14 +3866,14 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
             ),
           ),
           Expanded(
-            child: Text(
+            child: AppText(
               novel.chapters[index].title,
               style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
             ),
           ),
           if (index == _resumeChapter) ...[
             const SizedBox(width: 8),
-            Text(
+            AppText(
               '上次阅读',
               style: TextStyle(
                 fontSize: 10,
@@ -3498,7 +3903,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
     actions: [
       if (repository case final OfflineNovelRepository offline)
         if (isLocalBook(novel.id))
-          const SizedBox.shrink()
+          _downloadButton(context)
         else if (isLoading || loadError != null || novel.chapters.isEmpty)
           const GlassIconButton(
             icon: CupertinoIcons.cloud_download,
@@ -3511,7 +3916,9 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
             novel: novel,
             startChapter: state.chapterForNovel(novel),
             reduceMotion: state.reduceMotion,
-          ),
+          )
+      else
+        _downloadButton(context),
       if (isLocalBook(novel.id))
         GlassIconButton(
           key: const ValueKey('local-book-config'),
@@ -3528,7 +3935,8 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
               reduceMotion: _reduceMotion,
             );
             if (!mounted) return;
-            if (result == LocalBookEditResult.deleted ||
+            if (result == LocalBookEditResult.hidden ||
+                result == LocalBookEditResult.deleted ||
                 result == LocalBookEditResult.regrouped) {
               if (!LibraryWorkspace.close(this.context)) {
                 Navigator.pop(this.context);
@@ -3562,7 +3970,29 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
     ],
   );
 
+  Widget _downloadButton(BuildContext context) => GlassIconButton(
+    key: const ValueKey('detail-download-book'),
+    icon: CupertinoIcons.arrow_down_to_line,
+    label: isLocalBook(novel.id) ? '导出书籍' : '下载书籍',
+    onPressed: isLoading || loadError != null || novel.chapters.isEmpty
+        ? null
+        : () => pushNovelPage<void>(
+            context,
+            BookDownloadPage(
+              book: novel,
+              repository: repository,
+              reduceMotion: _reduceMotion,
+            ),
+            reduceMotion: _reduceMotion,
+            slot: ('book-download', novel.id),
+          ),
+  );
+
   Future<void> _openReader(BuildContext context, int chapter) async {
+    if (widget.onRead case final read?) {
+      read(chapter);
+      return;
+    }
     if (_readerOpening || !mounted || !context.mounted) return;
     _readerOpening = true;
     try {
@@ -3592,11 +4022,15 @@ class ReaderPage extends StatefulWidget {
     required this.state,
     required this.repository,
     required this.initialChapter,
+    this.directEntry = false,
+    this.initialBookmark,
   });
   final Novel novel;
   final LibraryState state;
   final NovelRepository repository;
   final int initialChapter;
+  final bool directEntry;
+  final ReaderBookmark? initialBookmark;
 
   @override
   State<ReaderPage> createState() => _ReaderPageState();
@@ -3604,6 +4038,7 @@ class ReaderPage extends StatefulWidget {
 
 class _ReaderPageState extends State<ReaderPage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  VoidCallback? _releaseFeedbackHeader, _dismissChromeHint;
   late int _chapter = widget.novel.chapters.isEmpty
       ? 0
       : widget.initialChapter.clamp(0, widget.novel.chapters.length - 1);
@@ -3620,10 +4055,12 @@ class _ReaderPageState extends State<ReaderPage>
   final _scroll = ScrollController(keepScrollOffset: false);
   late final _followScroll = ReaderFollowScroll(_scroll);
   final _paragraphRegistry = ReaderParagraphRegistry();
+  final _paragraphWidgets = <int, Widget>{};
+  Object? _paragraphWidgetSpec;
+  final _scrollAnchor = ReaderScrollAnchor();
   final _paged = ReaderPagedController();
   final _verticalGlyphs = ReaderGlyphCache();
   final _selection = ReaderSelectionController();
-  final _jumpHistory = <ReadingPosition>[];
   late ReaderMode _readerMode;
   bool get _paginated => _readerMode.paginated;
   ReadingPosition? _restorePending;
@@ -3636,8 +4073,23 @@ class _ReaderPageState extends State<ReaderPage>
   bool _catalogueOpen = false;
   bool _toolsOpen = false;
   bool _findOpen = false;
-  bool _listeningOpen = false;
-  bool _confirmingExit = false, _allowExit = false;
+  bool _detailsOpen = false, _sourceChanged = false;
+  Novel get _sourceBook =>
+      widget.repository is OfflineNovelRepository &&
+          isLocalBook(widget.novel.id)
+      ? (widget.repository as OfflineNovelRepository).local?.book(
+              widget.novel.id,
+            ) ??
+            widget.novel
+      : widget.novel;
+  DateTime? _exitRequestedAt;
+  bool _allowExit = false;
+  final _preparedContent = <int, ReaderContent>{};
+  final _automaticContent = <int, (ReaderContent, ReaderContent)>{};
+  final _contentLoads = <int, Future<ReaderContent>>{};
+  bool _boundaryQueued = false, _scrollGesture = false;
+  double _edgeDrag = 0;
+  int _scrollDirection = 0;
   ListeningController? _listening;
   (int, int, int, int)? _listeningTarget;
   String? _listeningError;
@@ -3648,7 +4100,7 @@ class _ReaderPageState extends State<ReaderPage>
   bool _enablingFollow = false;
   int _restoreTicket = 0;
   double _layoutWidth = 0;
-  AppTypeface _layoutTypeface = AppTypeface.system;
+  String _layoutTypeface = 'system';
   bool _typographyPreviewing = false;
   double _layoutTextScale = 1;
   double _readingInset = 0;
@@ -3657,8 +4109,10 @@ class _ReaderPageState extends State<ReaderPage>
   bool _chapterRevealPending = false;
   int _chapterRevealFirst = 0;
   late final AnimationController _chrome;
-  bool _chromeTarget = true;
-  bool _chromeReserved = true;
+  bool _chromeTarget = false;
+  bool _chromeReserved = false;
+  bool _chromeHintQueued = false;
+  String? _readerRegion;
   late final Ticker _autoScroll;
   Duration? _autoLast;
   bool _autoRunning = false;
@@ -3666,6 +4120,7 @@ class _ReaderPageState extends State<ReaderPage>
   double _autoPageSeconds = 0;
   String _layoutKey = '';
   late ReaderPaper _paper;
+  late bool _hideSystemStatus;
   Widget _readerSurface(Widget child) => ReaderAppearance(
     state: widget.state,
     appTheme: Theme.of(context),
@@ -3677,16 +4132,20 @@ class _ReaderPageState extends State<ReaderPage>
     // Typography previews rebuild the article, not the glass controls. Only a
     // different paper palette needs to update the chrome's contrast.
     final mode = widget.state.readerPreferences.mode;
-    if (mode != _readerMode) {
+    final hideSystemStatus = widget.state.readerPreferences.hideSystemStatus;
+    if (mode != _readerMode || hideSystemStatus != _hideSystemStatus) {
       final position = _currentPosition();
       if (position != null) _prepareRestore(position);
       _selection.clear();
       _stopAutoScroll();
     }
-    if (paper != _paper || mode != _readerMode) {
+    if (paper != _paper ||
+        mode != _readerMode ||
+        hideSystemStatus != _hideSystemStatus) {
       setState(() {
         _paper = paper;
         _readerMode = mode;
+        _hideSystemStatus = hideSystemStatus;
       });
     }
   }
@@ -3761,6 +4220,7 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _contentTap(TapUpDetails details) {
+    _cancelExitRequest();
     if (_selection.value) {
       _selection.clear();
       return;
@@ -3800,8 +4260,12 @@ class _ReaderPageState extends State<ReaderPage>
   void initState() {
     super.initState();
     _paper = widget.state.readerPreferences.paper;
+    _hideSystemStatus = widget.state.readerPreferences.hideSystemStatus;
     _readerMode = widget.state.readerPreferences.mode;
+    _chromeTarget = widget.state.readerChromeVisible;
+    _chromeReserved = _chromeTarget;
     widget.state.readerSettingsChanges.addListener(_paperChanged);
+    widget.state.illustrationChanges.addListener(_illustrationLayoutChanged);
     _autoScroll = createTicker(_autoTick);
     _chapterReveal = AnimationController(
       vsync: this,
@@ -3812,10 +4276,13 @@ class _ReaderPageState extends State<ReaderPage>
       vsync: this,
       duration: const Duration(milliseconds: 280),
       reverseDuration: NovelMotion.exit,
-      value: 1,
+      value: _chromeTarget ? 1 : 0,
     );
     WidgetsBinding.instance.addObserver(this);
-    final saved = widget.state.positionFor(widget.novel.id);
+    final saved =
+        widget.initialBookmark?.position ??
+        widget.state.positionFor(widget.novel.id);
+    _bookmarkLandingPending = widget.initialBookmark != null;
     if (saved != null &&
         widget.novel.chapters.isNotEmpty &&
         (saved.chapterId > 0
@@ -3831,8 +4298,13 @@ class _ReaderPageState extends State<ReaderPage>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.state != widget.state) {
       oldWidget.state.readerSettingsChanges.removeListener(_paperChanged);
+      oldWidget.state.illustrationChanges.removeListener(
+        _illustrationLayoutChanged,
+      );
       widget.state.readerSettingsChanges.addListener(_paperChanged);
+      widget.state.illustrationChanges.addListener(_illustrationLayoutChanged);
       _paper = widget.state.readerPreferences.paper;
+      _hideSystemStatus = widget.state.readerPreferences.hideSystemStatus;
     }
   }
 
@@ -3849,6 +4321,9 @@ class _ReaderPageState extends State<ReaderPage>
 
   @override
   void dispose() {
+    widget.state.illustrationChanges.removeListener(_illustrationLayoutChanged);
+    _dismissChromeHint?.call();
+    _releaseFeedbackHeader?.call();
     widget.state.readerSettingsChanges.removeListener(_paperChanged);
     _idleSave?.cancel();
     _savePosition(notify: false, finalSave: true);
@@ -3873,6 +4348,17 @@ class _ReaderPageState extends State<ReaderPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _releaseFeedbackHeader ??= bindNovelFeedbackHeader(context, _chrome);
+    _scheduleChromeHint();
+    final region = chineseLocale(
+      Localizations.maybeLocaleOf(context),
+    ).countryCode;
+    if (_readerRegion != null && _readerRegion != region) {
+      final position = _currentPosition();
+      if (position != null) _prepareRestore(position);
+      _content = _loadContent();
+    }
+    _readerRegion = region;
     final listening = ListeningScope.maybeOf(context);
     if (listening != _listening) {
       _listening?.snapshot.removeListener(_listeningChanged);
@@ -3893,41 +4379,14 @@ class _ReaderPageState extends State<ReaderPage>
         media.textScaler.scale(widget.state.fontSize) / widget.state.fontSize;
     if ((media.size.width - _layoutWidth).abs() >= 1 ||
         (scale - _layoutTextScale).abs() >= .01 ||
-        _layoutTypeface != widget.state.appTypeface) {
+        _layoutTypeface != widget.state.readerFontId) {
       final position = _currentPosition();
       if (position != null) _prepareRestore(position);
     }
   }
 
   Future<void> _listen() async {
-    _selection.clear();
-    final listening = _listening;
-    if (listening == null ||
-        _listeningOpen ||
-        _toolsOpen ||
-        _catalogueOpen ||
-        _findOpen) {
-      return;
-    }
-    _stopAutoScroll();
-    _listeningOpen = true;
-    _followTicket++;
-    _followScroll.cancel();
-    try {
-      await showListeningPanel(
-        context,
-        controller: listening,
-        novel: widget.novel,
-        chapter: _chapter,
-        paragraph: _currentPosition()?.paragraphIndex ?? 0,
-        reduceMotion: widget.state.reduceMotion,
-        surfaceWrapper: _readerSurface,
-      );
-    } finally {
-      _listeningOpen = false;
-      _listeningTarget = null;
-      if (mounted) _listeningChanged();
-    }
+    if (_listening != null) await _settings(initialTab: 'listening');
   }
 
   void _suspendListeningFollow({bool userDrag = false}) {
@@ -3955,7 +4414,6 @@ class _ReaderPageState extends State<ReaderPage>
       final error = _listeningError = state.error;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted &&
-            !_listeningOpen &&
             ModalRoute.of(context)?.isCurrent != false &&
             _listening?.snapshot.value.error == error) {
           showNovelFeedback(
@@ -4014,7 +4472,6 @@ class _ReaderPageState extends State<ReaderPage>
 
   bool get _listeningScrollSceneActive =>
       mounted &&
-      !_listeningOpen &&
       !_toolsOpen &&
       !_catalogueOpen &&
       !_findOpen &&
@@ -4144,12 +4601,10 @@ class _ReaderPageState extends State<ReaderPage>
     ReadingPosition? position,
     bool highlightBookmark = false,
     bool listeningFollow = false,
-    bool remember = false,
   }) {
     if (index < 0 || index >= widget.novel.chapters.length) {
       return;
     }
-    if (remember) _recordJump();
     _selection.clear();
     if (!listeningFollow) _suspendListeningFollow();
     _clearBookmarkLanding();
@@ -4166,6 +4621,9 @@ class _ReaderPageState extends State<ReaderPage>
     }
     _idleSave?.cancel();
     _savePosition(notify: false);
+    _scrollGesture = false;
+    _edgeDrag = 0;
+    _cancelExitRequest();
     _highlightTimer?.cancel();
     _findMatch.value = null;
     _currentContent = null;
@@ -4183,9 +4641,9 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   Future<void> _catalogue() async {
+    _cancelExitRequest();
     _selection.clear();
     if (_catalogueOpen ||
-        _listeningOpen ||
         _toolsOpen ||
         _findOpen ||
         widget.novel.chapters.isEmpty) {
@@ -4195,25 +4653,75 @@ class _ReaderPageState extends State<ReaderPage>
     _catalogueOpen = true;
     _followTicket++;
     _followScroll.cancel();
+    final preview = ValueNotifier(false);
+    int? progressFrame;
+    double? pendingProgress;
+    bool progressStarted = false;
+    void previewProgress(double value) {
+      if (!progressStarted) {
+        progressStarted = true;
+        _suspendListeningFollow();
+        _clearBookmarkLanding();
+      }
+      pendingProgress = value;
+      progressFrame ??= SchedulerBinding.instance.scheduleFrameCallback((_) {
+        progressFrame = null;
+        if (!mounted || pendingProgress == null) return;
+        final target = pendingProgress!.clamp(0.0, 1.0);
+        pendingProgress = null;
+        if (_paginated) {
+          _paged.seek(target);
+        } else if (_scroll.hasClients) {
+          _scroll.jumpTo(target * _scroll.position.maxScrollExtent);
+        }
+      });
+    }
+
     try {
-      final index = await showJellySheet<int>(
+      final action = await showJellySheet<Object>(
         context: context,
         reduceMotion: widget.state.reduceMotion,
+        previewing: preview,
         surfaceWrapper: _readerSurface,
         builder: (context) => ReaderCatalogue(
           novel: widget.novel,
           currentChapter: _chapter,
+          position: _currentPosition(),
+          onPreviewChanged: (active) {
+            _typographyPreviewing = active;
+            preview.value = active;
+          },
+          onProgressPreview: previewProgress,
+          onProgressCommitted: (value) {
+            if (progressFrame case final frame?) {
+              SchedulerBinding.instance.cancelFrameCallbackWithId(frame);
+            }
+            progressFrame = null;
+            pendingProgress = null;
+            progressStarted = false;
+            unawaited(_seekProgress(value));
+          },
           cache: widget.repository is OfflineNovelRepository
               ? (widget.repository as OfflineNovelRepository).cache
               : null,
         ),
       );
-      if (mounted && index != null && index != _chapter) {
-        _go(index, remember: true);
+      if (!mounted) return;
+      if (action is int && action != _chapter) {
+        _go(action);
+      } else if (action is ReaderToolAction) {
+        _catalogueOpen = false;
+        await _handleReaderAction(action);
       }
     } finally {
+      if (progressFrame case final frame?) {
+        SchedulerBinding.instance.cancelFrameCallbackWithId(frame);
+      }
+      _typographyPreviewing = false;
+      preview.dispose();
       _catalogueOpen = false;
       _listeningTarget = null;
+      _savePosition(notify: false);
       if (mounted) _listeningChanged();
     }
   }
@@ -4223,13 +4731,24 @@ class _ReaderPageState extends State<ReaderPage>
   }) async {
     final index = _chapter;
     final generation = ++_contentGeneration;
+    _illustrationsRefreshing = false;
     _chapterRevealPending = false;
     _chapterReveal.value = 1;
     // Picker results can arrive between frames. Carry expected request failure
     // as data, rather than an exceptional future awaiting the next UI listener.
     try {
-      final content = await ReaderContent.parse(
-        await _requestContent(index, refresh: refresh),
+      final source = !refresh && _preparedContent[index] != null
+          ? _preparedContent[index]!
+          : await _prepareContent(index, refresh: refresh);
+      final placed = placeIllustrations(
+        await _automaticIllustrations(source, index),
+        widget.state.illustrationsFor(
+          widget.novel.id,
+          chapterId: widget.novel.chapters[index].id,
+        ),
+      );
+      final content = await placed.localizedAsync(
+        Locale('zh', _readerRegion ?? 'CN'),
       );
       if (mounted && index == _chapter && generation == _contentGeneration) {
         _currentContent = content;
@@ -4237,10 +4756,7 @@ class _ReaderPageState extends State<ReaderPage>
           if (mounted && generation == _contentGeneration) {
             _listeningTarget = null;
             _listeningChanged();
-            if (content.paragraphs.any((p) => p.trim() == '[插图]') &&
-                widget.repository is OfflineNovelRepository) {
-              unawaited(_refreshIllustrations(automatic: true));
-            }
+            _deferContentWarmup(generation, content);
           }
         });
         final reduce =
@@ -4260,8 +4776,197 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
+  Future<ReaderContent> _prepareContent(int index, {bool refresh = false}) {
+    if (!refresh) {
+      if (_preparedContent[index] case final content?) {
+        return Future.value(content);
+      }
+      if (_contentLoads[index] case final request?) return request;
+    }
+    late final Future<ReaderContent> request;
+    request = () async {
+      try {
+        final content = await ReaderContent.parse(
+          await _requestContent(index, refresh: refresh),
+        );
+        if (mounted &&
+            (index - _chapter).abs() <= 1 &&
+            identical(_contentLoads[index], request)) {
+          _preparedContent[index] = content;
+        }
+        return content;
+      } finally {
+        if (identical(_contentLoads[index], request)) {
+          _contentLoads.remove(index);
+        }
+      }
+    }();
+    _contentLoads[index] = request;
+    return request;
+  }
+
+  void _prefetchAdjacent() {
+    _automaticContent.removeWhere((index, _) => (index - _chapter).abs() > 1);
+    _preparedContent.removeWhere((index, _) => (index - _chapter).abs() > 1);
+    for (final index in [_chapter + 1, _chapter - 1]) {
+      if (index < 0 || index >= widget.novel.chapters.length) continue;
+      if (widget.repository case final OfflineNovelRepository offline) {
+        if (offline.offline &&
+            !isLocalBook(widget.novel.id) &&
+            offline.cache
+                    .book(widget.novel.id)
+                    ?.chapterBytes
+                    .containsKey(widget.novel.chapters[index].id) !=
+                true) {
+          continue;
+        }
+      }
+      unawaited(
+        _prepareContent(index).then<void>((_) {}, onError: (Object _) {}),
+      );
+    }
+  }
+
+  void _deferContentWarmup(int generation, ReaderContent content) {
+    // Borrow frames already driven by the route/reveal. A blocked idle task
+    // would continuously reschedule event-loop callbacks during animation;
+    // this check never starts a ticker or requests another frame of its own.
+    void afterFrame(Duration _) {
+      if (!mounted || generation != _contentGeneration) return;
+      final route = ModalRoute.of(context);
+      final entering =
+          route?.animation?.status == AnimationStatus.forward ||
+          route?.animation?.status == AnimationStatus.reverse;
+      final preparing =
+          !_ready ||
+          _restoring ||
+          (_paginated
+              ? !_paged.ready
+              : _chapterRevealPending || _chapterReveal.isAnimating);
+      if (entering || preparing) {
+        WidgetsBinding.instance.addPostFrameCallback(afterFrame);
+        return;
+      }
+      _prefetchAdjacent();
+      if (content.paragraphs.any((p) => p.trim() == '[插图]') &&
+          widget.repository is OfflineNovelRepository) {
+        unawaited(_refreshIllustrations(automatic: true));
+      }
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback(afterFrame);
+  }
+
+  Future<ReaderContent> _automaticIllustrations(
+    ReaderContent source,
+    int chapter,
+  ) async {
+    if (isLocalBook(widget.novel.id)) return source;
+    if (_automaticContent[chapter] case (
+      final original,
+      final effective,
+    ) when identical(original, source)) {
+      return effective;
+    }
+    final local = widget.repository is OfflineNovelRepository
+        ? (widget.repository as OfflineNovelRepository).local
+        : null;
+    if (local == null || local.originals.isEmpty) return source;
+    final title = seriesTitleKey(widget.novel.title),
+        section = widget.novel.chapters[chapter];
+    final volume = inferLocalSeries(
+      '${widget.novel.title} ${section.volumeTitle}',
+    )?.number;
+    final candidates = <(Novel, NovelChapter)>[];
+    for (final book in local.originals) {
+      final hint = local.seriesHint(book.id);
+      if ((hint?.key ?? seriesTitleKey(book.title)) != title ||
+          (volume != null && hint?.number != null && hint!.number != volume)) {
+        continue;
+      }
+      if (book.author != '本地书籍' &&
+          seriesTitleKey(book.author) != seriesTitleKey(widget.novel.author)) {
+        continue;
+      }
+      for (final entry in book.chapters) {
+        if (seriesTitleKey(entry.title) == seriesTitleKey(section.title)) {
+          candidates.add((book, entry));
+        }
+      }
+    }
+    ReaderContent result = source;
+    var matched = 0;
+    // Ambiguous short chapter labels must not trigger a library-wide parse.
+    if (candidates.length <= 4) {
+      for (final (book, entry) in candidates) {
+        try {
+          final reference = await ReaderContent.parse(
+            await local.chapterContent(book.id, entry),
+          );
+          final placed = autoIllustrationsFromReference(source, reference);
+          if (!identical(placed, source)) {
+            result = placed;
+            matched++;
+          }
+        } catch (_) {
+          /* A missing reference never blocks the original prose. */
+        }
+      }
+    }
+    if (matched != 1) result = source;
+    _automaticContent[chapter] = (source, result);
+    return result;
+  }
+
+  void _continueChapter(int direction) {
+    if (!_ready ||
+        _restoring ||
+        _boundaryQueued ||
+        _toolsOpen ||
+        _catalogueOpen ||
+        _findOpen) {
+      return;
+    }
+    final target = _chapter + direction;
+    if (target < 0 || target >= widget.novel.chapters.length) return;
+    final generation = _contentGeneration;
+    _boundaryQueued = true;
+    _scrollGesture = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _boundaryQueued = false;
+      if (!mounted || generation != _contentGeneration) return;
+      _go(
+        target,
+        position: direction < 0
+            ? ReadingPosition(
+                chapter: target,
+                chapterId: widget.novel.chapters[target].id,
+                offset: 0,
+                fraction: 1,
+                fontSize: widget.state.fontSize,
+                width: 0,
+                updatedAt: DateTime.now().millisecondsSinceEpoch,
+              )
+            : null,
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
   void _showChrome(bool visible) {
+    if (visible) {
+      _dismissChromeHint?.call();
+      _dismissChromeHint = null;
+    }
+    if (_chromeTarget != visible) {
+      unawaited(
+        widget.state.setReaderChromeVisible(visible).catchError((Object _) {
+          if (mounted) showNovelFeedback(context, '控件显示偏好未保存，请重试');
+        }),
+      );
+    }
     _chromeTarget = visible;
+    _readingInset = _scrollReadingInset(widget.state.readerPreferences);
     // Start the incremental text move with the glass transition, not after
     // waiting for the hide animation to finish and then shaping the chapter.
     if (_chromeReserved != visible) {
@@ -4277,6 +4982,44 @@ class _ReaderPageState extends State<ReaderPage>
     } else {
       _chrome.reverse();
     }
+  }
+
+  void _scheduleChromeHint() {
+    if (!_ready ||
+        _chromeTarget ||
+        _chromeHintQueued ||
+        widget.state.readerChromeHintSeen) {
+      return;
+    }
+    _chromeHintQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      final animation = route?.animation;
+      void show() {
+        if (!mounted || !_ready || _chromeTarget || route?.isCurrent == false) {
+          return;
+        }
+        _dismissChromeHint = showNovelFeedback(context, '点击屏幕显示控件');
+        unawaited(
+          widget.state.markReaderChromeHintSeen().catchError((Object _) {}),
+        );
+      }
+
+      if (animation == null || animation.status == AnimationStatus.completed) {
+        show();
+      } else {
+        void after(AnimationStatus status) {
+          if (status == AnimationStatus.completed ||
+              status == AnimationStatus.dismissed) {
+            animation.removeStatusListener(after);
+            if (status == AnimationStatus.completed) show();
+          }
+        }
+
+        animation.addStatusListener(after);
+      }
+    });
   }
 
   void _revealChapter() {
@@ -4298,21 +5041,14 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _toggleChrome() {
-    if (_ready &&
-        !_toolsOpen &&
-        !_catalogueOpen &&
-        !_findOpen &&
-        !_listeningOpen) {
+    if (_ready && !_toolsOpen && !_catalogueOpen && !_findOpen) {
       _showChrome(!_chromeTarget);
     }
   }
 
   void _pageBy(int direction) {
-    if (!_ready ||
-        _toolsOpen ||
-        _catalogueOpen ||
-        _listeningOpen ||
-        _findOpen) {
+    _cancelExitRequest();
+    if (!_ready || _toolsOpen || _catalogueOpen || _findOpen) {
       return;
     }
     if (_selection.value) {
@@ -4323,23 +5059,7 @@ class _ReaderPageState extends State<ReaderPage>
     _suspendListeningFollow();
     if (_paginated) {
       if (!_paged.ready || _paged.pageBy(direction)) return;
-      if (direction > 0 && _chapter + 1 < widget.novel.chapters.length) {
-        _go(_chapter + 1);
-      }
-      if (direction < 0 && _chapter > 0) {
-        _go(
-          _chapter - 1,
-          position: ReadingPosition(
-            chapter: _chapter - 1,
-            chapterId: widget.novel.chapters[_chapter - 1].id,
-            offset: 0,
-            fraction: 1,
-            fontSize: widget.state.fontSize,
-            width: 0,
-            updatedAt: DateTime.now().millisecondsSinceEpoch,
-          ),
-        );
-      }
+      _continueChapter(direction);
       return;
     }
     if (!_scroll.hasClients) return;
@@ -4347,22 +5067,11 @@ class _ReaderPageState extends State<ReaderPage>
     if (direction > 0 &&
         position.extentAfter <= .5 &&
         _chapter + 1 < widget.novel.chapters.length) {
-      _go(_chapter + 1);
+      _continueChapter(1);
       return;
     }
     if (direction < 0 && position.pixels <= .5 && _chapter > 0) {
-      _go(
-        _chapter - 1,
-        position: ReadingPosition(
-          chapter: _chapter - 1,
-          chapterId: widget.novel.chapters[_chapter - 1].id,
-          offset: 0,
-          fraction: 1,
-          fontSize: widget.state.fontSize,
-          width: 0,
-          updatedAt: DateTime.now().millisecondsSinceEpoch,
-        ),
-      );
+      _continueChapter(-1);
       return;
     }
     final target =
@@ -4415,7 +5124,21 @@ class _ReaderPageState extends State<ReaderPage>
                 )
           : await _requestContent(chapter, refresh: true);
       if (body == null) return;
-      final content = await ReaderContent.parse(body);
+      final source = await ReaderContent.parse(body);
+      if (!mounted || chapter != _chapter || generation != _contentGeneration) {
+        return;
+      }
+      _preparedContent[chapter] = source;
+      final placed = placeIllustrations(
+        await _automaticIllustrations(source, chapter),
+        widget.state.illustrationsFor(
+          widget.novel.id,
+          chapterId: widget.novel.chapters[chapter].id,
+        ),
+      );
+      final content = await placed.localizedAsync(
+        Locale('zh', _readerRegion ?? 'CN'),
+      );
       if (!mounted || chapter != _chapter || generation != _contentGeneration) {
         return;
       }
@@ -4445,7 +5168,7 @@ class _ReaderPageState extends State<ReaderPage>
   }) {
     final url = readerIllustrationUrl(paragraphs[index]);
     if (url != null) {
-      return ReaderIllustration(
+      final image = ReaderIllustration(
         url: url,
         fitPage: fullPage,
         localLayout: LocalImageLayout.fromParagraph(paragraphs[index]),
@@ -4460,6 +5183,13 @@ class _ReaderPageState extends State<ReaderPage>
           reduceMotion: widget.state.reduceMotion,
         ),
       );
+      final placement = _currentContent?.placementIds[index];
+      return placement == null
+          ? image
+          : GestureDetector(
+              onLongPress: () => _removePlacedIllustration(placement),
+              child: image,
+            );
     }
     if (paragraphs[index].trim() == '[插图]') {
       return ReaderIllustrationFrame(
@@ -4476,10 +5206,10 @@ class _ReaderPageState extends State<ReaderPage>
                     children: [
                       const Icon(CupertinoIcons.photo),
                       const SizedBox(height: 10),
-                      const Text('暂未取得本章插图地址'),
+                      const AppText('暂未取得本章插图地址'),
                       GlassTextButton(
                         onPressed: _refreshIllustrations,
-                        child: const Text('重试本章插图'),
+                        child: const AppText('重试本章插图'),
                       ),
                     ],
                   ),
@@ -4487,15 +5217,24 @@ class _ReaderPageState extends State<ReaderPage>
               ),
       );
     }
-    return ReaderHighlightText(
+    return ReaderSelectionFragment(
+      controller: _selection,
       text: paragraphs[index],
-      index: index,
-      match: _findMatch,
-      style: style,
-      indent: widget.state.readerPreferences.indent,
-      textAlign: widget.state.readerPreferences.justify
-          ? TextAlign.justify
-          : TextAlign.start,
+      selectableOffset: widget.state.readerPreferences.indent
+          ? readerIndentLength
+          : 0,
+      anchorForOffset: (offset) =>
+          (paragraph: index, offset: offset.clamp(0, paragraphs[index].length)),
+      child: ReaderHighlightText(
+        text: paragraphs[index],
+        index: index,
+        match: _findMatch,
+        style: style,
+        indent: widget.state.readerPreferences.indent,
+        textAlign: widget.state.readerPreferences.justify
+            ? TextAlign.justify
+            : TextAlign.start,
+      ),
     );
   }
 
@@ -4555,7 +5294,9 @@ class _ReaderPageState extends State<ReaderPage>
     // Explicit save/restore/exit supersedes any delayed copy of that position.
     _idleSave?.cancel();
     _idleSave = null;
-    if (!_ready ||
+    if (_detailsOpen ||
+        _sourceChanged ||
+        !_ready ||
         _restoring ||
         (_paginated ? !_paged.ready : !_scroll.hasClients) ||
         (_typographyPreviewing && !finalSave)) {
@@ -4580,7 +5321,7 @@ class _ReaderPageState extends State<ReaderPage>
     unawaited(
       widget.state
           .savePosition(
-            novel: widget.novel,
+            novel: _sourceBook,
             chapter: _chapter,
             offset:
                 position?.offset ??
@@ -4592,7 +5333,7 @@ class _ReaderPageState extends State<ReaderPage>
             paragraphFraction: position?.paragraphFraction ?? 0,
             textOffset: position?.textOffset,
             textScale: _textScale,
-            typeface: position?.typeface ?? _layoutTypeface.name,
+            typeface: position?.typeface ?? _layoutTypeface,
           )
           .catchError((Object _) {}),
     );
@@ -4611,7 +5352,11 @@ class _ReaderPageState extends State<ReaderPage>
       return null;
     }
     if (_paginated) {
-      final anchor = _paged.anchor;
+      final visible = _paged.anchor;
+      final owner = _currentContent?.inlineOwners[visible?.paragraph];
+      final anchor = owner == null
+          ? visible
+          : ReaderTextAnchor(owner, _currentContent!.paragraphs[owner].length);
       return ReadingPosition(
         chapter: _chapter,
         chapterId: widget.novel.chapters[_chapter].id,
@@ -4621,7 +5366,7 @@ class _ReaderPageState extends State<ReaderPage>
         lineHeight: widget.state.lineHeight,
         width: _layoutWidth,
         textScale: _textScale,
-        typeface: _layoutTypeface.name,
+        typeface: _layoutTypeface,
         layout: _layoutKey,
         paragraphIndex: anchor?.paragraph,
         textOffset: anchor?.offset,
@@ -4659,7 +5404,7 @@ class _ReaderPageState extends State<ReaderPage>
           (previous.offset - offset).abs() < .5 &&
           previous.fontSize == widget.state.fontSize &&
           previous.lineHeight == widget.state.lineHeight &&
-          previous.typeface == _layoutTypeface.name &&
+          previous.typeface == _layoutTypeface &&
           previous.layout == _layoutKey &&
           (previous.width - _layoutWidth).abs() < .5 &&
           (previous.textScale - _textScale).abs() < .01) {
@@ -4689,7 +5434,7 @@ class _ReaderPageState extends State<ReaderPage>
             )
           : widget.state.positionFor(widget.novel.id)?.textOffset,
       textScale: _textScale,
-      typeface: _layoutTypeface.name,
+      typeface: _layoutTypeface,
       layout: _layoutKey,
     );
   }
@@ -4707,32 +5452,6 @@ class _ReaderPageState extends State<ReaderPage>
     _bookmarkLanding.value = null;
   }
 
-  void _recordJump() {
-    final position = _currentPosition();
-    if (position == null) return;
-    if (_jumpHistory.isNotEmpty) {
-      final last = _jumpHistory.last;
-      if (last.chapterId == position.chapterId &&
-          last.paragraphIndex == position.paragraphIndex &&
-          last.textOffset == position.textOffset &&
-          (last.offset - position.offset).abs() < .5) {
-        return;
-      }
-    }
-    setState(() {
-      _jumpHistory.add(position);
-      if (_jumpHistory.length > 8) _jumpHistory.removeAt(0);
-    });
-  }
-
-  void _returnToReading() {
-    if (_jumpHistory.isEmpty) return;
-    final position = _jumpHistory.last;
-    final chapter = widget.state.chapterForPosition(widget.novel, position);
-    setState(() => _jumpHistory.removeLast());
-    if (chapter != null) _go(chapter, position: position);
-  }
-
   void _pagedReady() {
     if (!mounted || !_paginated || !_paged.ready) return;
     final saved = _restorePending;
@@ -4744,6 +5463,21 @@ class _ReaderPageState extends State<ReaderPage>
     _listeningChanged();
     _saveWhenIdle();
   }
+
+  double _scrollReadingInset(ReaderPreferences preferences) =>
+      ((preferences.hideSystemStatus && !_chromeTarget
+                  ? 12.0
+                  : FrostedHeader.toolbarHeight + 12) -
+              preferences.marginTop)
+          .clamp(0.0, double.infinity);
+
+  double _systemStatusExtent(BuildContext context) =>
+      _hideSystemStatus ? ReaderStatusFooter.heightFor(context) + 4 : 0;
+
+  double _chromeStatusInset(BuildContext context) => _hideSystemStatus
+      ? (_systemStatusExtent(context) - MediaQuery.viewPaddingOf(context).top)
+            .clamp(0.0, double.infinity)
+      : 0;
 
   Widget _pagedLeaf(ReaderLeaf page, TextStyle style) {
     if (page.fragments.length == 1 &&
@@ -4773,24 +5507,50 @@ class _ReaderPageState extends State<ReaderPage>
         animation: Listenable.merge([_findMatch, _bookmarkLanding]),
         builder: (context, _) {
           final match = _findMatch.value;
-          final body = ReaderVerticalText(
-            key: key,
-            page: page,
-            glyphCache: _verticalGlyphs,
-            style: style.copyWith(
-              fontSize: MediaQuery.textScalerOf(
-                context,
-              ).scale(style.fontSize ?? 19),
+          final body = ReaderSelectionFragment(
+            controller: _selection,
+            text: page.text,
+            paragraphEnds: [
+              for (var i = 0; i < page.glyphs.length; i++)
+                if (i + 1 == page.glyphs.length ||
+                    page.glyphs[i].paragraph != page.glyphs[i + 1].paragraph)
+                  page.glyphs[i].end,
+            ],
+            anchorForOffset: (offset) {
+              for (final glyph in page.glyphs) {
+                if (glyph.end > offset) {
+                  return (
+                    paragraph: glyph.paragraph,
+                    offset:
+                        glyph.sourceStart +
+                        (offset - glyph.start).clamp(
+                          0,
+                          glyph.sourceEnd - glyph.sourceStart,
+                        ),
+                  );
+                }
+              }
+              return null;
+            },
+            child: ReaderVerticalText(
+              key: key,
+              page: page,
+              glyphCache: _verticalGlyphs,
+              style: style.copyWith(
+                fontSize: MediaQuery.textScalerOf(
+                  context,
+                ).scale(style.fontSize ?? 19),
+              ),
+              highlightParagraph: _bookmarkLanding.value,
+              listeningParagraph: listening.paragraph,
+              match: match == null
+                  ? null
+                  : (
+                      paragraph: match.paragraph,
+                      start: match.start,
+                      end: match.end,
+                    ),
             ),
-            highlightParagraph: _bookmarkLanding.value,
-            listeningParagraph: listening.paragraph,
-            match: match == null
-                ? null
-                : (
-                    paragraph: match.paragraph,
-                    start: match.start,
-                    end: match.end,
-                  ),
           );
           return !listening.active
               ? body
@@ -4859,66 +5619,98 @@ class _ReaderPageState extends State<ReaderPage>
         ],
       );
     }
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        for (final (index, fragment) in page.fragments.indexed)
-          Positioned.fromRect(
-            rect: fragment.rect,
-            child: ReaderFragmentMotion(
-              fragment: fragment,
-              index: index,
-              count: page.fragments.length,
-              child: ValueListenableBuilder<int?>(
-                valueListenable: _bookmarkLanding,
-                child: Builder(
-                  builder: (context) {
-                    if (fragment.image) {
-                      return _paragraphContent(
-                        _currentContent!.paragraphs,
-                        fragment.paragraph,
-                        style,
-                        sizedImage: true,
-                      );
-                    }
-                    final text = ReaderHighlightText(
-                      text: fragment.text,
-                      index: fragment.paragraph,
-                      sourceStart: fragment.start,
-                      match: _findMatch,
-                      style: style,
-                      indent: fragment.indent,
-                      textAlign: widget.state.readerPreferences.justify
-                          ? TextAlign.justify
-                          : TextAlign.start,
-                    );
-                    return _listening == null
-                        ? text
-                        : ListeningParagraphHighlight(
-                            controller: _listening!,
-                            novelId: widget.novel.id,
-                            chapter: _chapter,
-                            paragraph: fragment.paragraph,
-                            onDoubleTap: () => _doubleTapListeningParagraph(
-                              fragment.paragraph,
-                            ),
-                            child: text,
-                          );
-                  },
+    return Builder(
+      builder: (context) {
+        final previous = ReaderReflowScope.maybeOf(context)?.previous.fragments;
+        final identities = {
+          for (final fragment in page.fragments)
+            (fragment.paragraph, fragment.start),
+        };
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            for (final (index, fragment) in page.fragments.indexed)
+              Positioned.fromRect(
+                rect: fragment.rect,
+                child: ReaderFragmentMotion(
+                  fragment: fragment,
+                  index: index,
+                  count: page.fragments.length,
+                  previousBuilder: (old) => _horizontalFragment(old, style),
+                  child: _horizontalFragment(fragment, style),
                 ),
-                builder: (context, selected, child) =>
-                    selected == fragment.paragraph
-                    ? ReaderLandingHighlight(
-                        reduceMotion: widget.state.reduceMotion,
-                        child: child!,
-                      )
-                    : child!,
               ),
-            ),
-          ),
-      ],
+            if (previous != null)
+              for (final (index, fragment) in previous.indexed)
+                if (!identities.contains((fragment.paragraph, fragment.start)))
+                  Positioned.fromRect(
+                    rect: fragment.rect,
+                    child: ReaderLeavingFragment(
+                      fragment: fragment,
+                      index: index,
+                      count: previous.length,
+                      child: _horizontalFragment(fragment, style),
+                    ),
+                  ),
+          ],
+        );
+      },
     );
   }
+
+  Widget _horizontalFragment(ReaderPageFragment fragment, TextStyle style) =>
+      ValueListenableBuilder<int?>(
+        valueListenable: _bookmarkLanding,
+        child: Builder(
+          builder: (context) {
+            if (fragment.image) {
+              return _paragraphContent(
+                _currentContent!.paragraphs,
+                fragment.paragraph,
+                style,
+                sizedImage: true,
+              );
+            }
+            final text = ReaderSelectionFragment(
+              controller: _selection,
+              text: fragment.text,
+              selectableOffset: fragment.indent ? readerIndentLength : 0,
+              anchorForOffset: (offset) => (
+                paragraph: fragment.paragraph,
+                offset: fragment.start + offset.clamp(0, fragment.text.length),
+              ),
+              child: ReaderHighlightText(
+                text: fragment.text,
+                index: fragment.paragraph,
+                sourceStart: fragment.start,
+                match: _findMatch,
+                style: style,
+                indent: fragment.indent,
+                textAlign: widget.state.readerPreferences.justify
+                    ? TextAlign.justify
+                    : TextAlign.start,
+              ),
+            );
+            return _listening == null
+                ? text
+                : ListeningParagraphHighlight(
+                    controller: _listening!,
+                    novelId: widget.novel.id,
+                    chapter: _chapter,
+                    paragraph: fragment.paragraph,
+                    onDoubleTap: () =>
+                        _doubleTapListeningParagraph(fragment.paragraph),
+                    child: text,
+                  );
+          },
+        ),
+        builder: (context, selected, child) => selected == fragment.paragraph
+            ? ReaderLandingHighlight(
+                reduceMotion: widget.state.reduceMotion,
+                child: child!,
+              )
+            : child!,
+      );
 
   void _landBookmark(ReadingPosition? saved, {int? paragraphIndex}) {
     if (!_bookmarkLandingPending ||
@@ -5000,12 +5792,141 @@ class _ReaderPageState extends State<ReaderPage>
     final position = _currentPosition(bookmark: true);
     if (position == null) return null;
     _savePosition(notify: false);
-    return widget.state.addBookmark(novel: widget.novel, position: position);
+    final index = position.paragraphIndex;
+    final text = index == null ? '' : _currentContent?.paragraphs[index] ?? '';
+    return widget.state.addBookmark(
+      novel: widget.novel,
+      position: position,
+      quote:
+          readerIllustrationUrl(text) == null &&
+              text != '[插图]' &&
+              text.length <= 12000
+          ? text
+          : '',
+    );
+  }
+
+  ReadingPosition? _quotePosition(ReaderQuoteSelection selected) {
+    final position = _currentPosition(bookmark: true), anchor = selected.anchor;
+    if (position == null || anchor == null) return null;
+    return ReadingPosition.fromJson({
+      ...position.toJson(),
+      'paragraphIndex': anchor.paragraph,
+      'textOffset': anchor.offset,
+      'paragraphFraction': 0,
+    });
+  }
+
+  Future<void> _saveQuote(ReaderQuoteSelection selected) async {
+    final position = _quotePosition(selected);
+    if (position == null) {
+      showNovelFeedback(context, '暂时无法定位选中的文字，请重新选择');
+      return;
+    }
+    _selection.clear();
+    try {
+      final mark = await widget.state.addBookmark(
+        novel: widget.novel,
+        position: position,
+        quote: selected.text,
+      );
+      if (mounted) {
+        showNovelFeedback(context, mark == null ? '书签未能保存，请重试' : '已加入书签');
+      }
+    } catch (error) {
+      if (mounted) {
+        showNovelFeedback(
+          context,
+          error is FormatException ? error.message : '书签保存失败，请重试',
+        );
+      }
+    }
+  }
+
+  Future<void> _volumeIllustrations() async {
+    _cancelExitRequest();
+    _selection.clear();
+    _stopAutoScroll();
+    _suspendListeningFollow();
+    await pushNovelPage<void>(
+      context,
+      ReaderVolumeIllustrationsPage(
+        novel: widget.novel,
+        chapter: _chapter,
+        repository: widget.repository,
+        known: {..._preparedContent, _chapter: ?_currentContent},
+        reduceMotion: widget.state.reduceMotion,
+      ),
+      reduceMotion: widget.state.reduceMotion,
+    );
+  }
+
+  void _illustrationLayoutChanged() {
+    final source = _preparedContent[_chapter];
+    if (!mounted || source == null) return;
+    final position = _currentPosition(bookmark: true);
+    if (position != null) _prepareRestore(position);
+    final content = placeIllustrations(
+      _automaticContent[_chapter]?.$2 ?? source,
+      widget.state.illustrationsFor(
+        widget.novel.id,
+        chapterId: widget.novel.chapters[_chapter].id,
+      ),
+    ).localized(Locale('zh', _readerRegion ?? 'CN'));
+    setState(() {
+      _currentContent = content;
+      _content = Future.value((content: content, error: null));
+    });
+  }
+
+  Future<void> _openIllustrationLayout([ReaderQuoteSelection? selected]) async {
+    final source = _preparedContent[_chapter];
+    final anchor = selected?.anchor;
+    if (selected != null &&
+        (source == null ||
+            anchor == null ||
+            anchor.paragraph >= source.paragraphs.length)) {
+      return;
+    }
+    _selection.clear();
+    _stopAutoScroll();
+    _suspendListeningFollow();
+    final inserted = await pushNovelPage<bool>(
+      context,
+      IllustrationLayoutPage(
+        novel: widget.novel,
+        chapter: _chapter,
+        state: widget.state,
+        repository: widget.repository,
+        source: source,
+        paragraph: anchor?.paragraph,
+      ),
+      reduceMotion: widget.state.reduceMotion,
+    );
+    if (mounted && inserted == true) {
+      showNovelFeedback(context, '已嵌入段落之后，长按插图可移除');
+    }
+  }
+
+  Future<void> _removePlacedIllustration(String id) async {
+    if (!await confirmNovelAction(
+      context,
+      title: '移除此处插图？',
+      message: '仅移除正文中的排版位置，卷末原图和正文保留。',
+      confirmLabel: '移除插图位置',
+      reduceMotion: widget.state.reduceMotion,
+    )) {
+      return;
+    }
+    try {
+      await widget.state.removeIllustration(widget.novel.id, id);
+    } catch (_) {
+      if (mounted) showNovelFeedback(context, '插图位置移除失败，请重试');
+    }
   }
 
   Future<void> _seekProgress(double fraction) async {
     if (!_ready || (_paginated ? !_paged.ready : !_scroll.hasClients)) return;
-    _recordJump();
     _clearBookmarkLanding();
     if (_paginated) {
       _paged.seek(fraction);
@@ -5070,7 +5991,7 @@ class _ReaderPageState extends State<ReaderPage>
             (saved.lineHeight - widget.state.lineHeight).abs() < .01 &&
             (saved.width - _layoutWidth).abs() < 1 &&
             (saved.textScale - _textScale).abs() < .01 &&
-            saved.typeface == widget.state.appTypeface.name;
+            saved.typeface == widget.state.readerFontId;
         final identicalLayout =
             sameLayout &&
             saved.layout == widget.state.readerPreferences.layoutKey;
@@ -5119,6 +6040,22 @@ class _ReaderPageState extends State<ReaderPage>
                     (identicalLayout && saved.fraction < .999
                         ? saved.offset
                         : saved.fraction * maximum);
+          if (step == 0 &&
+              identicalLayout &&
+              !centreBookmark &&
+              anchor != null &&
+              paragraph?.exact != true) {
+            final row =
+                _currentContent?.readingOrder?.indexOf(anchor.index) ??
+                anchor.index;
+            if (row >= 0) {
+              _scrollAnchor.restore(
+                row: row,
+                fraction: anchor.fraction,
+                inset: _readingInset,
+              );
+            }
+          }
           _scroll.jumpTo(
             target.clamp(
               0.0,
@@ -5197,22 +6134,87 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   Future<void> _requestExit() async {
-    if (_confirmingExit || _allowExit) return;
-    _confirmingExit = true;
+    if (_allowExit) return;
+    if (_toolsOpen || _catalogueOpen || _findOpen) {
+      _cancelExitRequest();
+      return;
+    }
+    if (_selection.value) {
+      _selection.clear();
+      _cancelExitRequest();
+      return;
+    }
+    final now = DateTime.now();
+    if (_exitRequestedAt == null ||
+        now.difference(_exitRequestedAt!) > const Duration(seconds: 2)) {
+      _exitRequestedAt = now;
+      showNovelFeedback(context, '再滑动一次退出阅读', headerVisibility: _chrome);
+      return;
+    }
+    dismissNovelFeedback(context);
+    setState(() => _allowExit = true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) Navigator.pop(context);
+  }
+
+  void _cancelExitRequest() {
+    if (_exitRequestedAt == null) return;
+    _exitRequestedAt = null;
+    dismissNovelFeedback(context);
+  }
+
+  Future<void> _bookDetails() async {
+    if (_detailsOpen || _toolsOpen || _catalogueOpen || _findOpen) {
+      return;
+    }
+    _cancelExitRequest();
+    _stopAutoScroll();
+    _savePosition(notify: false, finalSave: true);
+    _detailsOpen = true;
+    int? chapter;
     try {
-      final confirmed = await confirmNovelAction(
+      chapter = await pushNovelPage<int>(
         context,
-        title: '退出阅读？',
-        message: '阅读位置会保留，下次可从这里继续。',
-        confirmLabel: '退出阅读',
+        DetailPage(
+          novel: _sourceBook,
+          state: widget.state,
+          repository: widget.repository,
+          fromCache:
+              widget.repository is OfflineNovelRepository &&
+              (widget.repository as OfflineNovelRepository).offline,
+          onRead: (index) => Navigator.of(context).pop(index),
+        ),
         reduceMotion: widget.state.reduceMotion,
+        slot: ('reader-details', widget.novel.id),
       );
-      if (!mounted || !confirmed) return;
-      setState(() => _allowExit = true);
-      await WidgetsBinding.instance.endOfFrame;
-      if (mounted) Navigator.pop(context);
     } finally {
-      _confirmingExit = false;
+      _detailsOpen = false;
+    }
+    if (!mounted) return;
+    if (isLocalBook(widget.novel.id) &&
+        widget.repository is OfflineNovelRepository) {
+      final current = (widget.repository as OfflineNovelRepository).local?.book(
+        widget.novel.id,
+      );
+      if (current == null ||
+          current.chapters.length != widget.novel.chapters.length ||
+          current.chapters.indexed.any((entry) {
+            final original = widget.novel.chapters[entry.$1];
+            return entry.$2.id != original.id ||
+                entry.$2.title != original.title ||
+                entry.$2.volumeId != original.volumeId ||
+                entry.$2.volumeTitle != original.volumeTitle;
+          })) {
+        // An editor can delete/regroup/reorder the underlying originals. Its
+        // remapped records must not be overwritten by this obsolete directory.
+        _sourceChanged = true;
+        Navigator.pop(context);
+        return;
+      }
+      setState(() {});
+    }
+    if (mounted && chapter != null && chapter != _chapter) {
+      _go(chapter);
     }
   }
 
@@ -5222,7 +6224,7 @@ class _ReaderPageState extends State<ReaderPage>
         ? const NovelChapter('目录为空', '')
         : widget.novel.chapters[_chapter];
     _layoutWidth = MediaQuery.sizeOf(context).width;
-    _layoutTypeface = widget.state.appTypeface;
+    _layoutTypeface = widget.state.readerFontId;
     final appTheme = Theme.of(context);
     final appDark = appTheme.brightness == Brightness.dark;
     return PopScope<void>(
@@ -5293,6 +6295,8 @@ class _ReaderPageState extends State<ReaderPage>
                         child: ReaderSelection(
                           controller: _selection,
                           vertical: _readerMode == ReaderMode.vertical,
+                          onBookmark: _saveQuote,
+                          onIllustrations: _volumeIllustrations,
                           onSelect: () {
                             _stopAutoScroll();
                             _suspendListeningFollow();
@@ -5315,7 +6319,12 @@ class _ReaderPageState extends State<ReaderPage>
             child: ReaderChromeLayer(
               key: const ValueKey('reader-chrome-edge-blur'),
               animation: _chrome,
-              child: ReaderEdgeBlur(animation: _chrome),
+              child: ReaderEdgeBlur(
+                animation: _chrome,
+                topInset: _chromeStatusInset(context),
+                compact: _hideSystemStatus,
+                blurBottom: !_hideSystemStatus || _paginated,
+              ),
             ),
           ),
           if (LocalPlatform.android)
@@ -5333,52 +6342,54 @@ class _ReaderPageState extends State<ReaderPage>
             top: 0,
             left: 0,
             right: 0,
-            child: FrostedHeader(
-              blurBackground: false,
-              child: ReaderChromeLayer(
-                key: const ValueKey('reader-chrome-header'),
-                animation: _chrome,
-                slide: const Offset(0, -1),
-                child: ArchiveHeaderBar(
-                  // Balance the two control groups without shrinking the title
-                  // into the space left by three trailing buttons.
-                  leading: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      GlassIconButton(
-                        icon: CupertinoIcons.back,
-                        label: '返回详情',
-                        onPressed: () => Navigator.pop(context),
+            child: Padding(
+              padding: EdgeInsets.only(top: _chromeStatusInset(context)),
+              child: FrostedHeader(
+                blurBackground: false,
+                child: ReaderChromeLayer(
+                  key: const ValueKey('reader-chrome-header'),
+                  animation: _chrome,
+                  slide: const Offset(0, -1),
+                  child: ActiveListenableBuilder(
+                    listenable: widget.state.settingsChanges,
+                    builder: (context) => ArchiveHeaderBar(
+                      leading: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GlassIconButton(
+                            icon: CupertinoIcons.back,
+                            label: widget.directEntry ? '返回' : '返回详情',
+                            onPressed: () {
+                              dismissNovelFeedback(context);
+                              Navigator.pop(context);
+                            },
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 4),
-                      GlassIconButton(
-                        key: const ValueKey('reader-bookmarks-entry'),
-                        icon: CupertinoIcons.bookmark,
-                        label: '阅读书签',
-                        onPressed: () => _settings(bookmarks: true),
+                      title: ArchiveRouteTitle(
+                        title: _sourceBook.title,
+                        code:
+                            'READ / ${ArchiveDesign.fileCode(widget.novel.id)}',
                       ),
-                    ],
-                  ),
-                  title: ArchiveRouteTitle(
-                    title: widget.novel.title,
-                    code: 'READ / ${ArchiveDesign.fileCode(widget.novel.id)}',
-                  ),
-                  actions: [
-                    if (_listening != null) ...[
-                      GlassIconButton(
-                        key: const ValueKey('reader-listening-entry'),
-                        icon: CupertinoIcons.headphones,
-                        label: '听书',
-                        onPressed: _listen,
-                      ),
-                    ],
-                    const SizedBox(width: 4),
-                    GlassIconButton(
-                      icon: CupertinoIcons.textformat_size,
-                      label: '阅读设置',
-                      onPressed: _settings,
+                      actions: [
+                        if (widget.state.directReading) ...[
+                          GlassIconButton(
+                            key: const ValueKey('reader-details-entry'),
+                            icon: CupertinoIcons.info_circle,
+                            label: '进入详情页',
+                            onPressed: _bookDetails,
+                          ),
+                        ],
+                        const SizedBox(width: 4),
+                        GlassIconButton(
+                          key: const ValueKey('reader-settings-entry'),
+                          icon: CupertinoIcons.textformat_size,
+                          label: '阅读设置',
+                          onPressed: _settings,
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -5403,7 +6414,7 @@ class _ReaderPageState extends State<ReaderPage>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (_jumpHistory.isNotEmpty || _autoPaused)
+                    if (_autoPaused)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Wrap(
@@ -5411,53 +6422,53 @@ class _ReaderPageState extends State<ReaderPage>
                           spacing: 8,
                           runSpacing: 6,
                           children: [
-                            if (_jumpHistory.isNotEmpty)
-                              GlassTextButton(
-                                key: const ValueKey('reader-return-position'),
-                                onPressed: _returnToReading,
-                                child: const Text('返回原位'),
-                              ),
                             if (_autoPaused)
                               GlassTextButton(
                                 key: const ValueKey('reader-auto-resume'),
                                 onPressed: _startAutoScroll,
-                                child: Text(_paginated ? '继续自动翻页' : '继续自动滚动'),
+                                child: AppText(
+                                  _paginated ? '继续自动翻页' : '继续自动滚动',
+                                ),
                               ),
                           ],
                         ),
                       ),
-                    GlassDock(
-                      key: const ValueKey('reader-liquid-dock'),
-                      selectedIndex: 1,
-                      reduceMotion: widget.state.reduceMotion,
-                      items: [
-                        GlassDockItem(
-                          CupertinoIcons.arrow_left,
-                          '上一章',
-                          enabled: _chapter > 0,
-                        ),
-                        GlassDockItem(
-                          CupertinoIcons.book,
-                          '${widget.novel.chapters.isEmpty ? 0 : _chapter + 1} / ${widget.novel.chapters.length}',
-                          id: 'reader-catalogue',
-                          enabled: widget.novel.chapters.isNotEmpty,
-                          selectableOnDrag: false,
-                          semanticLabel:
-                              '目录，当前第 ${widget.novel.chapters.isEmpty ? 0 : _chapter + 1} 章，共 ${widget.novel.chapters.length} 章',
-                        ),
-                        GlassDockItem(
-                          CupertinoIcons.arrow_right,
-                          '下一章',
-                          enabled: _chapter + 1 < widget.novel.chapters.length,
-                        ),
-                      ],
-                      onSelected: (index) {
-                        if (index == 1) {
-                          _catalogue();
-                        } else {
-                          _go(_chapter + (index == 0 ? -1 : 1));
-                        }
-                      },
+                    ActiveListenableBuilder(
+                      listenable: widget.state.settingsChanges,
+                      builder: (context) => GlassDock(
+                        key: const ValueKey('reader-liquid-dock'),
+                        selectedIndex: 1,
+                        reduceMotion: widget.state.reduceMotion,
+                        items: [
+                          GlassDockItem(
+                            CupertinoIcons.arrow_left,
+                            '上一章',
+                            enabled: _chapter > 0,
+                          ),
+                          GlassDockItem(
+                            CupertinoIcons.book,
+                            '${widget.novel.chapters.isEmpty ? 0 : _chapter + 1} / ${widget.novel.chapters.length}',
+                            id: 'reader-catalogue',
+                            enabled: widget.novel.chapters.isNotEmpty,
+                            selectableOnDrag: false,
+                            semanticLabel:
+                                '目录，当前第 ${widget.novel.chapters.isEmpty ? 0 : _chapter + 1} 章，共 ${widget.novel.chapters.length} 章',
+                          ),
+                          GlassDockItem(
+                            CupertinoIcons.arrow_right,
+                            '下一章',
+                            enabled:
+                                _chapter + 1 < widget.novel.chapters.length,
+                          ),
+                        ],
+                        onSelected: (index) {
+                          if (index == 1) {
+                            _catalogue();
+                          } else {
+                            _go(_chapter + (index == 0 ? -1 : 1));
+                          }
+                        },
+                      ),
                     ),
                   ],
                 ),
@@ -5472,13 +6483,18 @@ class _ReaderPageState extends State<ReaderPage>
                 builder: (context, visible, _) => ReaderFollowDock(
                   visible: visible,
                   chrome: _chrome,
-                  extraControlsHeight: _jumpHistory.isNotEmpty || _autoPaused
-                      ? 64
-                      : 0,
+                  extraControlsHeight: _autoPaused ? 64 : 0,
                   reduceMotion: widget.state.reduceMotion,
                   onEnable: _enableListeningFollow,
                 ),
               ),
+            ),
+          if (_hideSystemStatus)
+            Positioned(
+              left: MediaQuery.viewPaddingOf(context).left + 26,
+              right: MediaQuery.viewPaddingOf(context).right + 26,
+              top: 0,
+              child: const ReaderStatusFooter(),
             ),
         ],
       ),
@@ -5501,15 +6517,17 @@ class _ReaderPageState extends State<ReaderPage>
             widget.state.fontSize;
         // Scroll offsets are relative to the inset, clipped viewport, not the
         // status bar. Keep that band clear even after all glass is hidden.
-        _readingInset = FrostedHeader.toolbarHeight + 12;
-        final content = snapshot.data?.content;
-        final ready =
-            snapshot.connectionState == ConnectionState.done && content != null;
+        _readingInset = _scrollReadingInset(prefs);
+        final content = _currentContent;
+        final ready = content != null;
         final failed =
             snapshot.connectionState == ConnectionState.done &&
             (snapshot.hasError || snapshot.data?.error != null);
         _ready = ready;
-        if (ready) _restoreAfterLayout();
+        if (ready) {
+          _restoreAfterLayout();
+          _scheduleChromeHint();
+        }
         final paragraphs = ready ? content.paragraphs : const <String>[];
         _paragraphCount = paragraphs.length;
         // Pagination must measure the exact resolved style that Text paints,
@@ -5519,9 +6537,7 @@ class _ReaderPageState extends State<ReaderPage>
         final paragraphStyle = DefaultTextStyle.of(context).style
             .merge(
               TextStyle(
-                fontFamily:
-                    widget.state.appTypeface.family ??
-                    Theme.of(context).textTheme.bodyMedium?.fontFamily,
+                fontFamily: widget.state.readerFontFamily ?? 'Roboto',
                 fontSize: widget.state.fontSize,
                 height: widget.state.lineHeight,
                 letterSpacing: .1,
@@ -5529,15 +6545,33 @@ class _ReaderPageState extends State<ReaderPage>
               ),
             )
             .copyWith(inherit: false);
+        final rowSpec = (
+          content,
+          _contentGeneration,
+          paragraphStyle,
+          prefs.indent,
+          prefs.justify,
+          prefs.paragraphGap,
+          widget.state.fontSize,
+          _listening,
+          _chapterRevealFirst,
+          _illustrationsRefreshing,
+          widget.state.reduceMotion,
+        );
+        if (_paragraphWidgetSpec != rowSpec) {
+          _paragraphWidgetSpec = rowSpec;
+          _paragraphWidgets.clear();
+        }
         final safe = MediaQuery.viewPaddingOf(context);
         final pagedPadding = EdgeInsets.fromLTRB(
-          prefs.margin + safe.left,
-          safe.top + (_chromeReserved ? FrostedHeader.toolbarHeight + 12 : 8),
-          prefs.margin + safe.right,
+          prefs.leftMargin + safe.left,
+          (prefs.hideSystemStatus ? _systemStatusExtent(context) : safe.top) +
+              prefs.marginTop +
+              (_chromeReserved ? FrostedHeader.toolbarHeight + 4 : 0),
+          prefs.rightMargin + safe.right,
           safe.bottom +
-              (_chromeReserved
-                  ? 78 + (_jumpHistory.isNotEmpty || _autoPaused ? 64 : 0)
-                  : 8),
+              (_chromeReserved ? 70 + (_autoPaused ? 64 : 0) : 0) +
+              prefs.marginBottom,
         );
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: novelSystemUiStyle(
@@ -5553,7 +6587,7 @@ class _ReaderPageState extends State<ReaderPage>
                       padding: pagedPadding,
                       style: paragraphStyle,
                       vertical: prefs.mode == ReaderMode.vertical,
-                      margin: prefs.margin,
+                      margin: prefs.bindingMargin,
                     )
                   : _paginated && ready
                   ? ReaderPagedView(
@@ -5569,6 +6603,7 @@ class _ReaderPageState extends State<ReaderPage>
                       onReady: _pagedReady,
                       onChanged: _saveWhenIdle,
                       onUserScroll: () {
+                        _cancelExitRequest();
                         _stopAutoScroll();
                         _suspendListeningFollow(userDrag: true);
                         _clearBookmarkLanding();
@@ -5582,6 +6617,10 @@ class _ReaderPageState extends State<ReaderPage>
                           if (notification is ScrollStartNotification) {
                             _idleSave?.cancel();
                             if (notification.dragDetails != null) {
+                              _cancelExitRequest();
+                              _scrollGesture = true;
+                              _edgeDrag = 0;
+                              _scrollDirection = 0;
                               _stopAutoScroll();
                               _suspendListeningFollow(userDrag: true);
                               _clearBookmarkLanding();
@@ -5590,26 +6629,55 @@ class _ReaderPageState extends State<ReaderPage>
                               _restoring = false;
                               _revealChapter();
                             }
+                          } else if (notification is ScrollUpdateNotification &&
+                              _scrollGesture) {
+                            final delta = notification.scrollDelta ?? 0;
+                            if (delta.abs() > .1) {
+                              _scrollDirection = delta.sign.toInt();
+                            }
+                          } else if (notification is OverscrollNotification &&
+                              notification.dragDetails != null &&
+                              _scrollGesture) {
+                            _edgeDrag += notification.overscroll;
+                            if (_edgeDrag.abs() > 40) {
+                              _continueChapter(_edgeDrag > 0 ? 1 : -1);
+                            }
                           } else if (notification is ScrollEndNotification) {
                             // A new drag stops the old fling and emits scroll-end
                             // inside its input callback. Do no anchor/storage work in
                             // that callback; save only after genuine, stable idle.
                             _saveWhenIdle();
+                            if (_scrollGesture &&
+                                _scrollDirection > 0 &&
+                                notification.metrics.extentAfter <= .5) {
+                              _continueChapter(1);
+                            }
+                            _scrollGesture = false;
                           }
                         }
                         return false;
                       },
                       child: Padding(
                         padding: EdgeInsets.only(
-                          top: safe.top,
+                          top:
+                              (prefs.hideSystemStatus
+                                  ? _systemStatusExtent(context)
+                                  : safe.top) +
+                              prefs.marginTop,
                           left: safe.left,
                           right: safe.right,
+                          bottom:
+                              safe.bottom +
+                              (prefs.hideSystemStatus ? 0 : prefs.marginBottom),
                         ),
                         child: ClipRect(
                           key: const ValueKey('reader-scroll-safe-viewport'),
                           child: CustomScrollView(
                             key: const ValueKey('reader-scroll'),
                             controller: _scroll,
+                            physics: const ClampingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics(),
+                            ),
                             cacheExtent:
                                 (MediaQuery.sizeOf(context).height * .75).clamp(
                                   250.0,
@@ -5618,9 +6686,11 @@ class _ReaderPageState extends State<ReaderPage>
                             slivers: [
                               SliverPadding(
                                 padding: EdgeInsets.fromLTRB(
-                                  prefs.margin,
-                                  FrostedHeader.toolbarHeight + 24,
-                                  prefs.margin,
+                                  prefs.leftMargin,
+                                  prefs.hideSystemStatus
+                                      ? 16
+                                      : FrostedHeader.toolbarHeight + 16,
+                                  prefs.rightMargin,
                                   28,
                                 ),
                                 sliver: SliverToBoxAdapter(
@@ -5630,7 +6700,7 @@ class _ReaderPageState extends State<ReaderPage>
                                     children: [
                                       Row(
                                         children: [
-                                          Text(
+                                          AppText(
                                             '第 ${_chapter + 1} 章',
                                             style: TextStyle(
                                               color: prefs
@@ -5655,8 +6725,11 @@ class _ReaderPageState extends State<ReaderPage>
                                         ],
                                       ),
                                       const SizedBox(height: 12),
-                                      Text(
+                                      AppText(
                                         chapter.title,
+                                        key: const ValueKey(
+                                          'reader-chapter-title',
+                                        ),
                                         style: TextStyle(
                                           color: prefs.foreground(dark),
                                           fontSize: 23,
@@ -5671,113 +6744,150 @@ class _ReaderPageState extends State<ReaderPage>
                                 SliverToBoxAdapter(
                                   child: Column(
                                     children: [
-                                      const Text('章节加载失败'),
+                                      const AppText('章节加载失败'),
                                       GlassTextButton(
                                         onPressed: () => setState(() {
                                           _content = _loadContent();
                                         }),
-                                        child: const Text('重试'),
+                                        child: const AppText('重试'),
                                       ),
                                     ],
                                   ),
                                 )
                               else if (!ready)
-                                const SliverPadding(
-                                  padding: EdgeInsets.symmetric(horizontal: 26),
-                                  sliver: SliverToBoxAdapter(
+                                SliverPadding(
+                                  padding: EdgeInsets.only(
+                                    left: prefs.leftMargin,
+                                    right: prefs.rightMargin,
+                                  ),
+                                  sliver: const SliverToBoxAdapter(
                                     child: ReaderSkeleton(),
                                   ),
                                 )
                               else ...[
                                 SliverPadding(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: prefs.margin,
+                                  padding: EdgeInsets.only(
+                                    left: prefs.leftMargin,
+                                    right: prefs.rightMargin,
                                   ),
-                                  sliver: SliverList.builder(
-                                    addAutomaticKeepAlives: false,
-                                    itemCount: paragraphs.length,
-                                    itemBuilder: (context, index) => ReaderParagraph(
-                                      key: ValueKey(
-                                        'paragraph-anchor-$_contentGeneration-$index',
-                                      ),
-                                      registry: _paragraphRegistry,
-                                      index: index,
-                                      textOffset: prefs.indent ? 2 : 0,
-                                      child: LoadedContentItem(
+                                  sliver: ReaderScrollSliver(
+                                    anchor: _scrollAnchor,
+                                    itemCount:
+                                        content.readingOrder?.length ??
+                                        paragraphs.length,
+                                    itemBuilder: (context, row) {
+                                      final index =
+                                          content.readingOrder?[row] ?? row;
+                                      // A bounded LRU retains nearby widget
+                                      // descriptions, not eager render objects.
+                                      // Chrome and behavior-only changes reuse
+                                      // the exact mounted prose subtree.
+                                      if (_paragraphWidgets.remove(index)
+                                          case final cached?) {
+                                        _paragraphWidgets[index] = cached;
+                                        return cached;
+                                      }
+                                      final child = ReaderParagraph(
                                         key: ValueKey(
-                                          'reader-paragraph-reveal-$index',
+                                          'paragraph-anchor-$_contentGeneration-$index',
                                         ),
-                                        index: index - _chapterRevealFirst,
-                                        animation: _chapterReveal,
-                                        placeholder: const LoadingSkeleton(
-                                          layout: SkeletonLayout.reader,
-                                        ),
-                                        child: Padding(
-                                          padding: EdgeInsets.only(
-                                            bottom: prefs.paragraphGap,
+                                        registry: _paragraphRegistry,
+                                        index: index,
+                                        textOffset: prefs.indent
+                                            ? readerIndentLength
+                                            : 0,
+                                        child: LoadedContentItem(
+                                          key: ValueKey(
+                                            'reader-paragraph-reveal-$index',
                                           ),
-                                          child: ValueListenableBuilder<int?>(
-                                            valueListenable: _bookmarkLanding,
-                                            child: _listening == null
-                                                ? _paragraphContent(
-                                                    paragraphs,
-                                                    index,
-                                                    paragraphStyle,
-                                                  )
-                                                : ListeningParagraphHighlight(
-                                                    controller: _listening!,
-                                                    novelId: widget.novel.id,
-                                                    chapter: _chapter,
-                                                    paragraph: index,
-                                                    onDoubleTap: () =>
-                                                        _doubleTapListeningParagraph(
-                                                          index,
-                                                        ),
-                                                    interactive:
-                                                        readerIllustrationUrl(
-                                                              paragraphs[index],
-                                                            ) ==
-                                                            null &&
-                                                        paragraphs[index]
-                                                                .trim() !=
-                                                            '[插图]' &&
-                                                        hasSpeechText(
-                                                          paragraphs[index],
-                                                        ),
-                                                    child: _paragraphContent(
+                                          index: row - _chapterRevealFirst,
+                                          animation: _chapterReveal,
+                                          placeholder: const LoadingSkeleton(
+                                            layout: SkeletonLayout.reader,
+                                          ),
+                                          child: Padding(
+                                            padding: EdgeInsets.only(
+                                              bottom: prefs.paragraphGap,
+                                            ),
+                                            child: ValueListenableBuilder<int?>(
+                                              valueListenable: _bookmarkLanding,
+                                              child: _listening == null
+                                                  ? _paragraphContent(
                                                       paragraphs,
                                                       index,
                                                       paragraphStyle,
+                                                    )
+                                                  : ListeningParagraphHighlight(
+                                                      controller: _listening!,
+                                                      novelId: widget.novel.id,
+                                                      chapter: _chapter,
+                                                      paragraph: index,
+                                                      onDoubleTap: () =>
+                                                          _doubleTapListeningParagraph(
+                                                            index,
+                                                          ),
+                                                      interactive:
+                                                          readerIllustrationUrl(
+                                                                paragraphs[index],
+                                                              ) ==
+                                                              null &&
+                                                          paragraphs[index]
+                                                                  .trim() !=
+                                                              '[插图]' &&
+                                                          hasSpeechText(
+                                                            paragraphs[index],
+                                                          ),
+                                                      child: _paragraphContent(
+                                                        paragraphs,
+                                                        index,
+                                                        paragraphStyle,
+                                                      ),
                                                     ),
-                                                  ),
-                                            builder:
-                                                (
-                                                  context,
-                                                  selected,
-                                                  child,
-                                                ) => selected == index
-                                                ? ReaderLandingHighlight(
-                                                    key: ValueKey(
-                                                      'bookmark-landing-$index',
-                                                    ),
-                                                    reduceMotion: widget
-                                                        .state
-                                                        .reduceMotion,
-                                                    child: child!,
-                                                  )
-                                                : child!,
+                                              builder:
+                                                  (
+                                                    context,
+                                                    selected,
+                                                    child,
+                                                  ) => selected == index
+                                                  ? ReaderLandingHighlight(
+                                                      key: ValueKey(
+                                                        'bookmark-landing-$index',
+                                                      ),
+                                                      reduceMotion: widget
+                                                          .state
+                                                          .reduceMotion,
+                                                      child: child!,
+                                                    )
+                                                  : child!,
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                    ),
+                                      );
+                                      final result =
+                                          content.inlineOwners.containsKey(
+                                            index,
+                                          )
+                                          ? _paragraphContent(
+                                              paragraphs,
+                                              index,
+                                              paragraphStyle,
+                                            )
+                                          : child;
+                                      if (_paragraphWidgets.length >= 96) {
+                                        _paragraphWidgets.remove(
+                                          _paragraphWidgets.keys.first,
+                                        );
+                                      }
+                                      return _paragraphWidgets[index] = result;
+                                    },
                                   ),
                                 ),
                                 SliverPadding(
                                   padding: EdgeInsets.only(
                                     top: 48,
-                                    bottom:
-                                        MediaQuery.paddingOf(context).bottom +
-                                        116,
+                                    bottom: prefs.hideSystemStatus
+                                        ? 32 + prefs.marginBottom
+                                        : 108,
                                   ),
                                   sliver: SliverToBoxAdapter(
                                     child: Column(
@@ -5791,7 +6901,7 @@ class _ReaderPageState extends State<ReaderPage>
                                           ),
                                         ),
                                         const SizedBox(height: 16),
-                                        Text(
+                                        AppText(
                                           '本章完',
                                           style: TextStyle(
                                             color: prefs
@@ -5802,15 +6912,12 @@ class _ReaderPageState extends State<ReaderPage>
                                         const SizedBox(height: 12),
                                         if (_chapter + 1 <
                                             widget.novel.chapters.length)
-                                          GlassTextButton(
-                                            key: const ValueKey(
-                                              'reader-end-next',
-                                            ),
-                                            onPressed: () => _go(_chapter + 1),
-                                            child: const Text('继续下一章'),
+                                          const AppText(
+                                            '继续向下阅读下一章',
+                                            style: TextStyle(fontSize: 12),
                                           )
                                         else
-                                          Text(
+                                          AppText(
                                             '已读至当前目录末章',
                                             style: TextStyle(
                                               fontSize: 12,
@@ -5836,8 +6943,9 @@ class _ReaderPageState extends State<ReaderPage>
     ),
   );
 
-  Future<void> _settings({bool bookmarks = false}) async {
-    if (_toolsOpen || _catalogueOpen || _findOpen || _listeningOpen) return;
+  Future<void> _settings({bool bookmarks = false, String? initialTab}) async {
+    _cancelExitRequest();
+    if (_toolsOpen || _catalogueOpen || _findOpen) return;
     _selection.clear();
     _stopAutoScroll();
     _toolsOpen = true;
@@ -5845,6 +6953,7 @@ class _ReaderPageState extends State<ReaderPage>
     _followScroll.cancel();
     final position = _currentPosition();
     final preview = ValueNotifier(false);
+
     try {
       final action = await showJellySheet<ReaderToolAction>(
         context: context,
@@ -5867,55 +6976,85 @@ class _ReaderPageState extends State<ReaderPage>
             _typographyPreviewing = value;
             preview.value = value;
           },
-          onReset: () => _applyTypography(fontSize: 19, lineHeight: 1.72),
+          onReset: () {
+            _applyTypography(fontSize: 19, lineHeight: 1.72);
+            _applyReaderPreferences(
+              widget.state.readerPreferences.copyWith(
+                margin: 26,
+                marginTop: 8,
+                marginBottom: 8,
+                paragraphGap: 12,
+                indent: false,
+                justify: false,
+              ),
+              true,
+            );
+          },
           initialBookmarks: bookmarks,
+          initialTab: initialTab,
+          listeningBuilder: _listening == null
+              ? null
+              : (_) => ListeningPanel(
+                  controller: _listening!,
+                  novel: widget.novel,
+                  chapter: _chapter,
+                  paragraph: position?.paragraphIndex ?? 0,
+                  embedded: true,
+                ),
           onPreferencesChanged: _applyReaderPreferences,
+          onIllustrations: isLocalBook(widget.novel.id)
+              ? null
+              : () => Navigator.pop(context, const ReaderOpenIllustrations()),
         ),
       );
       if (!mounted) return;
-      switch (action) {
-        case ReaderEnterFocus():
-          _showChrome(false);
-        case ReaderSeekProgress(:final fraction):
-          await _seekProgress(fraction);
-        case ReaderOpenBookmark(:final bookmark):
-          final chapter = widget.state.chapterForPosition(
-            widget.novel,
-            bookmark.position,
-          );
-          if (chapter != null) {
-            _go(
-              chapter,
-              position: bookmark.position,
-              highlightBookmark: true,
-              remember: true,
-            );
-          }
-        case ReaderOpenFind():
-          // The settings surface has fully collapsed before opening the next.
-          _toolsOpen = false;
-          await _findInChapter();
-        case ReaderStartAutoScroll():
-          _toolsOpen = false;
-          _startAutoScroll();
-        case null:
-          break;
-      }
+      await _handleReaderAction(action);
     } finally {
       _toolsOpen = false;
       _typographyPreviewing = false;
       preview.dispose();
+      _listeningTarget = null;
+      if (mounted) _listeningChanged();
       _savePosition(notify: false);
     }
   }
 
+  Future<void> _handleReaderAction(ReaderToolAction? action) async {
+    switch (action) {
+      case ReaderEnterFocus():
+        _showChrome(false);
+      case ReaderSeekProgress(:final fraction):
+        await _seekProgress(fraction);
+      case ReaderOpenBookmark(:final bookmark):
+        final chapter = widget.state.chapterForPosition(
+          widget.novel,
+          bookmark.position,
+        );
+        if (chapter != null) {
+          _go(chapter, position: bookmark.position, highlightBookmark: true);
+        }
+      case ReaderOpenFind():
+        // The settings surface has fully collapsed before opening the next.
+        _toolsOpen = false;
+        await _findInChapter();
+      case ReaderStartAutoScroll():
+        _toolsOpen = false;
+        _startAutoScroll();
+      case ReaderOpenIllustrations():
+        _toolsOpen = false;
+        await _openIllustrationLayout();
+      case null:
+        break;
+    }
+  }
+
   Future<void> _findInChapter() async {
+    _cancelExitRequest();
     final content = _currentContent;
     if (!_ready ||
         content == null ||
         _findOpen ||
         _toolsOpen ||
-        _listeningOpen ||
         _catalogueOpen) {
       return;
     }
@@ -5932,7 +7071,6 @@ class _ReaderPageState extends State<ReaderPage>
         builder: (_) => ReaderFindPanel(content: content),
       );
       if (!mounted || match == null || generation != _contentGeneration) return;
-      _recordJump();
       _highlightTimer?.cancel();
       _findMatch.value = match;
       // A manual drag can interrupt lazy positioning before it completes.

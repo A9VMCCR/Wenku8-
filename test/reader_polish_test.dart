@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/reader_panels.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/library_state.dart';
@@ -238,19 +239,11 @@ void main({
       await fixture.settleReader(tester);
       final sheet = find.byType(GlassOverlaySurface);
       final panel = tester.getRect(sheet);
-      final choices = [
-        for (final mode in ReaderMode.values)
-          tester.getRect(key('reader-mode-${mode.name}')),
-      ];
+      final choice = tester.getRect(key('reader-mode-vertical'));
       await tester.tap(key('reader-mode-vertical'));
       await fixture.settleReader(tester);
       expect(tester.getRect(sheet), panel);
-      for (var i = 0; i < choices.length; i++) {
-        expect(
-          tester.getRect(key('reader-mode-${ReaderMode.values[i].name}')),
-          choices[i],
-        );
-      }
+      expect(tester.getRect(key('reader-mode-vertical')), choice);
       final slider = key('reader-font-slider');
       await tester.ensureVisible(slider);
       await tester.pumpAndSettle();
@@ -302,7 +295,7 @@ void main({
         outputFactory: (_) async => FakeListeningOutput(),
       );
       final boundary = await showReader(tester, state, listening: listening);
-      await tester.tap(control('听书'));
+      await openReaderPanel(tester, tab: '听书');
       await fixture.settleReader(tester);
       final sheet = find.byType(GlassOverlaySurface);
       final panel = tester.getRect(sheet);

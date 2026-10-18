@@ -10,6 +10,8 @@ import 'reader_reflow.dart';
 import 'reader_turn_motion.dart';
 import 'reader_illustrations.dart';
 import 'reader_page_anchor.dart';
+import 'reader_page_physics.dart';
+import 'reader_sheet_motion.dart';
 
 TextStyle _chapterHeadingStyle(TextStyle style) => style.copyWith(
   fontSize: 13,
@@ -90,8 +92,7 @@ class ReaderPagedController {
                     pagesPerSpread -
                 owner._leadingPages,
     );
-    // A jump can add the return-position row in this frame, changing the
-    // readable viewport. Carry the requested fraction through that one reflow.
+    // Keep the requested fraction through any coalesced viewport reflow.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (owner.mounted && !owner._layingOut) owner._pendingFraction = null;
     });
@@ -131,7 +132,7 @@ class ReaderPageSkeleton extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
+        AppText(
           title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -164,7 +165,6 @@ class ReaderPageSkeleton extends StatelessWidget {
             },
           ),
         ),
-        const SizedBox(height: 20),
       ],
     ),
   );
@@ -186,6 +186,7 @@ class ReaderPagedView extends StatefulWidget {
     required this.onBoundary,
     this.position,
     this.reduceMotion = false,
+    this.showPageCount = true,
   });
   final ReaderContent content;
   final ReaderPreferences preferences;
@@ -198,6 +199,7 @@ class ReaderPagedView extends StatefulWidget {
   final ValueChanged<int> onBoundary;
   final ReadingPosition? position;
   final bool reduceMotion;
+  final bool showPageCount;
   @override
   State<ReaderPagedView> createState() => _ReaderPagedViewState();
 }
@@ -240,7 +242,6 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
   double _modeDirection = 1;
   ReaderMode? _publishedMode;
   Offset _originDelta = Offset.zero;
-  double _bottomDelta = 0;
   EdgeInsets? _publishedPadding;
   TextStyle? _publishedStyle;
   late TextStyle _layoutStyle;
@@ -261,6 +262,10 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
   final _pageBodies = <int, Widget>{};
   final _textLayout = ReaderTextLayoutCache();
   ReaderLeaf? get _leaf => _pagination?.pages[_page];
+  bool get _motionEnabled =>
+      !widget.reduceMotion && !MediaQuery.disableAnimationsOf(context);
+  ReaderPageEffect get _effect =>
+      _motionEnabled ? widget.preferences.pageEffect : ReaderPageEffect.none;
   EdgeInsets get _pageInsets => EdgeInsets.only(
     left: (_publishedPadding ?? widget.padding).left,
     right: (_publishedPadding ?? widget.padding).right,
@@ -270,6 +275,12 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
     _bookLayout!.viewport.height,
   );
   int get _perSpread => _bookLayout?.count ?? 1;
+  double get _reflowOverflow =>
+      _previousSize == null || _bookReconfiguration || _modeReconfiguration
+      ? 0
+      : ((_previousLeafSize?.height ?? 0) - (_pagination?.size.height ?? 0))
+                .clamp(0.0, double.infinity) +
+            _originDelta.dy.abs();
   int get _spreadCount =>
       (((_pagination?.pages.length ?? 0) + _leadingPages) / _perSpread).ceil();
   int _spreadFor(int page) => (page + _leadingPages) ~/ _perSpread;
@@ -390,9 +401,7 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
       widget.onChanged();
       return;
     }
-    if (animate &&
-        !widget.reduceMotion &&
-        !MediaQuery.disableAnimationsOf(context)) {
+    if (animate && _effect != ReaderPageEffect.none) {
       setState(() {
         _swipeOrigin ??= current.round();
         _programmaticTurn = true;
@@ -402,7 +411,7 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
       unawaited(
         pager.animateToPage(
           destination,
-          duration: ReaderTurnScope.duration,
+          duration: _effect.duration,
           curve: Curves.linear,
         ),
       );
@@ -422,8 +431,7 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
     final origin = _swipeOrigin, position = metrics.page;
     if (origin == null ||
         position == null ||
-        widget.reduceMotion ||
-        MediaQuery.disableAnimationsOf(context)) {
+        _effect == ReaderPageEffect.none) {
       return;
     }
     final delta = position - origin;
@@ -531,12 +539,16 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
         _pagination != null && _bookLayout?.key != bookLayout.key;
     final modeChanged =
         _publishedMode != null && _publishedMode != preferences.mode;
+    final bookReconfiguration =
+        viewportChanged &&
+        (_bookLayout?.count != bookLayout.count ||
+            _pagination?.size.width != result.size.width);
     final animate =
         !widget.reduceMotion && !MediaQuery.disableAnimationsOf(context);
     final modeDirection = (_publishedMode?.index ?? 0) < preferences.mode.index
         ? 1.0
         : -1.0;
-    Widget? previous = animate && (viewportChanged || modeChanged)
+    Widget? previous = animate && (bookReconfiguration || modeChanged)
         ? _spreadBody(
             _spreadFor(_page),
             reflow: false,
@@ -557,10 +569,6 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
     final previousLeaves = [
       for (final i in _visiblePages) _pagination!.pages[i],
     ];
-    final bookReconfiguration =
-        viewportChanged &&
-        (_bookLayout?.count != bookLayout.count ||
-            _pagination?.size.width != result.size.width);
     final previousPadding = _publishedPadding ?? padding;
     _turn.stop();
     _swipeOrigin = null;
@@ -578,7 +586,6 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
       _bookLayout = bookLayout;
       _leadingPages = leadingPages;
       _originDelta = Offset(0, previousPadding.top - padding.top);
-      _bottomDelta = padding.bottom - previousPadding.bottom;
       _publishedPadding = padding;
       _publishedStyle = style;
       _publishedPreferences = preferences.layoutKey;
@@ -699,7 +706,11 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
                   ? -1
                   : 1)
             : _turnDirection,
-        enabled: turn && (spread == _turnSpread || outgoing || entering),
+        enabled:
+            turn &&
+            (entering ||
+                _effect == ReaderPageEffect.staggered &&
+                    (spread == _turnSpread || outgoing)),
         outgoing: outgoing,
         relay: !entering && (outgoing || spread == _turnSpread),
         vertical:
@@ -717,6 +728,7 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
       child: ReaderBookSpread(
         key: ValueKey('reader-book-spread-$spread'),
         layout: layout,
+        verticalOverflow: _reflowOverflow,
         rightToLeft:
             (mode ?? _publishedMode ?? widget.preferences.mode) ==
             ReaderMode.vertical,
@@ -725,19 +737,17 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
     );
   }
 
-  Widget _edgeText(Widget child, {bool bottom = false}) => AnimatedBuilder(
+  Widget _edgeText(Widget child) => AnimatedBuilder(
     animation: _arrival,
     child: child,
     builder: (context, child) {
       final published = _publishedPadding;
       final pending = published != null && published != widget.padding;
       final delta = pending
-          ? bottom
-                ? widget.padding.bottom - published.bottom
-                : published.top - widget.padding.top
+          ? published.top - widget.padding.top
           : _previousSize == null
           ? 0.0
-          : (bottom ? _bottomDelta : _originDelta.dy) *
+          : _originDelta.dy *
                 (1 - Curves.easeOutCubic.transform(_arrival.value));
       return Transform.translate(offset: Offset(0, delta), child: child);
     },
@@ -759,11 +769,37 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
                 left: widget.padding.left,
                 right: widget.padding.right,
               ),
-              child: Text(
-                widget.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _chapterHeadingStyle(widget.style),
+              child: Row(
+                key: const ValueKey('reader-chapter-location'),
+                children: [
+                  Expanded(
+                    child: AppText(
+                      widget.title,
+                      key: const ValueKey('reader-chapter-title'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _chapterHeadingStyle(widget.style),
+                    ),
+                  ),
+                  if (widget.showPageCount) ...[
+                    const SizedBox(width: 12),
+                    AppText(
+                      _pagination == null
+                          ? ''
+                          : _perSpread == 1
+                          ? '${_page + 1}/${_pagination!.pages.length}页'
+                          : '${_visiblePages.first + 1}–${_visiblePages.last + 1}/${_pagination!.pages.length}页',
+                      key: const ValueKey('reader-page-count'),
+                      maxLines: 1,
+                      textAlign: TextAlign.end,
+                      style: widget.style.copyWith(
+                        fontSize: 11,
+                        height: 1.3,
+                        color: widget.style.color?.withValues(alpha: .55),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
@@ -781,7 +817,7 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
                   ),
                   size.height,
                 ),
-                margin: widget.preferences.margin,
+                margin: widget.preferences.bindingMargin,
                 features: MediaQuery.displayFeaturesOf(context),
                 origin: _bodyOrigin(
                   context,
@@ -813,11 +849,11 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('本章排版失败'),
+                      const AppText('本章排版失败'),
                       GlassTextButton(
                         key: const ValueKey('reader-pagination-retry'),
                         onPressed: () => setState(() => _layoutKey = null),
-                        child: const Text('重试'),
+                        child: const AppText('重试'),
                       ),
                     ],
                   ),
@@ -872,19 +908,19 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
                   }
                   if (notification is ScrollEndNotification &&
                       _swipeOrigin != null) {
-                    _swipeOrigin = null;
-                    _programmaticTurn = false;
-                    _target = _page;
-                    _turn.value = 1;
-                    if (_turnSpread != null) {
-                      setState(() => _turnSpread = null);
-                    }
+                    setState(() {
+                      _swipeOrigin = null;
+                      _programmaticTurn = false;
+                      _target = _page;
+                      _turn.value = 1;
+                      _turnSpread = null;
+                    });
                   }
                   if (notification is OverscrollNotification &&
                       notification.dragDetails != null &&
                       !_crossedBoundary) {
                     _overscroll += notification.overscroll;
-                    if (_overscroll.abs() > 64) {
+                    if (_overscroll.abs() > 36) {
                       _crossedBoundary = true;
                       widget.onBoundary(_overscroll > 0 ? 1 : -1);
                     }
@@ -898,7 +934,16 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
                       (_publishedMode ?? widget.preferences.mode) ==
                       ReaderMode.vertical,
                   clipBehavior: Clip.none,
-                  physics: const ClampingScrollPhysics(),
+                  pageSnapping: false,
+                  physics: ReaderPagePhysics(
+                    // The short-stroke limit belongs to finger gestures. A
+                    // follow/bookmark landing can cross several spreads; its
+                    // final ballistic phase must not snap back to origin + 1.
+                    origin: () => _programmaticTurn ? null : _swipeOrigin,
+                    parent: const ClampingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                  ),
                   itemCount: _spreadCount,
                   onPageChanged: (value) {
                     setState(() {
@@ -917,17 +962,41 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
                   },
                   itemBuilder: (context, index) {
                     final body = _spreadBody(index);
-                    final anchored = ReaderPageAnchor(
-                      offset: Scrollable.of(context).position,
-                      index: index,
-                      reverse:
-                          (_publishedMode ?? widget.preferences.mode) ==
-                          ReaderMode.vertical,
-                      visible: _swipeOrigin == null
-                          ? index == _spreadFor(_page)
-                          : index == _swipeOrigin || index == _turnSpread,
-                      child: body,
-                    );
+                    final incoming = index == _turnSpread;
+                    final turning = _swipeOrigin != null && _turnSpread != null;
+                    final visible =
+                        _effect == ReaderPageEffect.none || _swipeOrigin == null
+                        ? index == _spreadFor(_page)
+                        : index == _swipeOrigin || incoming;
+                    final sheet =
+                        _effect == ReaderPageEffect.cover ||
+                            _effect == ReaderPageEffect.paper
+                        ? ReaderSheetMotion(
+                            animation: _turn,
+                            effect: _effect,
+                            direction: _turnDirection,
+                            incoming: incoming,
+                            front:
+                                incoming ==
+                                ((_turnSpread ?? 0) > (_swipeOrigin ?? 0)),
+                            active: turning,
+                            paper: widget.preferences.background(
+                              Theme.of(context).brightness == Brightness.dark,
+                            ),
+                            child: body,
+                          )
+                        : body;
+                    final anchored = _effect == ReaderPageEffect.slide
+                        ? body
+                        : ReaderPageAnchor(
+                            offset: Scrollable.of(context).position,
+                            index: index,
+                            reverse:
+                                (_publishedMode ?? widget.preferences.mode) ==
+                                ReaderMode.vertical,
+                            visible: visible,
+                            child: sheet,
+                          );
                     return ExcludeSemantics(
                       excluding: index != _spreadFor(_page),
                       child: ReaderPageSelection(
@@ -940,7 +1009,13 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
               );
               final turning = KeyedSubtree(
                 key: const ValueKey('reader-turn-incoming'),
-                child: pageView,
+                child: ClipRect(
+                  clipper: ReaderPageMarginClipper(
+                    _pageInsets,
+                    verticalOverflow: _reflowOverflow,
+                  ),
+                  child: pageView,
+                ),
               );
               final reconfigured = _modeReconfiguration && _previousPage != null
                   ? Stack(
@@ -1014,13 +1089,9 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
                     : _previousSize == null
                     ? Offset.zero
                     : _originDelta,
-                removedTail:
-                    !pendingViewport &&
-                        _previousSize != null &&
-                        !_bookReconfiguration &&
-                        _previousSize!.height > size.height
-                    ? _previousPage
-                    : null,
+                // Each paragraph/vertical column owns its outgoing ink. A
+                // second full-page tail paints the same glyphs twice while
+                // the viewport shrinks, darkening them for one transition.
                 child: OverflowBox(
                   alignment: Alignment.topLeft,
                   minWidth: _frameSize.width,
@@ -1033,32 +1104,6 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
               return viewport;
             },
           ),
-        ),
-        const SizedBox(height: 6),
-        _edgeText(
-          SelectionContainer.disabled(
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: widget.padding.left,
-                right: widget.padding.right,
-              ),
-              child: Text(
-                _pagination == null
-                    ? ''
-                    : _perSpread == 1
-                    ? '本章 ${_page + 1} / ${_pagination!.pages.length} 页'
-                    : '本章 ${_visiblePages.first + 1}–${_visiblePages.last + 1} / ${_pagination!.pages.length} 页',
-                key: const ValueKey('reader-page-count'),
-                textAlign: TextAlign.end,
-                style: widget.style.copyWith(
-                  fontSize: 11,
-                  height: 1.3,
-                  color: widget.style.color?.withValues(alpha: .55),
-                ),
-              ),
-            ),
-          ),
-          bottom: true,
         ),
       ],
     ),

@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
+import 'reader_text.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app_ui.dart';
+import 'app_search_field.dart';
 import 'reader_content.dart';
 
 class ReaderMatch {
@@ -146,14 +148,10 @@ class _ReaderFindPanelState extends State<ReaderFindPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                CupertinoSearchTextField(
-                  key: const ValueKey('reader-find-field'),
+                AppSearchField(
+                  inputKey: const ValueKey('reader-find-field'),
                   controller: _query,
-                  borderRadius: BorderRadius.circular(
-                    ArchiveDesign.panelRadius,
-                  ),
-                  backgroundColor: Theme.of(context).colorScheme.surface,
-                  placeholder: '查找当前章节文字',
+                  hint: '查找当前章节文字',
                   onSubmitted: (_) => _search(),
                 ),
                 const SizedBox(height: 12),
@@ -274,8 +272,12 @@ class ReaderHighlightText extends StatelessWidget {
           selected.paragraph != index ||
           selected.end <= sourceStart ||
           selected.start >= sourceStart + text.length) {
-        return Text(
-          '${indent ? '\u3000\u3000' : ''}$text',
+        return Text.rich(
+          readerParagraphSpan(
+            children: [TextSpan(text: text)],
+            style: style,
+            indent: indent,
+          ),
           key: ValueKey('paragraph-$index'),
           style: style,
           textAlign: textAlign,
@@ -284,9 +286,10 @@ class ReaderHighlightText extends StatelessWidget {
       final start = (selected.start - sourceStart).clamp(0, text.length);
       final end = (selected.end - sourceStart).clamp(start, text.length);
       return Text.rich(
-        TextSpan(
+        readerParagraphSpan(
+          style: style,
+          indent: indent,
           children: [
-            if (indent) const TextSpan(text: '\u3000\u3000'),
             TextSpan(text: text.substring(0, start)),
             TextSpan(
               text: text.substring(start, end),

@@ -92,7 +92,7 @@ class BookCommunityActions extends StatelessWidget {
             onPressed: features.account.busy
                 ? null
                 : () => _mutate(context, features.account, false),
-            child: const Text('云端收藏'),
+            child: const AppText('云端收藏'),
           ),
           GlassTextButton(
             key: const ValueKey('detail-recommend'),
@@ -100,12 +100,12 @@ class BookCommunityActions extends StatelessWidget {
             onPressed: features.account.busy
                 ? null
                 : () => _mutate(context, features.account, true),
-            child: const Text('推荐作品'),
+            child: const AppText('推荐作品'),
           ),
           GlassTextButton(
             key: const ValueKey('detail-reviews'),
             compact: true,
-            child: const Text('书评'),
+            child: const AppText('评论'),
             onPressed: () => pushNovelPage<void>(
               context,
               WenkuReviewsPage(
@@ -120,7 +120,7 @@ class BookCommunityActions extends StatelessWidget {
           GlassTextButton(
             key: const ValueKey('detail-share'),
             compact: true,
-            child: const Text('分享'),
+            child: const AppText('分享'),
             onPressed: () => _share(context),
           ),
         ];
@@ -220,6 +220,7 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
       reduceMotion: widget.state.reduceMotion,
     );
     if (mounted && posted == true) {
+      showNovelFeedback(context, widget.thread == null ? '评论已发表' : '回复已发表');
       widget.onPosted?.call();
       unawaited(_feed.load(refresh: true));
     }
@@ -263,7 +264,7 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
 
   @override
   Widget build(BuildContext context) => ArchiveFeaturePage(
-    title: widget.thread?.title ?? '作品书评',
+    title: widget.thread?.title ?? '作品评论',
     code: widget.thread == null
         ? 'REVIEW / ${ArchiveDesign.fileCode(widget.novel.id)}'
         : 'THREAD / ${widget.thread!.id}',
@@ -307,35 +308,43 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text(
-                            widget.thread?.title ?? widget.novel.title,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (widget.thread != null) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              widget.novel.title,
-                              style: TextStyle(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
+                          Row(
+                            children: [
+                              Expanded(
+                                child: AppText(
+                                  widget.novel.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    height: 1.6,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ],
-                          const SizedBox(height: 12),
-                          GlassTextButton(
-                            key: const ValueKey('review-compose'),
-                            onPressed: _compose,
-                            child: Text(
-                              widget.thread == null ? '写一篇书评' : '回复这条书评',
-                            ),
+                              const SizedBox(width: 12),
+                              GlassTextButton(
+                                key: const ValueKey('review-compose'),
+                                compact: true,
+                                onPressed: _compose,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(CupertinoIcons.pencil, size: 15),
+                                    const SizedBox(width: 6),
+                                    AppText(
+                                      widget.thread == null ? '写评论' : '回复',
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 20),
                           if (_feed.totalPages > 1) ...[
-                            Text('已载入第 ${_feed.page} / ${_feed.totalPages} 页'),
+                            AppText(
+                              '已载入第 ${_feed.page} / ${_feed.totalPages} 页',
+                            ),
                             const SizedBox(height: 12),
                           ],
                         ],
@@ -366,7 +375,7 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
                               onPressed: _feed.requiresLogin
                                   ? _loginToRead
                                   : () => _feed.load(),
-                              child: Text(
+                              child: AppText(
                                 _feed.requiresLogin
                                     ? '登录后继续查看'
                                     : widget.thread == null
@@ -379,7 +388,7 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
                               _feed.items.isEmpty)
                             Padding(
                               padding: EdgeInsets.symmetric(vertical: 60),
-                              child: Text(
+                              child: AppText(
                                 widget.thread == null ? '还没有书评' : '暂时没有内容',
                               ),
                             ),
@@ -388,7 +397,7 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
                               _feed.hasMore)
                             GlassTextButton(
                               onPressed: () => _feed.load(),
-                              child: Text(
+                              child: AppText(
                                 widget.thread == null ? '更多书评' : '更多回复',
                               ),
                             ),
@@ -424,7 +433,7 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
                                 const SizedBox(height: 10),
                               ],
                               if (review.title.isNotEmpty) ...[
-                                Text(
+                                AppText(
                                   review.title,
                                   style: const TextStyle(
                                     fontSize: 16,
@@ -434,13 +443,16 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
                                 const SizedBox(height: 10),
                               ],
                               if (review.content.isNotEmpty) ...[
-                                Text(
+                                AppText(
                                   review.content,
-                                  style: const TextStyle(height: 1.65),
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    height: 1.8,
+                                  ),
                                 ),
                                 const SizedBox(height: 14),
                               ],
-                              Text(
+                              AppText(
                                 '${review.user}  ·  ${review.date}',
                                 style: TextStyle(
                                   fontSize: 12,
@@ -454,7 +466,7 @@ class _WenkuReviewsPageState extends State<WenkuReviewsPage> {
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: Text(
+                                      child: AppText(
                                         '${review.replies} 条回复 · 查看全文',
                                       ),
                                     ),
@@ -627,18 +639,38 @@ class _ReviewComposerPageState extends State<ReviewComposerPage> {
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
     child: ArchiveFeaturePage(
-      title: widget.thread == null ? '撰写书评' : '回复书评',
+      title: widget.thread == null ? '写评论' : '回复评论',
       code: 'REVIEW / COMPOSE',
       canPop: !_busy,
+      actions: [
+        GlassTextButton(
+          key: const ValueKey('review-submit'),
+          compact: true,
+          onPressed: !_loaded || _busy || _posted ? null : _post,
+          child: AppText(
+            _posted
+                ? '已发表'
+                : _busy
+                ? '正在发表'
+                : '发表',
+          ),
+        ),
+      ],
       child: ListView(
         padding: featurePadding(context),
         children: [
-          Text(
+          AppText(
             widget.thread?.title ?? widget.novel.title,
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 12),
-          const Text('草稿自动保存在本机，返回后可继续编辑。提交成功后清除草稿。'),
+          AppText(
+            '草稿自动保存',
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
           const SizedBox(height: 20),
           if (!_loaded)
             const SizedBox(
@@ -655,7 +687,19 @@ class _ReviewComposerPageState extends State<ReviewComposerPage> {
                       controller: _title,
                       enabled: !_busy,
                       maxLength: 60,
-                      decoration: const InputDecoration(labelText: '书评标题'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        height: 1.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: appText(context, '标题'),
+                        filled: false,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
+                      ),
                     ),
                   TextField(
                     key: const ValueKey('review-body'),
@@ -664,7 +708,15 @@ class _ReviewComposerPageState extends State<ReviewComposerPage> {
                     minLines: 8,
                     maxLines: 20,
                     maxLength: 4000,
-                    decoration: const InputDecoration(labelText: '正文'),
+                    style: const TextStyle(fontSize: 14, height: 1.8),
+                    decoration: InputDecoration(
+                      hintText: appText(context, '写下你的想法…'),
+                      filled: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
+                    ),
                   ),
                   FeatureError(_error),
                   if (_busy)
@@ -675,11 +727,6 @@ class _ReviewComposerPageState extends State<ReviewComposerPage> {
                         label: '正在发表',
                       ),
                     ),
-                  GlassTextButton(
-                    key: const ValueKey('review-submit'),
-                    onPressed: _busy || _posted ? null : _post,
-                    child: Text(_posted ? '已发表' : '确认发表'),
-                  ),
                 ],
               ),
             ),

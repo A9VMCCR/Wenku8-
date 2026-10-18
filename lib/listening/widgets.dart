@@ -55,10 +55,12 @@ class ListeningPanel extends StatefulWidget {
     required this.novel,
     required this.chapter,
     this.paragraph = 0,
+    this.embedded = false,
   });
   final ListeningController controller;
   final Novel novel;
   final int chapter, paragraph;
+  final bool embedded;
   @override
   State<ListeningPanel> createState() => _ListeningPanelState();
 }
@@ -108,28 +110,30 @@ class _ListeningPanelState extends State<ListeningPanel> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                const Expanded(
-                  child: ArchiveSection(
-                    title: '听书',
-                    code: 'READER / AUDIO ARCHIVE',
+            if (!widget.embedded) ...[
+              Row(
+                children: [
+                  const Expanded(
+                    child: ArchiveSection(
+                      title: '听书',
+                      code: 'READER / AUDIO ARCHIVE',
+                    ),
                   ),
-                ),
-                GlassIconButton(
-                  icon: CupertinoIcons.xmark,
-                  label: '关闭听书面板',
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text(
+                  GlassIconButton(
+                    icon: CupertinoIcons.xmark,
+                    label: '关闭听书面板',
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+            AppText(
               own && state.active ? state.novel!.title : widget.novel.title,
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 6),
-            Text(
+            AppText(
               '当前音源 · ${switch (state.voice.source) {
                 ListeningSource.system => '系统离线',
                 ListeningSource.custom => '自定义接口',
@@ -141,7 +145,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
               ),
             ),
             const SizedBox(height: 6),
-            Text(
+            AppText(
               own && state.current != null
                   ? '第 ${state.chapter + 1} 章 · ${state.chapterTitle}'
                   : '从第 ${widget.chapter + 1} 章当前段落开始',
@@ -152,12 +156,12 @@ class _ListeningPanelState extends State<ListeningPanel> {
             if (own && state.error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
-                child: Text(state.error!),
+                child: AppText(state.error!),
               ),
             if (own && state.skippedSegments > 0)
               Padding(
                 padding: const EdgeInsets.only(top: 10),
-                child: Text(
+                child: AppText(
                   '已跳过 ${state.skippedSegments} 个未生成语音的语段',
                   style: TextStyle(
                     fontSize: 12,
@@ -169,13 +173,13 @@ class _ListeningPanelState extends State<ListeningPanel> {
               GlassTextButton(
                 key: const ValueKey('listening-skip-segment'),
                 onPressed: () => _act(widget.controller.skipSegment),
-                child: const Text('跳过当前语段'),
+                child: const AppText('跳过当前语段'),
               ),
             if (own && state.current != null) ...[
               const SizedBox(height: 12),
               SizedBox(
                 height: MediaQuery.textScalerOf(context).scale(13) * 1.6 * 2,
-                child: Text(
+                child: AppText(
                   state.current!.text,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -186,7 +190,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                   ),
                 ),
               ),
-              Text(
+              AppText(
                 '语段 ${state.segment + 1} / ${state.segments.length}',
                 style: ArchiveDesign.codeStyle(context),
               ),
@@ -278,7 +282,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                   position: progress.position.inSeconds,
                   duration: progress.duration.inSeconds,
                 ),
-                builder: (context, progress, _) => Text(
+                builder: (context, progress, _) => AppText(
                   state.phase == ListeningPhase.preparing
                       ? '当前语段 · 准备中'
                       : '当前语段 · ${_time(progress.position)} / ${_time(progress.duration)}',
@@ -302,7 +306,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                       paragraph: widget.paragraph,
                     ),
                   ),
-                  child: const Text('从阅读位置听起'),
+                  child: const AppText('从阅读位置听起'),
                 ),
                 if (cursor != null)
                   GlassTextButton(
@@ -314,12 +318,12 @@ class _ListeningPanelState extends State<ListeningPanel> {
                         resume: true,
                       ),
                     ),
-                    child: Text('续听 · 第 ${cursor.chapter + 1} 章'),
+                    child: AppText('续听 · 第 ${cursor.chapter + 1} 章'),
                   ),
               ],
             ),
             if (state.novel != null && !own && state.active)
-              Text(
+              AppText(
                 '另一部作品正在听书，开始后将切换到本书',
                 style: TextStyle(
                   fontSize: 12,
@@ -365,16 +369,16 @@ class _ListeningPanelState extends State<ListeningPanel> {
                 sliderKey: const ValueKey('listening-speed'),
                 label: '语速',
                 value: state.speed,
-                min: .75,
-                max: 2,
-                divisions: 25,
+                min: listeningMinimumSpeed,
+                max: listeningMaximumSpeed,
+                divisions: 50,
                 format: (value) => '${value.toStringAsFixed(2)}×',
                 onCommitted: (value) =>
                     _act(() => widget.controller.setSpeed(value)),
               ),
               Row(
                 children: [
-                  const Expanded(child: Text('跟随朗读段落')),
+                  const Expanded(child: AppText('跟随朗读段落')),
                   AppControls.toggle(
                     context,
                     key: const ValueKey('listening-follow'),
@@ -384,7 +388,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                   ),
                 ],
               ),
-              Text(
+              AppText(
                 '手动滑动会暂停自动跟随；双击其他段落仍会平滑定位，持续跟读可在这里重新开启',
                 style: TextStyle(
                   fontSize: 12,
@@ -393,7 +397,10 @@ class _ListeningPanelState extends State<ListeningPanel> {
                 ),
               ),
               const SizedBox(height: 18),
-              const Text('睡眠定时', style: TextStyle(fontWeight: FontWeight.w600)),
+              const AppText(
+                '睡眠定时',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               Wrap(
                 spacing: 4,
                 children: [
@@ -402,20 +409,20 @@ class _ListeningPanelState extends State<ListeningPanel> {
                       onPressed: () => widget.controller.setSleep(
                         duration: Duration(minutes: minutes),
                       ),
-                      child: Text('$minutes 分钟'),
+                      child: AppText('$minutes 分钟'),
                     ),
                   GlassTextButton(
                     onPressed: () =>
                         widget.controller.setSleep(afterChapter: true),
-                    child: const Text('本章结束'),
+                    child: const AppText('本章结束'),
                   ),
                   GlassTextButton(
                     onPressed: () => widget.controller.setSleep(),
-                    child: const Text('关闭定时'),
+                    child: const AppText('关闭定时'),
                   ),
                 ],
               ),
-              Text(
+              AppText(
                 state.sleepAfterChapter
                     ? '将在本章结束后暂停'
                     : state.sleepUntil != null
@@ -427,7 +434,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                 ),
               ),
               const Divider(height: 28),
-              const Text(
+              const AppText(
                 '音源与音色',
                 style: TextStyle(fontWeight: FontWeight.w600),
               ),
@@ -437,16 +444,16 @@ class _ListeningPanelState extends State<ListeningPanel> {
                 groupValue: source,
                 disabledChildren: const {ListeningSource.system},
                 children: {
-                  ListeningSource.edge: const Text(
+                  ListeningSource.edge: const AppText(
                     '自然在线',
                     textAlign: TextAlign.center,
                   ),
                   if (widget.controller.customSpeech != null)
-                    ListeningSource.custom: const Text(
+                    ListeningSource.custom: const AppText(
                       '自定义',
                       textAlign: TextAlign.center,
                     ),
-                  ListeningSource.system: const Text(
+                  ListeningSource.system: const AppText(
                     '系统离线 · 待开发',
                     textAlign: TextAlign.center,
                   ),
@@ -466,7 +473,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                 },
               ),
               const SizedBox(height: 12),
-              Text(
+              AppText(
                 source == ListeningSource.custom
                     ? '使用你配置的 Microsoft SSML 兼容接口。'
                     : 'Edge 神经网络音色 · 免费，无需登录。未缓存语段需联网生成；已生成语音可直接复用。',
@@ -481,7 +488,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                 GlassTextButton(
                   key: const ValueKey('listening-custom-endpoint'),
                   onPressed: _configureCustom,
-                  child: const Text('配置自定义语音接口'),
+                  child: const AppText('配置自定义语音接口'),
                 ),
               AnimatedOptionSection(
                 expanded: source == ListeningSource.edge,
@@ -504,7 +511,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                             catalog.messageSource == source)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 10),
-                            child: Text(
+                            child: AppText(
                               catalog.message!,
                               style: const TextStyle(fontSize: 12, height: 1.6),
                             ),
@@ -522,7 +529,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                               child: Row(
                                 children: [
                                   Expanded(
-                                    child: Text(
+                                    child: AppText(
                                       voice.label,
                                       style: const TextStyle(fontSize: 13),
                                     ),
@@ -548,7 +555,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                               : () => _act(
                                   () => widget.controller.refreshVoices(),
                                 ),
-                          child: const Text('获取更多在线音色'),
+                          child: const AppText('获取更多在线音色'),
                         ),
                       ],
                     );
@@ -556,7 +563,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
+              AppText(
                 '双击正在朗读的段落可暂停／继续，双击其他文字段落从那里听起。自动跳过插图和纯符号；个别语段合成失败后继续，连续失败时暂停提示。支持锁屏、耳机按键与后台听书。',
                 style: TextStyle(
                   fontSize: 12,
@@ -616,7 +623,7 @@ class _ListeningTransportStatusState extends State<_ListeningTransportStatus> {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(top: 10),
-    child: Text(
+    child: AppText(
       _waiting
           ? '正在缓冲语音…'
           : widget.phase == ListeningPhase.paused

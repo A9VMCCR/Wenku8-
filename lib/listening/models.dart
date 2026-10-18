@@ -7,6 +7,9 @@ enum ListeningSource { edge, system, custom }
 
 enum ListeningPhase { stopped, preparing, playing, paused, completed, failed }
 
+const listeningMinimumSpeed = .5;
+const listeningMaximumSpeed = 3.0;
+
 class SpeechVoice {
   const SpeechVoice({
     required this.id,

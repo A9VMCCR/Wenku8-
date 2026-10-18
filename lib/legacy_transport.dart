@@ -3,6 +3,14 @@ import 'package:flutter/services.dart';
 /// The same v1.30 POST bridge. Account cookies never cross into Dart or backups.
 abstract final class LegacyTransport {
   static const channel = MethodChannel('org.mewx.wenku8/legacy_api');
+  static Future<void> setUpdatePriority(bool enabled) async {
+    try {
+      await channel.invokeMethod<void>('updatePriority', {'enabled': enabled});
+    } on MissingPluginException {
+      // Non-Android clients keep the original transport.
+    }
+  }
+
   static Future<String> request(String action) => _text('request', action);
   static Future<String> accountRequest(String action) =>
       _text('accountRequest', action);
@@ -12,6 +20,12 @@ abstract final class LegacyTransport {
   static Future<String> sessionRead(String action) async =>
       await hasSession() ? accountRequest(action) : request(action);
   static Future<String> login(String action) => _text('login', action);
+  static Future<Uint8List> accountAvatar() async {
+    final bytes = await channel.invokeMethod<Uint8List>('accountAvatar');
+    if (bytes == null || bytes.isEmpty) throw const FormatException('账号暂无头像');
+    return bytes;
+  }
+
   static Future<String> _text(String method, String action) async {
     final text = await channel.invokeMethod<String>(method, {'action': action});
     if (text == null || text.trim().isEmpty) {
@@ -24,6 +38,29 @@ abstract final class LegacyTransport {
       await channel.invokeMethod<bool>('hasSession') ?? false;
   static Future<void> clearSession() =>
       channel.invokeMethod<void>('clearSession');
+  static Future<void> connectPublications(
+    String username,
+    String password,
+  ) async {
+    try {
+      await channel.invokeMethod<void>('webLogin', {
+        'username': username,
+        'password': password,
+      });
+    } on PlatformException catch (failure) {
+      if (failure.code.startsWith('WEB_')) {
+        throw FormatException(failure.message ?? '分类连接未成功');
+      }
+      rethrow;
+    }
+  }
+
+  static Future<String> publicationPage(int library, int page) async =>
+      (await channel.invokeMethod<String>('publicationPage', {
+        'library': library,
+        'page': page,
+      })) ??
+      '';
   static Future<Uint8List> illustration(String url) async {
     final bytes = await channel.invokeMethod<Uint8List>('illustration', {
       'url': url,

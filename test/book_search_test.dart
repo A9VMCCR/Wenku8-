@@ -9,7 +9,6 @@ import 'package:wenku8_flutter/catalog.dart';
 import 'package:wenku8_flutter/library_search_repository.dart';
 import 'package:wenku8_flutter/library_state.dart';
 import 'package:wenku8_flutter/local_books.dart';
-import 'package:wenku8_flutter/local_library_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -77,10 +76,7 @@ void main() {
       addTearDown(store.dispose);
       final bytes = utf8.encode('第一章\n风掠过书页。');
       final book = await store.import(LocalBookInput('银河档案.txt', bytes));
-      final organization = LocalLibraryPreferences(
-        await SharedPreferences.getInstance(),
-      )..load();
-      addTearDown(organization.dispose);
+      final organization = state.organization;
       final category = await organization.addGroup('星际科幻');
       await organization.assign(book.id, category);
       final repository = LibrarySearchRepository(

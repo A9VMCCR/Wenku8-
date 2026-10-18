@@ -27,8 +27,10 @@ class LocalDocumentsFixture extends BookDocuments {
   @override
   Future<Map<String, dynamic>?> info() async => null;
   @override
-  Future<String> decodeText(String path, {String encoding = 'auto'}) =>
-      File(path).readAsString();
+  Future<String> decodeTextFile(
+    String path, {
+    String encoding = 'auto',
+  }) async => (await File(path).copy('$path.decoded')).path;
 }
 
 class FixturePaths extends PathProviderPlatform {
@@ -145,7 +147,11 @@ void main({
   testWidgets(
     'local tab layout has a 10-book threshold and working view/category controls',
     (tester) async {
-      SharedPreferences.setMockInitialValues({'reduceMotion': true});
+      SharedPreferences.setMockInitialValues({
+        'reduceMotion': true,
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+      });
       final state = await LibraryState.load();
       addTearDown(state.dispose);
       final dir = (await tester.runAsync(
@@ -244,7 +250,11 @@ void main({
   testWidgets(
     'home uses one scoped search and local detail edits/deletes preserve reading state',
     (tester) async {
-      SharedPreferences.setMockInitialValues({'reduceMotion': true});
+      SharedPreferences.setMockInitialValues({
+        'reduceMotion': true,
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+      });
       final state = await LibraryState.load();
       addTearDown(state.dispose);
       final dir = (await tester.runAsync(
@@ -367,7 +377,9 @@ void main({
       await tester.pumpAndSettle();
       await tester.tap(delete);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('删除本机原书').last);
+      await tester.tap(find.byKey(const ValueKey('local-remove-files')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除本机文件').last);
       await ioSettle(
         tester,
         until: () => find.byType(LocalBookEditor).evaluate().isEmpty,
@@ -474,6 +486,52 @@ void main({
       );
       expect(leftovers, isEmpty);
       expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'failed archive batch stays retryable and is not marked imported',
+    (tester) async {
+      final dir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('cloud-archive-ui-'),
+      ))!;
+      addTearDown(() => dir.delete(recursive: true));
+      final old = PathProviderPlatform.instance;
+      PathProviderPlatform.instance = FixturePaths(dir.path);
+      addTearDown(() => PathProviderPlatform.instance = old);
+      final settings = CloudSourceSettings(storage: MemoryCloudVault());
+      addTearDown(settings.dispose);
+      var attempts = 0;
+      await mount(
+        tester,
+        CloudBookBrowser(
+          config: davConfig,
+          settings: settings,
+          client: BrowserFixture(),
+          onImport: (_, _) async =>
+              throw StateError('Archive-aware path must be used'),
+          onImportBatch: (name, path) async {
+            attempts++;
+            return attempts == 1
+                ? (imported: 0, failed: 1)
+                : (imported: 2, failed: 0);
+          },
+        ),
+      );
+      await tester.tap(find.text('本机导入一.txt'));
+      await ioSettle(tester);
+      expect(attempts, 1);
+      expect(find.text('已导入'), findsNothing);
+      expect(find.textContaining('1 本未导入'), findsOneWidget);
+      await tester.tap(find.text('本机导入一.txt'));
+      await ioSettle(tester);
+      expect(attempts, 2);
+      expect(find.text('已导入'), findsOneWidget);
+      final leftovers = await tester.runAsync(
+        () => Directory('${dir.path}/cloud-book-import').list().toList(),
+      );
+      expect(leftovers, isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
     },
   );
 }

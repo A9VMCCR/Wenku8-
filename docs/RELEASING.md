@@ -63,8 +63,8 @@ cd android
 ## 发布一个可被应用检测的版本
 
 1. 更新 `pubspec.yaml` 的版本号和更大的 Android 构建号，并同步 `lib/updates/app_updates.dart` 的本版说明与版本常量。
-2. 在 `CHANGELOG.md` 添加对应版本的说明。运行 `python3 tools/prepare_release.py --tag v0.3.4 --notes build/release-notes.md` 可检查当前版本与标签是否一致。
-3. 提交到自己的 Fork 后，推送与版本一致的标签，例如当前版本用 `v0.3.4`。本地整理脚本不会推送。
+2. 在 `CHANGELOG.md` 添加对应版本的说明，并同步 `lib/updates/release_highlights.dart` 的精简摘要与详细分类。详细说明按实际功能、界面与操作、修复和性能分组；按钮或入口迁移要写清位置和使用方式。应用按安装版本名与构建号记录已完成阅读的说明，不依赖联网检查开关。运行 `python3 tools/prepare_release.py --tag v0.3.5 --notes build/release-notes.md` 可检查当前版本与标签是否一致。
+3. 提交到自己的 Fork 后，推送与版本一致的标签，例如当前版本用 `v0.3.5`。本地整理脚本不会推送。
 4. Actions 完成检查和三架构构建，上传 APK / 工程源码并创建 **Draft Release**。先核对签名、工程归档、脱敏与第三方条件，再点击 **Publish release**。
 5. 已安装应用会在下次前台检查时显示新版本；也可以在「关于轻小说文库」立即检查。草稿、预发布和普通 Actions Artifacts 不进入自动更新渠道。
 
@@ -78,6 +78,6 @@ cd android
 
 ### 更新链路回归
 
-`flutter test test/app_updates_test.dart test/app_update_prompt_test.dart` 覆盖并发排除、版本／附件绑定、不可变文件路径、安装授权和失败重试。
+`flutter test test/app_updates_test.dart test/app_update_prompt_test.dart test/release_highlights_test.dart` 覆盖并发排除、版本／附件绑定、不可变文件路径、安装授权和失败重试，以及本版说明优先展示、分页完成记忆与新构建再次展示。
 
 真机测试使用独立的 `.render_probe` 包，不覆盖正式版。`tools/create_update_fixtures.py --sdk "$ANDROID_HOME" --output build/update-fixtures` 可生成调试签名的微型 APK；将输出放入测试包的 `files/update-fixtures/` 后，以 `fixture=update` 运行 `SessionFixtureInstrumentation`，核对真实包解析与 FileProvider 读取的版本。`integration_test/update_install_probe.dart` 可作为 debug 入口构建（版本覆盖为 `0.3.3+35`），通过真实的更新页操作完成 `0.3.4+36` 安装验证。该入口只接受隔离测试包；正式构建仍使用 `lib/main.dart`。

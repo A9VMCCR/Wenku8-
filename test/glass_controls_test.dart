@@ -377,21 +377,23 @@ void main({
           outputFactory: (_) async => FakeListeningOutput(),
         );
         final boundary = GlobalKey();
-        Widget screen(Widget child) => MaterialApp(
-          debugShowCheckedModeBanner: false,
-          theme: novelTheme(brightness),
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: const TextScaler.linear(1.5)),
-            child: child!,
-          ),
-          home: RepaintBoundary(
-            key: boundary,
-            child: Scaffold(body: child),
+        Widget screen(Widget child) => RepaintBoundary(
+          key: boundary,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: novelTheme(brightness),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.5)),
+              child: child!,
+            ),
+            home: Scaffold(body: child),
           ),
         );
         await tester.pumpWidget(screen(SettingsPage(state: state)));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('settings-usage-entry')));
         await tester.pumpAndSettle();
         final offline = find.byKey(const ValueKey('settings-adapt-offline'));
         await tester.ensureVisible(offline);
@@ -403,6 +405,8 @@ void main({
           false,
         );
         await snapshot(tester, boundary, 'settings-glass-${brightness.name}');
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
         await tester.pumpWidget(
           screen(
             ListeningPanel(

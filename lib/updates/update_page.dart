@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../app_interactions.dart';
 import '../app_ui.dart';
 import 'app_updates.dart';
+import 'release_highlights.dart';
 
 class AppUpdatesScope extends InheritedNotifier<AppUpdates> {
   const AppUpdatesScope({
@@ -88,6 +89,7 @@ class _AppUpdateMonitorState extends State<AppUpdateMonitor>
   Timer? _timer;
   bool _pendingForegroundCheck = true;
   bool _promptQueued = false, _promptOpen = false;
+  String? _notesPresentedKey;
   @override
   void initState() {
     super.initState();
@@ -128,8 +130,30 @@ class _AppUpdateMonitorState extends State<AppUpdateMonitor>
     final navigation = widget.navigation;
     if (_promptOpen ||
         lifecycle != null && lifecycle != AppLifecycleState.resumed ||
-        navigation?.ready != true ||
-        !service.autoCheck ||
+        navigation?.ready != true) {
+      return;
+    }
+    final navigator = navigation!.navigator!;
+    final overlay = navigator.overlay!.context;
+    if (MediaQuery.viewInsetsOf(overlay).bottom > 0) return;
+    if (service.shouldShowReleaseNotes &&
+        _notesPresentedKey != service.installedReleaseKey) {
+      _notesPresentedKey = service.installedReleaseKey;
+      _promptOpen = true;
+      try {
+        FocusManager.instance.primaryFocus?.unfocus();
+        await showInstalledReleaseNotes(
+          overlay,
+          updates: service,
+          automatic: true,
+        );
+      } finally {
+        _promptOpen = false;
+        if (mounted) _queuePrompt();
+      }
+      return;
+    }
+    if (!service.autoCheck ||
         service.checking ||
         service.downloading ||
         service.installing ||
@@ -137,9 +161,6 @@ class _AppUpdateMonitorState extends State<AppUpdateMonitor>
         !service.shouldPrompt) {
       return;
     }
-    final navigator = navigation!.navigator!;
-    final overlay = navigator.overlay!.context;
-    if (MediaQuery.viewInsetsOf(overlay).bottom > 0) return;
     final release = service.release!;
     final route = _AppUpdatePromptRoute(
       release: release,
@@ -300,7 +321,7 @@ class _AppUpdatePromptRoute extends PopupRoute<bool> {
                                   size: 28,
                                 ),
                                 const SizedBox(height: 16),
-                                const Text(
+                                const AppText(
                                   '发现新版本',
                                   style: TextStyle(
                                     fontSize: 22,
@@ -308,7 +329,7 @@ class _AppUpdatePromptRoute extends PopupRoute<bool> {
                                   ),
                                 ),
                                 const SizedBox(height: 6),
-                                Text(
+                                AppText(
                                   '轻小说文库 ${release.version.name}',
                                   style: TextStyle(
                                     color: Theme.of(
@@ -323,7 +344,7 @@ class _AppUpdatePromptRoute extends PopupRoute<bool> {
                                       : release.notes,
                                 ),
                                 const SizedBox(height: 8),
-                                Text(
+                                AppText(
                                   '选择稍后提醒，24 小时内不再提示此版本。',
                                   style: TextStyle(
                                     fontSize: 13,
@@ -344,12 +365,12 @@ class _AppUpdatePromptRoute extends PopupRoute<bool> {
                               final later = GlassTextButton(
                                 key: const ValueKey('postpone-app-update'),
                                 onPressed: () => Navigator.pop(context, false),
-                                child: const Text('稍后提醒'),
+                                child: const AppText('稍后提醒'),
                               );
                               final update = GlassTextButton(
                                 key: const ValueKey('confirm-app-update'),
                                 onPressed: () => Navigator.pop(context, true),
-                                child: Text(
+                                child: AppText(
                                   canDownload ? '立即更新' : '查看更新',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w700,
@@ -434,7 +455,7 @@ class AppUpdatePage extends StatelessWidget {
             children: [
               const ArchiveSection(title: '轻小说文库', code: 'WENKU8 / FLUTTER'),
               const SizedBox(height: 12),
-              Text(
+              AppText(
                 '当前版本 $version · 构建 $build',
                 key: const ValueKey('installed-app-version'),
                 style: TextStyle(
@@ -450,7 +471,7 @@ class AppUpdatePage extends StatelessWidget {
                       Row(
                         children: [
                           const Expanded(
-                            child: Text(
+                            child: AppText(
                               '自动检查更新',
                               style: TextStyle(fontWeight: FontWeight.w600),
                             ),
@@ -473,8 +494,8 @@ class AppUpdatePage extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        '每次打开应用时检查 GitHub Releases，下载与安装由你确认。',
+                      AppText(
+                        '每次打开应用时检查新版本，下载与安装由你确认。',
                         style: TextStyle(
                           fontSize: 13,
                           height: 1.5,
@@ -485,7 +506,7 @@ class AppUpdatePage extends StatelessWidget {
                       GlassTextButton(
                         key: const ValueKey('check-app-update'),
                         onPressed: service.busy ? null : () => service.check(),
-                        child: Text(service.checking ? '正在检查版本' : '检查更新'),
+                        child: AppText(service.checking ? '正在检查版本' : '检查更新'),
                       ),
                       if (service.checking) ...[
                         const SizedBox(height: 12),
@@ -495,13 +516,13 @@ class AppUpdatePage extends StatelessWidget {
                         ),
                       ] else if (service.checked && !available) ...[
                         const SizedBox(height: 12),
-                        Text(
+                        AppText(
                           service.release == null ? '暂未发布可用的正式版本' : '已是最新版本',
                         ),
                       ],
                       if (service.checked && service.release != null) ...[
                         const SizedBox(height: 8),
-                        Text(
+                        AppText(
                           '最新正式版 ${service.release!.version.name}',
                           key: const ValueKey('latest-app-version'),
                           style: TextStyle(
@@ -514,7 +535,7 @@ class AppUpdatePage extends StatelessWidget {
                       ],
                       if (service.error != null) ...[
                         const SizedBox(height: 12),
-                        Text(
+                        AppText(
                           service.error!,
                           key: const ValueKey('update-error'),
                           style: TextStyle(
@@ -543,7 +564,7 @@ class AppUpdatePage extends StatelessWidget {
                         ),
                         const SizedBox(height: 16),
                         if (service.downloading) ...[
-                          Text(
+                          AppText(
                             '已下载 ${(service.bytes / 1024 / 1024).toStringAsFixed(1)} / ${(service.asset!.size / 1024 / 1024).toStringAsFixed(1)} MB',
                           ),
                           const SizedBox(height: 8),
@@ -557,10 +578,10 @@ class AppUpdatePage extends StatelessWidget {
                           ),
                           GlassTextButton(
                             onPressed: service.cancelDownload,
-                            child: const Text('取消下载'),
+                            child: const AppText('取消下载'),
                           ),
                         ] else if (service.downloaded != null) ...[
-                          Text(
+                          AppText(
                             '安装包 ${service.downloadedInfo!.version} · 构建 ${service.downloadedInfo!.build}',
                             key: const ValueKey('downloaded-app-version'),
                             style: TextStyle(
@@ -572,7 +593,7 @@ class AppUpdatePage extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           if (service.needsPermission)
-                            Text(
+                            AppText(
                               '请允许本应用安装更新，返回后再次点击「安装更新」。',
                               style: TextStyle(
                                 height: 1.5,
@@ -587,12 +608,12 @@ class AppUpdatePage extends StatelessWidget {
                                 context,
                                 service.platform.allowInstalls,
                               ),
-                              child: const Text('允许安装更新'),
+                              child: const AppText('允许安装更新'),
                             ),
                           GlassTextButton(
                             key: const ValueKey('install-app-update'),
                             onPressed: service.busy ? null : service.install,
-                            child: Text(
+                            child: AppText(
                               service.installing ? '正在打开安装程序' : '安装更新',
                             ),
                           ),
@@ -600,20 +621,18 @@ class AppUpdatePage extends StatelessWidget {
                           GlassTextButton(
                             key: const ValueKey('download-app-update'),
                             onPressed: service.busy ? null : service.download,
-                            child: Text(
+                            child: AppText(
                               '下载更新 · ${(service.asset!.size / 1024 / 1024).toStringAsFixed(1)} MB',
                             ),
                           )
                         else
-                          const Text('此版本暂无适合本机的 APK。'),
+                          const AppText('此版本暂无适合本机的 APK。'),
                         GlassTextButton(
                           onPressed: () => _open(
                             context,
-                            () => service.platform.openRelease(
-                              service.release!.page,
-                            ),
+                            () => service.openProjectPage(showRelease: true),
                           ),
-                          child: const Text('在 GitHub 查看此版本'),
+                          child: const AppText('查看版本与下载入口'),
                         ),
                       ],
                     ),
@@ -621,12 +640,7 @@ class AppUpdatePage extends StatelessWidget {
                 ],
                 const SizedBox(height: 28),
               ],
-              const ArchiveSection(
-                title: '本版更新',
-                code: 'RELEASE / $currentAppVersion',
-              ),
-              const SizedBox(height: 14),
-              const ContentPanel(child: ReleaseNotes(currentReleaseNotes)),
+              CurrentReleaseCard(updates: service),
               const SizedBox(height: 28),
               const ArchiveSection(title: '项目与许可', code: 'SOURCE / LICENSES'),
               const SizedBox(height: 14),
@@ -634,17 +648,17 @@ class AppUpdatePage extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text(
+                    const AppText(
                       '基于 MewX 与原项目贡献者的轻小说文库 Android 客户端重构。原项目 GPL v2 或后续版本许可保留；本 Flutter 组合版本按 GPL v3 分发。',
                       style: TextStyle(height: 1.6),
                     ),
                     const SizedBox(height: 12),
-                    const Text(
+                    const AppText(
                       '小说正文、封面和插图的权利属于各自权利人。',
                       style: TextStyle(height: 1.6),
                     ),
                     const SizedBox(height: 12),
-                    const Text(
+                    const AppText(
                       '内置字体：Adobe 思源宋体 CN，SIL OFL 1.1。在线语音协议适配：rany2/edge-tts，LGPL v3。接口运行库 libcpp.so 原样保留，其授权独立于本项目源码。',
                       style: TextStyle(height: 1.6),
                     ),
@@ -657,21 +671,14 @@ class AppUpdatePage extends StatelessWidget {
                         applicationLegalese:
                             'Copyright © MewX and contributors\nFlutter modifications © 2026 Wenku8 Flutter contributors',
                       ),
-                      child: const Text('开源许可与字体授权'),
+                      child: const AppText('开源许可与字体授权'),
                     ),
                     if (service != null) ...[
                       const SizedBox(height: 12),
                       GlassTextButton(
-                        onPressed: () => _open(
-                          context,
-                          () => service.platform.openRelease(
-                            Uri.https(
-                              'github.com',
-                              '/$updateRepository/releases/',
-                            ),
-                          ),
-                        ),
-                        child: const Text('GitHub 项目与版本'),
+                        onPressed: () =>
+                            _open(context, () => service.openProjectPage()),
+                        child: const AppText('项目介绍与下载'),
                       ),
                     ],
                   ],
@@ -707,7 +714,7 @@ class ReleaseNotes extends StatelessWidget {
         if (line.trim().isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: Text(
+            child: AppText(
               line
                   .replaceFirst(RegExp(r'^#{1,6}\s+'), '')
                   .replaceFirst(RegExp(r'^[-*]\s+'), '· '),

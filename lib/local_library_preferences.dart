@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'catalog.dart';
 import 'book_search.dart';
-import 'local_books.dart';
 
 enum LocalLibraryView { shelf, list }
 
@@ -20,6 +19,8 @@ class LocalLibraryPreferences extends ChangeNotifier {
   LocalLibraryView view = LocalLibraryView.shelf;
   LocalLibrarySort sort = LocalLibrarySort.recentAdded;
   String selected = all;
+  String readingFilter = 'all';
+  String shelfSelected = all;
   final Map<String, Map<String, dynamic>> _groups = {};
   final Map<int, Map<String, dynamic>> _assignments = {};
   int _clock = 0;
@@ -69,12 +70,22 @@ class LocalLibraryPreferences extends ChangeNotifier {
       (v) => v.name == raw['sort'],
       orElse: () => LocalLibrarySort.recentAdded,
     );
+    readingFilter =
+        ['unread', 'reading', 'finished'].contains(raw['readingFilter'])
+        ? raw['readingFilter'] as String
+        : 'all';
     _accept(raw['organization']);
     selected = raw['selected'] is String ? raw['selected'] : all;
     if (selected != all &&
         selected != unfiled &&
         !groups.containsKey(selected)) {
       selected = all;
+    }
+    shelfSelected = raw['shelfSelected'] is String ? raw['shelfSelected'] : all;
+    if (shelfSelected != all &&
+        shelfSelected != unfiled &&
+        !groups.containsKey(shelfSelected)) {
+      shelfSelected = all;
     }
   }
 
@@ -133,7 +144,7 @@ class LocalLibraryPreferences extends ChangeNotifier {
       final id = e.key is String ? int.tryParse(e.key) : null, v = e.value;
       if (id == null ||
           id > 0x7fffffff ||
-          !isLocalBook(id) ||
+          id <= 0 ||
           v is! Map ||
           v['group'] is! String ||
           v['group'].length > 80 ||
@@ -182,6 +193,11 @@ class LocalLibraryPreferences extends ChangeNotifier {
         !groups.containsKey(selected)) {
       selected = all;
     }
+    if (shelfSelected != all &&
+        shelfSelected != unfiled &&
+        !groups.containsKey(shelfSelected)) {
+      shelfSelected = all;
+    }
     await _save();
   }
 
@@ -190,7 +206,9 @@ class LocalLibraryPreferences extends ChangeNotifier {
       'version': 1,
       'view': view.name,
       'sort': sort.name,
+      'readingFilter': readingFilter,
       'selected': selected,
+      'shelfSelected': shelfSelected,
       'organization': exportOrganization(),
     });
     final work = _writes.catchError((Object _) {}).then((_) async {
@@ -213,11 +231,23 @@ class LocalLibraryPreferences extends ChangeNotifier {
     return _save();
   }
 
-  Future<void> select(String value) {
+  Future<void> setReadingFilter(String value) {
+    if (!['all', 'unread', 'reading', 'finished'].contains(value)) {
+      throw const FormatException('阅读状态无效');
+    }
+    readingFilter = value;
+    return _save();
+  }
+
+  Future<void> select(String value, {bool shelf = false}) {
     if (value != all && value != unfiled && !groups.containsKey(value)) {
       throw const FormatException('分类不存在');
     }
-    selected = value;
+    if (shelf) {
+      shelfSelected = value;
+    } else {
+      selected = value;
+    }
     return _save();
   }
 
@@ -255,11 +285,13 @@ class LocalLibraryPreferences extends ChangeNotifier {
     if (!groups.containsKey(id)) return Future.value();
     _groups[id] = {..._groups[id]!, 'at': _stamp(), 'deleted': true};
     if (selected == id) selected = all;
+    if (shelfSelected == id) shelfSelected = all;
     return _save();
   }
 
   Future<void> assign(int book, String group) {
-    if (!isLocalBook(book) ||
+    if (book <= 0 ||
+        book > 0x7fffffff ||
         (group != unfiled && !groups.containsKey(group))) {
       throw const FormatException('请选择有效分类');
     }

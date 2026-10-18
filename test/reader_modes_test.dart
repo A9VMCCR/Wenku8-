@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/reader_panels.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/catalog.dart';
@@ -51,7 +53,11 @@ Future<ReaderPagination> layout(
 ))!;
 
 Future<LibraryState> library(ReaderMode mode) async {
-  SharedPreferences.setMockInitialValues({'reduceMotion': true});
+  SharedPreferences.setMockInitialValues({
+    'readerChromeVisible': true,
+    'readerChromeHintSeen': true,
+    'reduceMotion': true,
+  });
   final state = await LibraryState.load();
   await state.setReaderPreferences(ReaderPreferences(mode: mode));
   return state;
@@ -321,16 +327,68 @@ void main() {
       final position = render.localToGlobal(glyph.rect.center);
       await tester.longPressAt(position);
       await settleReader(tester);
+      expect(
+        render.getSelectedContent()?.plainText,
+        contains('OPPO 2026，👨‍👩‍👧‍👦'),
+      );
+      // Initial long press now selects the sentence. The normal handle-event
+      // path still permits an exact grapheme without splitting its ZWJ family.
+      final handles = find.byWidgetPredicate(
+        (w) =>
+            w is RawGestureDetector &&
+            w.gestures.containsKey(PanGestureRecognizer),
+      );
+      expect(handles, findsNWidgets(2));
+      Future<void> dragHandle(Finder handle, Offset delta) async {
+        final factory =
+            tester
+                    .widget<RawGestureDetector>(handle)
+                    .gestures[PanGestureRecognizer]!
+                as GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>;
+        final drag = factory.constructor();
+        factory.initializer(drag);
+        // Exercise the SDK handle's accepted-pan callbacks without adding
+        // pointer slop to the exact grapheme boundary under test.
+        final at = tester.getCenter(handle);
+        drag.onStart!(DragStartDetails(globalPosition: at));
+        drag.onUpdate!(
+          DragUpdateDetails(globalPosition: at + delta, delta: delta),
+        );
+        drag.onEnd!(DragEndDetails());
+        drag.dispose();
+      }
+
+      await dragHandle(
+        handles.first,
+        glyph.rect.center - render.value.startSelectionPoint!.localPosition,
+      );
+      await settleReader(tester);
+      await dragHandle(
+        handles.last,
+        glyph.rect.center - render.value.endSelectionPoint!.localPosition,
+      );
+      await settleReader(tester);
       expect(render.getSelectedContent()?.plainText, '👨‍👩‍👧‍👦');
       expect(
         find.byKey(const ValueKey('reader-selection-copy')),
         findsOneWidget,
       );
+      final toolbar = tester.getRect(
+        find.byKey(const ValueKey('reader-selection-toolbar')),
+      );
+      final screenWidth =
+          tester.view.physicalSize.width / tester.view.devicePixelRatio;
+      expect(toolbar.left, greaterThanOrEqualTo(0));
+      expect(toolbar.right, lessThanOrEqualTo(screenWidth));
       expect(
-        tester
-            .getCenter(find.byKey(const ValueKey('reader-selection-copy')))
-            .dx,
-        closeTo(position.dx, 55),
+        toolbar.center.dx,
+        closeTo(
+          position.dx.clamp(
+            toolbar.width / 2 + 8,
+            screenWidth - toolbar.width / 2 - 8,
+          ),
+          8,
+        ),
       );
       final clipboard = <String>[];
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -355,7 +413,7 @@ void main() {
     },
   );
   testWidgets(
-    'progress jump can return to its original page through the visible control',
+    'chapter progress moves to start or end without a return-position control',
     (tester) async {
       final state = await library(ReaderMode.paged);
       addTearDown(state.dispose);
@@ -366,28 +424,18 @@ void main() {
           .controller;
       controller().pageBy(1);
       await settleReader(tester);
-      final original = controller().anchor!;
-      await tester.tap(
-        find.byWidgetPredicate(
-          (w) => w is GlassIconButton && w.label == '阅读设置',
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.text('跳至章末'),
-        180,
-        scrollable: find.descendant(
-          of: find.byKey(const ValueKey('reader-settings-scroll')),
-          matching: find.byType(Scrollable),
-        ),
-      );
+      await openReaderChapterProgress(tester);
       await tester.tap(find.text('跳至章末'));
       await settleReader(tester);
       expect(controller().page, controller().pageCount - 1);
-      await tester.tap(find.byKey(const ValueKey('reader-return-position')));
+      expect(
+        find.byKey(const ValueKey('reader-return-position')),
+        findsNothing,
+      );
+      await openReaderChapterProgress(tester);
+      await tester.tap(find.text('回到章首'));
       await settleReader(tester);
-      expect(controller().anchor!.paragraph, original.paragraph);
-      expect(controller().anchor!.offset, original.offset);
+      expect(controller().page, 0);
       expect(tester.takeException(), isNull);
     },
   );

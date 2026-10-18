@@ -1,10 +1,9 @@
 import 'catalog.dart';
 import 'book_search.dart';
-import 'local_library_preferences.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'library_state.dart';
 import 'local_books.dart';
 import 'offline_repository.dart';
+import 'bookshelf_scope.dart';
 
 /// Feeds the same search presentation as discovery, with a library-only data
 /// scope. Missing legacy snapshots resolve at bounded concurrency, not on each
@@ -30,16 +29,16 @@ class LibrarySearchRepository extends NovelRepository {
         ? source as OfflineNovelRepository
         : null;
     final cached = cachedOnly?.call() ?? false;
-    if (cached && offline != null) await offline.cache.load();
-    final ids = state.shelf
-            .where((id) => !cached || offline?.availableOffline(id) == true)
-            .toList(),
+    if ((cached || state.combinedShelf) && offline != null) {
+      await offline.cache.load();
+    }
+    final ids = bookshelfIds(state, offline, readableOnly: cached).toList(),
         found = <int, Novel>{};
     final missing = <int>[];
     for (final id in ids) {
       final known =
           local?.book(id) ??
-          (cached ? offline?.cache.book(id)?.novel : null) ??
+          offline?.cache.book(id)?.novel ??
           state.cachedNovel(id);
       if (known != null) {
         found[id] = known;
@@ -81,33 +80,36 @@ class LibrarySearchRepository extends NovelRepository {
   }
 
   @override
-  Future<List<Novel>> search(String query) async {
-    final pattern = BookSearch(query);
+  Future<List<Novel>> search(String query) => _search(query);
+
+  @override
+  Future<NovelPage> searchFilteredPage(
+    String query, {
+    BookSearchField field = BookSearchField.all,
+    int page = 1,
+    bool refresh = false,
+  }) async => NovelPage.fromItems(await _search(query, field: field), page);
+
+  Future<List<Novel>> _search(
+    String query, {
+    BookSearchField field = BookSearchField.all,
+  }) async {
+    final pattern = BookSearch(query, field: field);
     final books = await list();
-    final organization =
-        local == null ||
-            pattern.terms.isEmpty ||
-            !books.any((book) => isLocalBook(book.id))
-        ? null
-        : (LocalLibraryPreferences(await SharedPreferences.getInstance())
-            ..load());
-    try {
-      return books
-          .where(
-            (book) => pattern.matches(
-              title: book.title,
-              author: book.author,
-              tags: book.genre,
-              id: '${book.id}',
-              classification: isLocalBook(book.id) && organization != null
-                  ? organization.nameOf(organization.groupOf(book.id))
-                  : '',
-            ),
-          )
-          .toList();
-    } finally {
-      organization?.dispose();
-    }
+    final organization = pattern.terms.isEmpty ? null : state.organization;
+    return books
+        .where(
+          (book) => pattern.matches(
+            title: book.title,
+            author: book.author,
+            tags: book.genre,
+            id: '${book.id}',
+            classification: organization != null
+                ? organization.nameOf(organization.groupOf(book.id))
+                : '',
+          ),
+        )
+        .toList();
   }
 
   @override

@@ -13,6 +13,7 @@ import 'package:wenku8_flutter/library_backup.dart';
 import 'package:wenku8_flutter/library_search_repository.dart';
 import 'package:wenku8_flutter/library_state.dart';
 import 'package:wenku8_flutter/local_books.dart';
+import 'package:wenku8_flutter/local_library_page.dart';
 import 'package:wenku8_flutter/network_status.dart';
 import 'package:wenku8_flutter/offline_cache.dart';
 import 'package:wenku8_flutter/offline_repository.dart';
@@ -261,11 +262,11 @@ void main() {
       final capture = GlobalKey();
       try {
         await tester.pumpWidget(
-          MaterialApp(
-            theme: novelTheme(Brightness.light),
-            home: RepaintBoundary(
-              key: capture,
-              child: HomeShell(
+          RepaintBoundary(
+            key: capture,
+            child: MaterialApp(
+              theme: novelTheme(Brightness.light),
+              home: HomeShell(
                 state: f.state,
                 repository: f.repository,
                 network: f.network,
@@ -277,7 +278,7 @@ void main() {
         GlassDock dock() => tester.widget<GlassDock>(find.byType(GlassDock));
         List<String> labels() =>
             dock().items.map((item) => item.label).toList();
-        expect(labels(), ['书架', '本地', '设置']);
+        expect(labels(), ['书架', '本地', '我的']);
         expect(
           find.byKey(ValueKey('shelf-book-${f.cached.id}')),
           findsOneWidget,
@@ -310,7 +311,7 @@ void main() {
           reason: 'A navigation change must not re-show the warm row skeleton',
         );
         await tester.pumpAndSettle();
-        expect(labels(), ['发现', '书架', '本地', '设置']);
+        expect(labels(), ['发现', '书架', '本地', '我的']);
         expect(
           find.byKey(ValueKey('shelf-book-${f.uncached.id}')),
           findsOneWidget,
@@ -323,9 +324,13 @@ void main() {
         await tester.tap(
           find.descendant(
             of: find.byType(GlassDock),
-            matching: find.text('设置'),
+            matching: find.text('我的'),
           ),
         );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('my-settings')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('settings-usage-entry')));
         await tester.pumpAndSettle();
         final toggle = find.byKey(const ValueKey('settings-local-reader-mode'));
         await tester.ensureVisible(toggle);
@@ -334,11 +339,9 @@ void main() {
           () => Future<void>.delayed(const Duration(milliseconds: 50)),
         );
         await tester.pumpAndSettle();
-        expect(labels(), ['本地', '设置']);
-        expect(dock().selectedIndex, 1);
         expect(tester.widget<AppGlassSwitch>(toggle).value, true);
         final settingsRect = tester.getRect(
-          find.byKey(const PageStorageKey('settings')),
+          find.byKey(const PageStorageKey('settings-usage')),
         );
         // Scroll from the list gutter, not a thumb that deliberately captures
         // its pointer for the package's grab-and-carry interaction.
@@ -348,6 +351,12 @@ void main() {
         );
         await tester.pumpAndSettle();
         await captureReview(tester, capture, 'local-reader-settings');
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(labels(), ['本地', '我的']);
+        expect(dock().selectedIndex, 1);
 
         await tester.tap(
           find.descendant(
@@ -358,6 +367,59 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('本地原书'), findsWidgets);
         await captureReview(tester, capture, 'local-reader-library');
+        final localElement = tester.element(find.byType(LocalLibraryPage));
+        await f.state.setNavigationMode(combinedShelf: true);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 120));
+        expect(labels(), ['书架', '我的']);
+        expect(dock().selectedIndex, 0);
+        await captureReview(tester, capture, 'combined-navigation-changing');
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(ValueKey('shelf-book-${f.imported.id}')),
+          findsOneWidget,
+        );
+        await captureReview(tester, capture, 'combined-navigation-reader');
+        await tester.tap(find.byKey(const ValueKey('shelf-import-book')));
+        await tester.pumpAndSettle();
+        expect(find.text('导入书籍'), findsWidgets);
+        expect(find.text('从网盘导入'), findsOneWidget);
+        await tester.tap(find.text('本地分类与同步'));
+        await tester.pumpAndSettle();
+        expect(find.byType(LocalLibraryPage), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('local-display')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('更多本地设置'));
+        await tester.pumpAndSettle();
+        expect(find.text('书库设置'), findsOneWidget);
+        expect(find.text('跨设备同步设置'), findsOneWidget);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        await f.state.setNavigationMode(localReaderMode: false);
+        await tester.pumpAndSettle();
+        expect(labels(), ['发现', '书架', '我的']);
+        expect(dock().selectedIndex, 1);
+        await captureReview(tester, capture, 'combined-navigation-online');
+        f.network.value = NetworkReachability.offline;
+        await tester.pumpAndSettle();
+        expect(labels(), ['书架', '我的']);
+        expect(dock().selectedIndex, 0);
+        await f.state.setNavigationMode(combinedShelf: false);
+        await tester.pumpAndSettle();
+        expect(labels(), ['书架', '本地', '我的']);
+        await tester.tap(
+          find.descendant(
+            of: find.byType(GlassDock),
+            matching: find.text('本地'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester.element(find.byType(LocalLibraryPage)),
+          same(localElement),
+        );
         expect(f.remote.lists, 0);
         expect(tester.takeException(), isNull);
       } finally {
@@ -379,20 +441,22 @@ void main() {
       final state = await LibraryState.load();
       final capture = GlobalKey();
       await tester.pumpWidget(
-        MaterialApp(
-          theme: novelTheme(brightness),
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: const TextScaler.linear(1.5)),
-            child: child!,
-          ),
-          home: RepaintBoundary(
-            key: capture,
-            child: Scaffold(body: SettingsPage(state: state)),
+        RepaintBoundary(
+          key: capture,
+          child: MaterialApp(
+            theme: novelTheme(brightness),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.5)),
+              child: child!,
+            ),
+            home: Scaffold(body: SettingsPage(state: state)),
           ),
         ),
       );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-usage-entry')));
       await tester.pumpAndSettle();
       final offline = tester.getRect(
         find.byKey(const ValueKey('settings-adapt-offline')),

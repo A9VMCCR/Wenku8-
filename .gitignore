@@ -129,3 +129,13 @@ key.properties
 !/tools/verify_apk_runtime.py
 !/tools/test_verify_apk_runtime.py
 !/tools/create_update_fixtures.py
+!/tools/update-mirror/
+!/tools/content-gateway/
+
+# Cloudflare local build cache and local-only secrets
+.wrangler/
+/tools/update-mirror/.dev.vars*
+/tools/update-mirror/.env*
+/tools/update-mirror/public/
+/tools/content-gateway/.dev.vars*
+/tools/content-gateway/.env*

@@ -10,6 +10,7 @@ import 'app_ui.dart';
 import 'archive_scroll_simulation.dart';
 import 'archive_shelf_geometry.dart';
 import 'catalog.dart';
+import 'book_source_badge.dart';
 import 'performance_preferences.dart';
 import 'library_reflow.dart';
 
@@ -21,11 +22,13 @@ class ArchiveFileCarousel extends StatefulWidget {
     required this.onOpen,
     this.reduceMotion = false,
     this.animateEntrance = false,
+    this.sourceLabel,
   });
   final List<Novel> books;
   final void Function(Novel book, Object heroTag) onOpen;
   final bool reduceMotion;
   final bool animateEntrance;
+  final String? Function(Novel)? sourceLabel;
   @override
   State<ArchiveFileCarousel> createState() => _ArchiveFileCarouselState();
 }
@@ -177,7 +180,11 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
     if (!PerformanceScope.of(context).shelf3d) {
       return LibraryReflowPart(
         id: this,
-        child: _FlatArchiveCarousel(books: widget.books, onOpen: widget.onOpen),
+        child: _FlatArchiveCarousel(
+          books: widget.books,
+          onOpen: widget.onOpen,
+          sourceLabel: widget.sourceLabel,
+        ),
       );
     }
     _reduced = widget.reduceMotion || MediaQuery.disableAnimationsOf(context);
@@ -293,7 +300,7 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          Text(
+                                          AppText(
                                             book.title,
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
@@ -303,7 +310,7 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
                                               fontWeight: FontWeight.w700,
                                             ),
                                           ),
-                                          Text(
+                                          AppText(
                                             '${book.author} · ${book.isComplete ? '已完结' : '连载中'}',
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
@@ -427,7 +434,7 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
                     const SizedBox(height: 10),
                     Expanded(
                       child: Center(
-                        child: Text(
+                        child: AppText(
                           title,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
@@ -462,11 +469,16 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
               onTap: tap,
               child: Column(
                 children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ArchiveCode(
-                      'NO.${number.toString().padLeft(3, '0')}',
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ArchiveCode(
+                          'NO.${number.toString().padLeft(3, '0')}',
+                        ),
+                      ),
+                      if (widget.sourceLabel?.call(book) case final label?)
+                        BookSourceBadge(label),
+                    ],
                   ),
                   const SizedBox(height: 7),
                   Expanded(
@@ -497,9 +509,14 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
 /// A virtual, lazily built loop with no perspective mesh or extraction layers.
 /// It keeps discovery's cover navigation available on the lightweight preset.
 class _FlatArchiveCarousel extends StatefulWidget {
-  const _FlatArchiveCarousel({required this.books, required this.onOpen});
+  const _FlatArchiveCarousel({
+    required this.books,
+    required this.onOpen,
+    this.sourceLabel,
+  });
   final List<Novel> books;
   final void Function(Novel book, Object heroTag) onOpen;
+  final String? Function(Novel)? sourceLabel;
   @override
   State<_FlatArchiveCarousel> createState() => _FlatArchiveCarouselState();
 }
@@ -547,11 +564,22 @@ class _FlatArchiveCarouselState extends State<_FlatArchiveCarousel> {
                         child: Center(
                           child: FittedBox(
                             fit: BoxFit.contain,
-                            child: NovelCover(
-                              book,
-                              width: 154,
-                              height: 220,
-                              heroTag: tag,
+                            child: Stack(
+                              children: [
+                                NovelCover(
+                                  book,
+                                  width: 154,
+                                  height: 220,
+                                  heroTag: tag,
+                                ),
+                                if (widget.sourceLabel?.call(book)
+                                    case final label?)
+                                  Positioned(
+                                    top: 5,
+                                    right: 5,
+                                    child: BookSourceBadge(label),
+                                  ),
+                              ],
                             ),
                           ),
                         ),
@@ -563,7 +591,7 @@ class _FlatArchiveCarouselState extends State<_FlatArchiveCarousel> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
+                              AppText(
                                 book.title,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
@@ -572,7 +600,7 @@ class _FlatArchiveCarouselState extends State<_FlatArchiveCarousel> {
                                   height: 1.4,
                                 ),
                               ),
-                              Text(
+                              AppText(
                                 book.author,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,

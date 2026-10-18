@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +8,7 @@ import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/catalog.dart';
 import 'package:wenku8_flutter/library_state.dart';
 import 'package:wenku8_flutter/main.dart';
+import 'package:wenku8_flutter/network_status.dart';
 import 'package:wenku8_flutter/offline_cache.dart';
 import 'package:wenku8_flutter/offline_repository.dart';
 import 'package:wenku8_flutter/pages.dart';
@@ -124,7 +124,11 @@ void main({
   late GlobalKey imageKey;
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues({'reduceMotion': true});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+      'reduceMotion': true,
+    });
     state = await LibraryState.load();
     remote = _ReaderRepository();
     directory = await Directory.systemTemp.createTemp('novel8-reading-ui-');
@@ -216,6 +220,10 @@ void main({
       remote.books[71] = novel;
       await state.setReduceMotion(false);
       await reader(tester, novel: novel, chapter: 876);
+      final prepared = List.of(remote.bodies);
+      expect(prepared.toSet(), {
+        for (final index in [875, 876, 877]) novel.chapters[index].id,
+      });
       await openCatalogue(tester);
       expect(find.byType(ReaderCatalogue), findsOneWidget);
       expect(find.byType(GlassOverlaySurface), findsOneWidget);
@@ -238,7 +246,7 @@ void main({
       await tester.pumpAndSettle();
       expect(find.text('找到 1 章'), findsOneWidget);
       expect(find.byKey(const ValueKey('reader-chapter-1199')), findsOneWidget);
-      expect(remote.bodies.length, 1);
+      expect(remote.bodies, prepared);
       await shot(tester, 'reader-directory-search');
       await tester.tap(_chapterControl(1199));
       await tester.pumpAndSettle();
@@ -246,7 +254,11 @@ void main({
       expect(find.byType(ReaderPage), findsOneWidget);
       expect(_scroll(tester, 'reader-scroll').position.pixels, 0);
       expect(state.positionFor(71)!.chapterId, novel.chapters.last.id);
-      expect(remote.bodies, [novel.chapters[876].id, novel.chapters.last.id]);
+      expect(remote.bodies, [
+        ...prepared,
+        novel.chapters.last.id,
+        novel.chapters[1198].id,
+      ]);
       expect(tester.takeException(), isNull);
     },
   );
@@ -255,6 +267,7 @@ void main({
     'current chapter selection and system dismissal retain the reader offset without refetching',
     (tester) async {
       await reader(tester, chapter: 1);
+      final prepared = List.of(remote.bodies);
       final scroll = _scroll(tester, 'reader-scroll');
       scroll.position.jumpTo(900);
       await tester.pumpAndSettle();
@@ -269,7 +282,7 @@ void main({
       await drag.up();
       await tester.pumpAndSettle();
       expect(find.byType(ReaderCatalogue), findsNothing);
-      expect(remote.bodies.length, 1);
+      expect(remote.bodies, prepared);
       await openCatalogue(tester);
       final viewport = scroll.position.viewportDimension;
       tester.view.viewInsets = FakeViewPadding(
@@ -289,7 +302,7 @@ void main({
       await tester.pumpAndSettle();
       expect(find.byType(ReaderCatalogue), findsNothing);
       expect(scroll.position.pixels, offset);
-      expect(remote.bodies.length, 1);
+      expect(remote.bodies, prepared);
       expect(state.positionFor(71)!.offset, offset);
       expect(tester.takeException(), isNull);
     },
@@ -306,6 +319,7 @@ void main({
         chapter: 350,
         brightness: Brightness.dark,
       );
+      final prepared = List.of(remote.bodies);
       await openCatalogue(tester);
       final search = find.byKey(const ValueKey('reader-chapter-search'));
       await tester.enterText(search, '重逢');
@@ -321,12 +335,9 @@ void main({
       }
       await tester.tap(_control('定位当前章节'));
       await tester.pumpAndSettle();
-      expect(
-        tester.widget<CupertinoSearchTextField>(search).controller!.text,
-        '',
-      );
+      expect(tester.widget<TextField>(search).controller!.text, '');
       expect(find.byKey(const ValueKey('reader-chapter-350')), findsOneWidget);
-      expect(remote.bodies.length, 1);
+      expect(remote.bodies, prepared);
       await shot(tester, 'reader-directory-dark');
       await tester.tap(_control('关闭目录'));
       await tester.pumpAndSettle();
@@ -395,7 +406,17 @@ void main({
           );
         }
       });
-      await reader(tester, repository: offline);
+      final network = NetworkStatus(initial: NetworkReachability.offline);
+      final cached = OfflineNovelRepository(
+        remote: remote,
+        cache: cache,
+        network: network,
+      );
+      addTearDown(() {
+        cached.dispose();
+        network.dispose();
+      });
+      await reader(tester, repository: cached);
       await openCatalogue(tester);
       expect(find.text('已缓存'), findsNWidgets(2));
       await shot(tester, 'reader-directory-offline');
@@ -538,7 +559,11 @@ void main({
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
       await tester.pumpAndSettle();
-      final settingsScroll = find.byKey(const PageStorageKey('settings'));
+      await tester.tap(find.byKey(const ValueKey('my-settings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-data-entry')));
+      await tester.pumpAndSettle();
+      final settingsScroll = find.byKey(const PageStorageKey('settings-data'));
       await tester.scrollUntilVisible(
         find.text('阅读历史'),
         200,

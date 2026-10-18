@@ -40,40 +40,33 @@ class CloudBookSyncPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
-          const Text('连接位置', style: TextStyle(fontWeight: FontWeight.w600)),
+          const AppText('连接位置', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           Wrap(
-            spacing: 4,
+            spacing: 8,
             children: [
               for (final provider in ['OneDrive', 'Google Drive', '其他位置'])
                 Semantics(
                   selected: sync.preferredProvider == provider,
                   child: GlassTextButton(
+                    compact: true,
+                    selected: sync.preferredProvider == provider,
                     onPressed: sync.busy
                         ? null
                         : () => _configure(
                             context,
                             () => sync.configure(provider: provider),
                           ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(provider),
-                        const SizedBox(width: 6),
-                        SizedBox(
-                          width: 14,
-                          child: sync.preferredProvider == provider
-                              ? const Icon(CupertinoIcons.checkmark, size: 12)
-                              : null,
-                        ),
-                      ],
+                    child: AppText(
+                      provider,
+                      style: const TextStyle(fontSize: 13),
                     ),
                   ),
                 ),
             ],
           ),
           const SizedBox(height: 10),
-          Text(
+          AppText(
             sync.connection == null
                 ? '在系统文件选择器侧栏选择 ${sync.preferredProvider}。首次新建同步文件，其他设备选择同一个文件。'
                 : '已连接 ${sync.providerLabel}\n${sync.connection!['name']}',
@@ -86,17 +79,17 @@ class CloudBookSyncPanel extends StatelessWidget {
               GlassTextButton(
                 key: const ValueKey('sync-create-document'),
                 onPressed: sync.busy ? null : () => sync.connect(create: true),
-                child: const Text('新建同步文件'),
+                child: const AppText('新建同步文件'),
               ),
               GlassTextButton(
                 key: const ValueKey('sync-select-document'),
                 onPressed: sync.busy ? null : () => sync.connect(create: false),
-                child: const Text('选择已有文件'),
+                child: const AppText('选择已有文件'),
               ),
             ],
           ),
           const Divider(height: 28),
-          const Text('同步内容', style: TextStyle(fontWeight: FontWeight.w600)),
+          const AppText('同步内容', style: TextStyle(fontWeight: FontWeight.w600)),
           _option(
             context,
             '本地原书',
@@ -123,7 +116,7 @@ class CloudBookSyncPanel extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (sync.lastSync case final time?)
-            Text(
+            AppText(
               '上次同步 ${DateTime.fromMillisecondsSinceEpoch(time).toLocal().toString().substring(0, 16)}',
               style: TextStyle(
                 fontSize: 12,
@@ -146,12 +139,12 @@ class CloudBookSyncPanel extends StatelessWidget {
           if (sync.connection != null)
             GlassTextButton(
               onPressed: sync.busy ? null : sync.disconnect,
-              child: const Text('断开连接'),
+              child: const AppText('断开连接'),
             ),
           if (sync.status != null)
             Padding(
               padding: const EdgeInsets.only(top: 12),
-              child: Text(sync.status!),
+              child: AppText(sync.status!),
             ),
           AnimatedOptionSection(
             expanded: sync.error != null,
@@ -159,23 +152,23 @@ class CloudBookSyncPanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 12),
-                Text(
+                AppText(
                   sync.error ?? '',
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
                 GlassTextButton(
                   onPressed: sync.busy ? null : () => sync.recover('next'),
-                  child: const Text('从上次完整同步副本恢复到本机'),
+                  child: const AppText('从上次完整同步副本恢复到本机'),
                 ),
                 GlassTextButton(
                   onPressed: sync.busy ? null : () => sync.recover('before'),
-                  child: const Text('从写入前的云端副本恢复到本机'),
+                  child: const AppText('从写入前的云端副本恢复到本机'),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 14),
-          Text(
+          AppText(
             '文件选择器未显示网盘时，请先安装并登录对应网盘应用。只有获得读写授权的同步文件可以连接；移除本机书籍不会删除云端原书。',
             style: TextStyle(
               fontSize: 12,
@@ -203,9 +196,12 @@ class CloudBookSyncPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+              AppText(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 5),
-              Text(
+              AppText(
                 detail,
                 style: TextStyle(
                   fontSize: 12,

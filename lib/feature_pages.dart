@@ -13,6 +13,8 @@ import 'novel_feed_controller.dart';
 import 'pages.dart' show DiscoverPage, openDetail;
 import 'publication_catalog.dart';
 import 'wenku_account.dart';
+import 'wenku_features.dart';
+import 'web_publication_catalog.dart';
 
 Future<bool> confirmNovelAction(
   BuildContext context, {
@@ -30,21 +32,21 @@ Future<bool> confirmNovelAction(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
+            AppText(
               title,
               style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 14),
-            Text(message),
+            AppText(message),
             const SizedBox(height: 24),
             GlassTextButton(
               onPressed: () => Navigator.pop(sheet, true),
-              child: Text(confirmLabel),
+              child: AppText(confirmLabel),
             ),
             const SizedBox(height: 8),
             GlassTextButton(
               onPressed: () => Navigator.pop(sheet, false),
-              child: const Text('取消'),
+              child: const AppText('取消'),
             ),
           ],
         ),
@@ -116,10 +118,13 @@ class FeatureEntry extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+              AppText(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
               if (subtitle != null) ...[
                 const SizedBox(height: 5),
-                Text(
+                AppText(
                   subtitle!,
                   style: TextStyle(
                     fontSize: 12,
@@ -147,7 +152,7 @@ class FeatureError extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 16),
           child: Semantics(
             liveRegion: true,
-            child: Text(
+            child: AppText(
               text!,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
@@ -200,11 +205,26 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
   }
 
   Future<void> _login() async {
-    if (widget.account.busy) return;
-    final password = _password.text;
-    _password.clear();
-    TextInput.finishAutofillContext(shouldSave: false);
-    await _run(() => widget.account.login(_username.text, password), '登录成功');
+    final account = widget.account;
+    if (account.busy) return;
+    final revision = account.sessionRevision;
+    FocusManager.instance.primaryFocus?.unfocus();
+    try {
+      await account.login(_username.text, _password.text);
+      if (mounted) showNovelFeedback(context, '登录成功');
+    } catch (_) {
+      // The account's live region displays the concrete failure.
+    } finally {
+      if (mounted) {
+        // Finish before clearing: the system must see the submitted password.
+        // A successful API login still counts if only profile loading failed.
+        TextInput.finishAutofillContext(
+          shouldSave:
+              account.authenticated && account.sessionRevision != revision,
+        );
+        _password.clear();
+      }
+    }
   }
 
   Future<void> _logout() async {
@@ -219,185 +239,198 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.account,
-    builder: (context, _) {
-      final account = widget.account;
-      final profile = account.profile;
-      return ArchiveFeaturePage(
-        title: '文库账号',
-        code: 'ACCOUNT / PERSONAL ARCHIVE',
-        child: LoadedContentSequence(
-          generation: (account.authenticated, profile?.id),
-          child: ListView(
-            key: ValueKey(account.authenticated),
-            padding: featurePadding(context),
-            children: [
-              LoadedContentItem(
-                index: 0,
-                child: Text(
-                  account.authenticated
-                      ? profile?.displayName ?? '已登录'
-                      : '连接你的文库',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                account.authenticated
-                    ? '云书架与本机书架独立保存，合并时保留本机阅读进度。'
-                    : '使用原版文库账号。未登录时仍可搜索、收藏到本机和离线阅读。',
-              ),
-              const SizedBox(height: 24),
-              if (!account.authenticated)
-                ContentPanel(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TextField(
-                        key: const ValueKey('account-username'),
-                        controller: _username,
-                        enabled: !account.busy,
-                        autocorrect: false,
-                        textInputAction: TextInputAction.next,
-                        autofillHints: const [AutofillHints.username],
-                        maxLength: 254,
-                        decoration: const InputDecoration(
-                          labelText: '用户名 / 邮箱',
-                          counterText: '',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        key: const ValueKey('account-password'),
-                        controller: _password,
-                        enabled: !account.busy,
-                        obscureText: _obscure,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        maxLength: 30,
-                        onSubmitted: (_) => _login(),
-                        decoration: InputDecoration(
-                          labelText: '密码',
-                          counterText: '',
-                          suffixIcon: IconButton(
-                            tooltip: _obscure ? '显示密码' : '隐藏密码',
-                            icon: Icon(
-                              _obscure
-                                  ? CupertinoIcons.eye
-                                  : CupertinoIcons.eye_slash,
-                            ),
-                            onPressed: () =>
-                                setState(() => _obscure = !_obscure),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      GlassTextButton(
-                        key: const ValueKey('account-login'),
-                        onPressed: account.busy ? null : _login,
-                        child: const Text('登录'),
-                      ),
-                    ],
-                  ),
-                )
-              else ...[
+  Widget build(BuildContext context) => AutofillGroup(
+    // Leaving/cancelling the form must not offer to save unverified input.
+    onDisposeAction: AutofillContextAction.cancel,
+    child: AnimatedBuilder(
+      animation: widget.account,
+      builder: (context, _) {
+        final account = widget.account;
+        final profile = account.profile;
+        return ArchiveFeaturePage(
+          title: '文库账号',
+          code: 'ACCOUNT / PERSONAL ARCHIVE',
+          child: LoadedContentSequence(
+            generation: (account.authenticated, profile?.id),
+            child: ListView(
+              key: ValueKey(account.authenticated),
+              padding: featurePadding(context),
+              children: [
                 LoadedContentItem(
-                  index: 1,
-                  child: ContentPanel(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (profile == null && account.busy)
-                          const SizedBox(
-                            height: 72,
-                            child: LoadingSkeleton(
-                              layout: SkeletonLayout.actions,
-                            ),
-                          )
-                        else ...[
-                          ArchiveCode(
-                            profile == null
-                                ? 'SESSION / READY'
-                                : 'UID / ${profile.id}',
-                          ),
-                          const SizedBox(height: 12),
-                          if (profile != null) ...[
-                            Text(profile.username),
-                            const SizedBox(height: 8),
-                            Text(
-                              '${profile.rank}  ·  ${profile.score} 积分  ·  ${profile.experience} 经验',
-                            ),
-                          ],
-                        ],
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 12,
-                          children: [
-                            GlassTextButton(
-                              key: const ValueKey('account-sign'),
-                              onPressed: account.busy || account.signedToday
-                                  ? null
-                                  : () => _run(account.signIn, '今日签到已完成'),
-                              child: Text(
-                                account.signedToday ? '今日已签到' : '每日签到',
-                              ),
-                            ),
-                            GlassTextButton(
-                              onPressed: account.busy
-                                  ? null
-                                  : () => _run(account.refreshProfile, '账号已更新'),
-                              child: const Text('刷新资料'),
-                            ),
-                          ],
-                        ),
-                      ],
+                  index: 0,
+                  child: AppText(
+                    account.authenticated
+                        ? profile?.displayName ?? '已登录'
+                        : '连接你的文库',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
-                LoadedContentItem(
-                  index: 2,
-                  child: FeatureEntry(
-                    key: const ValueKey('account-cloud'),
-                    title: '云书架',
-                    subtitle: '查看、合并收藏；不覆盖阅读记录',
-                    icon: CupertinoIcons.cloud,
-                    onTap: account.busy
-                        ? null
-                        : () => pushNovelPage<void>(
-                            context,
-                            CloudBookshelfPage(
-                              account: account,
-                              state: widget.state,
-                              repository: widget.repository,
-                            ),
-                            reduceMotion: widget.state.reduceMotion,
-                          ),
-                  ),
+                const SizedBox(height: 12),
+                AppText(
+                  account.authenticated
+                      ? '登录后自动同步收藏，本机阅读进度与原书保留。'
+                      : '使用原版文库账号。未登录时仍可搜索、收藏到本机和离线阅读。',
                 ),
                 const SizedBox(height: 24),
-                GlassTextButton(
-                  key: const ValueKey('account-logout'),
-                  onPressed: account.busy ? null : _logout,
-                  child: const Text('退出账号'),
-                ),
+                if (!account.authenticated)
+                  ContentPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
+                          key: const ValueKey('account-username'),
+                          controller: _username,
+                          enabled: !account.busy,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          textInputAction: TextInputAction.next,
+                          autofillHints: const [AutofillHints.username],
+                          maxLength: 254,
+                          decoration: InputDecoration(
+                            labelText: appText(context, '用户名 / 邮箱'),
+                            hintText: appText(context, '请输入用户名或邮箱'),
+                            counterText: '',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          key: const ValueKey('account-password'),
+                          controller: _password,
+                          enabled: !account.busy,
+                          obscureText: _obscure,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          keyboardType: TextInputType.visiblePassword,
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.password],
+                          smartDashesType: SmartDashesType.disabled,
+                          smartQuotesType: SmartQuotesType.disabled,
+                          maxLength: 30,
+                          onSubmitted: (_) => _login(),
+                          decoration: InputDecoration(
+                            labelText: appText(context, '密码'),
+                            hintText: appText(context, '请输入密码'),
+                            counterText: '',
+                            suffixIcon: IconButton(
+                              tooltip: _obscure ? '显示密码' : '隐藏密码',
+                              icon: Icon(
+                                _obscure
+                                    ? CupertinoIcons.eye
+                                    : CupertinoIcons.eye_slash,
+                              ),
+                              onPressed: () =>
+                                  setState(() => _obscure = !_obscure),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        GlassTextButton(
+                          key: const ValueKey('account-login'),
+                          onPressed: account.busy ? null : _login,
+                          child: const AppText('登录'),
+                        ),
+                      ],
+                    ),
+                  )
+                else ...[
+                  LoadedContentItem(
+                    index: 1,
+                    child: ContentPanel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (profile == null && account.busy)
+                            const SizedBox(
+                              height: 72,
+                              child: LoadingSkeleton(
+                                layout: SkeletonLayout.actions,
+                              ),
+                            )
+                          else ...[
+                            ArchiveCode(
+                              profile == null
+                                  ? 'SESSION / READY'
+                                  : 'UID / ${profile.id}',
+                            ),
+                            const SizedBox(height: 12),
+                            if (profile != null) ...[
+                              AppText(profile.username),
+                              const SizedBox(height: 8),
+                              AppText(
+                                '${profile.rank}  ·  ${profile.score} 积分  ·  ${profile.experience} 经验',
+                              ),
+                            ],
+                          ],
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 12,
+                            children: [
+                              GlassTextButton(
+                                key: const ValueKey('account-sign'),
+                                onPressed: account.busy || account.signedToday
+                                    ? null
+                                    : () => _run(account.signIn, '今日签到已完成'),
+                                child: AppText(
+                                  account.signedToday ? '今日已签到' : '每日签到',
+                                ),
+                              ),
+                              GlassTextButton(
+                                onPressed: account.busy
+                                    ? null
+                                    : () =>
+                                          _run(account.refreshProfile, '账号已更新'),
+                                child: const AppText('刷新资料'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  LoadedContentItem(
+                    index: 2,
+                    child: FeatureEntry(
+                      key: const ValueKey('account-cloud'),
+                      title: '云书架',
+                      subtitle: '收藏自动同步，查看云端书目',
+                      icon: CupertinoIcons.cloud,
+                      onTap: account.busy
+                          ? null
+                          : () => pushNovelPage<void>(
+                              context,
+                              CloudBookshelfPage(
+                                account: account,
+                                state: widget.state,
+                                repository: widget.repository,
+                              ),
+                              reduceMotion: widget.state.reduceMotion,
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  GlassTextButton(
+                    key: const ValueKey('account-logout'),
+                    onPressed: account.busy ? null : _logout,
+                    child: const AppText('退出账号'),
+                  ),
+                ],
+                if (account.busy) ...[
+                  const SizedBox(height: 20),
+                  const InlineSkeleton(label: '正在处理账号操作'),
+                  const SizedBox(height: 10),
+                  AppText(account.operation ?? ''),
+                ],
+                FeatureError(account.error),
               ],
-              if (account.busy) ...[
-                const SizedBox(height: 20),
-                const InlineSkeleton(label: '正在处理账号操作'),
-                const SizedBox(height: 10),
-                Text(account.operation ?? ''),
-              ],
-              FeatureError(account.error),
-            ],
+            ),
           ),
-        ),
-      );
-    },
+        );
+      },
+    ),
   );
 }
 
@@ -429,6 +462,11 @@ class _CloudBookshelfPageState extends State<CloudBookshelfPage> {
   Future<void> _refresh() async {
     if (widget.account.busy) return;
     try {
+      final sync = WenkuFeaturesScope.maybeOf(context)?.shelfSync;
+      if (sync != null) {
+        await sync.synchronize();
+        return;
+      }
       await widget.account.refreshCloud();
     } catch (_) {}
   }
@@ -517,11 +555,16 @@ class _CloudBookshelfPageState extends State<CloudBookshelfPage> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: Listenable.merge([widget.account, widget.state]),
+    animation: Listenable.merge([
+      widget.account,
+      widget.state,
+      ?WenkuFeaturesScope.maybeOf(context)?.shelfSync,
+    ]),
     builder: (context, _) {
       final account = widget.account;
       final books = account.cloudBooks;
       final busy = account.busy || _merging;
+      final sync = WenkuFeaturesScope.maybeOf(context)?.shelfSync;
       return ArchiveFeaturePage(
         title: '云书架',
         code: 'CLOUD / COLLECTION',
@@ -548,24 +591,33 @@ class _CloudBookshelfPageState extends State<CloudBookshelfPage> {
                       books == null ? '' : '${books.length} 本',
                     ),
                     const SizedBox(height: 12),
-                    const Text('两端只合并收藏。移出云端不会删除本机数据；退出账号也不影响本机阅读。'),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 8,
-                      children: [
-                        GlassTextButton(
-                          key: const ValueKey('cloud-download'),
-                          onPressed: busy || books == null ? null : _merge,
-                          child: const Text('合并到本机'),
-                        ),
-                        GlassTextButton(
-                          key: const ValueKey('cloud-upload'),
-                          onPressed: busy || books == null ? null : _upload,
-                          child: const Text('合并到云端'),
-                        ),
-                      ],
+                    AppText(
+                      sync == null
+                          ? '两端只合并收藏，阅读进度与本地文件保留。'
+                          : sync.syncing
+                          ? '正在自动同步收藏'
+                          : sync.error != null
+                          ? '自动同步待重试 · ${sync.error}'
+                          : '收藏自动同步 · 联网或回到前台时自动更新',
                     ),
+                    const SizedBox(height: 16),
+                    if (sync == null)
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        children: [
+                          GlassTextButton(
+                            key: const ValueKey('cloud-download'),
+                            onPressed: busy || books == null ? null : _merge,
+                            child: const AppText('合并到本机'),
+                          ),
+                          GlassTextButton(
+                            key: const ValueKey('cloud-upload'),
+                            onPressed: busy || books == null ? null : _upload,
+                            child: const AppText('合并到云端'),
+                          ),
+                        ],
+                      ),
                     FeatureError(_localError ?? account.error),
                     if (busy)
                       const SizedBox(
@@ -575,7 +627,7 @@ class _CloudBookshelfPageState extends State<CloudBookshelfPage> {
                     if (books?.isEmpty == true)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 60),
-                        child: Center(child: Text('云书架还没有收藏')),
+                        child: Center(child: AppText('云书架还没有收藏')),
                       ),
                     const SizedBox(height: 20),
                   ],
@@ -596,7 +648,7 @@ class _CloudBookshelfPageState extends State<CloudBookshelfPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
+                                AppText(
                                   book.title.isEmpty
                                       ? '书籍 ${book.id}'
                                       : book.title,
@@ -606,7 +658,7 @@ class _CloudBookshelfPageState extends State<CloudBookshelfPage> {
                                 ),
                                 if (book.latestChapter.isNotEmpty) ...[
                                   const SizedBox(height: 7),
-                                  Text(
+                                  AppText(
                                     book.latestChapter,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
@@ -661,11 +713,14 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
   NovelFeedController? _feed;
   String? _error;
   late int _accountRevision;
+  late int _publicationRevision;
   late bool _authenticated;
+  bool _accountPageOpen = false;
   @override
   void initState() {
     super.initState();
     _accountRevision = widget.account?.sessionRevision ?? 0;
+    _publicationRevision = widget.account?.publicationRevision ?? 0;
     _authenticated = widget.account?.authenticated ?? false;
     widget.account?.addListener(_accountChanged);
     unawaited(_load());
@@ -673,12 +728,14 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
 
   void _accountChanged() {
     final account = widget.account;
-    if (account == null || !mounted) return;
+    if (account == null || !mounted || _accountPageOpen || account.busy) return;
     if (_accountRevision == account.sessionRevision &&
-        _authenticated == account.authenticated) {
+        _authenticated == account.authenticated &&
+        _publicationRevision == account.publicationRevision) {
       return;
     }
     _accountRevision = account.sessionRevision;
+    _publicationRevision = account.publicationRevision;
     _authenticated = account.authenticated;
     final library = _selected;
     if (library != null) _select(library, force: true);
@@ -697,6 +754,9 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
   Future<void> _load() async {
     setState(() => _error = null);
     try {
+      // Restoring the shared account is part of entering this catalogue, not a
+      // reason to issue a guest request and replace it again after restoration.
+      await widget.account?.initialize();
       final libraries = await widget.catalog.publicationLibraries(
         refresh: true,
       );
@@ -755,21 +815,58 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
 
   Future<void> _loginForLibrary() async {
     final account = widget.account;
-    if (account == null) return;
-    await pushNovelPage<void>(
-      context,
-      WenkuAccountPage(
-        account: account,
-        state: widget.state,
-        repository: widget.repository,
-      ),
-      reduceMotion: widget.state.reduceMotion,
-    );
-    if (mounted && account.authenticated) await _feed?.refresh();
+    if (account == null || _accountPageOpen) return;
+    _accountPageOpen = true;
+    try {
+      await pushNovelPage<void>(
+        context,
+        WenkuAccountPage(
+          account: account,
+          state: widget.state,
+          repository: widget.repository,
+        ),
+        reduceMotion: widget.state.reduceMotion,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _accountPageOpen = false);
+        // One refresh, after login settles and this route becomes visible.
+        // Returning early waits for the account's completion notification.
+        _accountChanged();
+      }
+    }
   }
 
   Widget _catalogBody(BuildContext context) {
+    final account = widget.account;
+    if (account != null &&
+        account.busy &&
+        (_accountRevision != account.sessionRevision ||
+            _authenticated != account.authenticated)) {
+      return const LibrarySkeleton();
+    }
     final failure = _feed?.error;
+    if (failure is PublicationConnectionRequired && widget.account != null) {
+      return ContentNotice(
+        icon: CupertinoIcons.person_crop_circle,
+        title: widget.account!.authenticated ? '出版分类暂时不可用' : '此分类需要文库账号',
+        message: widget.account!.authenticated
+            ? '已复用当前账号请求分类，但官网未接受这次会话。可稍后重试，账号与阅读记录仍保留。'
+            : '登录后可读取官网出版分类。搜索和排行榜仍可直接使用。',
+        actionLabel: widget.account!.authenticated ? '重新加载' : '登录账号',
+        onRetry: widget.account!.authenticated
+            ? () => _select(_selected!, force: true)
+            : _loginForLibrary,
+      );
+    }
+    if (failure is FormatException && _feed!.items.isEmpty) {
+      return ContentNotice(
+        icon: CupertinoIcons.wifi_exclamationmark,
+        title: '出版分类暂时不可用',
+        message: failure.message,
+        onRetry: _feed!.retry,
+      );
+    }
     if (failure is WenkuApiError &&
         failure.code == 4 &&
         widget.account != null) {

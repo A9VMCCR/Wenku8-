@@ -9,8 +9,13 @@ class ReaderEdgeBlur extends StatelessWidget {
   const ReaderEdgeBlur({
     super.key,
     this.animation = const AlwaysStoppedAnimation(1),
+    this.topInset = 0,
+    this.compact = false,
+    this.blurBottom = true,
   });
   final Animation<double> animation;
+  final double topInset;
+  final bool compact, blurBottom;
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +26,10 @@ class ReaderEdgeBlur extends StatelessWidget {
     );
     final blur = GlassAppearance.of(context).blur;
     final topHeight =
-        top + FrostedHeader.toolbarHeight + FrostedHeader.featherHeight;
+        top +
+        topInset +
+        FrostedHeader.toolbarHeight +
+        (compact ? 24 : FrostedHeader.featherHeight);
     final highContrast = MediaQuery.highContrastOf(context);
     return AnimatedBuilder(
       animation: animation,
@@ -42,17 +50,20 @@ class ReaderEdgeBlur extends StatelessWidget {
                     plateauHeight: top,
                   ),
                 ),
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: MediaQuery.viewPaddingOf(context).bottom + 52,
-                child: ProgressiveBlur(
-                  maxSigma: math.min(3, blur * .16) * strength,
-                  plateauHeight: MediaQuery.viewPaddingOf(context).bottom,
-                  fromBottom: true,
+              if (blurBottom)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height:
+                      MediaQuery.viewPaddingOf(context).bottom +
+                      (compact ? 32 : 52),
+                  child: ProgressiveBlur(
+                    maxSigma: math.min(3, blur * .16) * strength,
+                    plateauHeight: MediaQuery.viewPaddingOf(context).bottom,
+                    fromBottom: true,
+                  ),
                 ),
-              ),
             ],
           ),
         );
@@ -170,7 +181,7 @@ class _ReaderFollowDockState extends State<ReaderFollowDock>
             children: [
               Icon(CupertinoIcons.location_fill, size: 17),
               SizedBox(width: 8),
-              Text('开启跟随'),
+              AppText('开启跟随'),
             ],
           ),
         ),

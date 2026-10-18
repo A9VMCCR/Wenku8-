@@ -1024,7 +1024,7 @@ class ListeningController {
   }
 
   Future<void> setSpeed(double speed) async {
-    speed = speed.clamp(.75, 2);
+    speed = speed.clamp(listeningMinimumSpeed, listeningMaximumSpeed);
     await store.saveSpeed(speed);
     _emit(speed: speed);
     await _command(() async {

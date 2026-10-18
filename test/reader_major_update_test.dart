@@ -27,7 +27,11 @@ const book = Novel(
   ],
 );
 Future<LibraryState> state() async {
-  SharedPreferences.setMockInitialValues({'reduceMotion': true});
+  SharedPreferences.setMockInitialValues({
+    'readerChromeVisible': true,
+    'readerChromeHintSeen': true,
+    'reduceMotion': true,
+  });
   return LibraryState.load();
 }
 
@@ -346,6 +350,9 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('阅读配色'), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('reader-paper-parchment')),
+      );
       await tester.tap(find.byKey(const ValueKey('reader-paper-parchment')));
       await tester.pumpAndSettle();
       expect(library.readerPreferences.paper, ReaderPaper.parchment);

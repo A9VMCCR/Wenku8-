@@ -1,18 +1,15 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'app_ui.dart';
 import 'catalog.dart';
-import 'feature_pages.dart' show confirmNovelAction;
 import 'library_state.dart';
 import 'local_books.dart';
 import 'local_library_preferences.dart';
 import 'local_series_editor.dart';
-import 'local_series_actions.dart';
+import 'local_book_removal.dart';
 import 'app_interactions.dart';
-import 'listening/widgets.dart';
 
-enum LocalBookEditResult { saved, deleted, regrouped }
+enum LocalBookEditResult { saved, hidden, deleted, regrouped }
 
 class LocalBookEditor extends StatefulWidget {
   const LocalBookEditor({
@@ -44,9 +41,8 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
 
   Future<void> _load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       if (!mounted) return;
-      final groups = LocalLibraryPreferences(prefs)..load();
+      final groups = widget.library.organization;
       setState(() {
         _groups = groups;
         _group = groups.groupOf(widget.book.id);
@@ -61,7 +57,6 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
     _title.dispose();
     _author.dispose();
     _summary.dispose();
-    _groups?.dispose();
     super.dispose();
   }
 
@@ -82,7 +77,7 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
           }.entries)
             GlassTextButton(
               onPressed: () => Navigator.pop(sheet, e.key),
-              child: Text(e.value),
+              child: AppText(e.value),
             ),
         ],
       ),
@@ -98,7 +93,7 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
       _error = null;
     });
     try {
-      final groups = _groups!..load();
+      final groups = _groups!;
       if (_group != LocalLibraryPreferences.unfiled &&
           !groups.groups.containsKey(_group)) {
         throw const FormatException('分类已变化，请重新选择分类');
@@ -127,35 +122,29 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
   }
 
   Future<void> _delete() async {
-    final series = widget.books.seriesFor(widget.book.id);
-    final isSeries = series?.id == widget.book.id;
-    if (_busy ||
-        !await confirmNovelAction(
-          context,
-          title: isSeries ? '删除整部书的本机原书？' : '删除本机原书？',
-          message:
-              '《${widget.books.book(widget.book.id)?.title ?? widget.book.title}》${isSeries ? '的 ${series!.volumes.length} 卷原书' : ''}将从本机移除。阅读进度与书签保留，网盘原书不会删除。',
-          confirmLabel: '删除本机原书',
-          reduceMotion: widget.library.reduceMotion,
-        )) {
-      return;
-    }
-    if (!mounted) return;
-    final listening = ListeningScope.maybeOf(context);
+    if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      if (listening?.snapshot.value.novel?.id == widget.book.id) {
-        await listening!.stop();
-      }
-      await removeLocalBook(
+      final result = await chooseLocalBookRemoval(
+        context,
+        book: widget.book,
         books: widget.books,
         library: widget.library,
-        id: widget.book.id,
       );
-      if (mounted) Navigator.pop(context, LocalBookEditResult.deleted);
+      if (!mounted) return;
+      if (result == null) {
+        setState(() => _busy = false);
+        return;
+      }
+      Navigator.pop(
+        context,
+        result == LocalBookRemoval.files
+            ? LocalBookEditResult.deleted
+            : LocalBookEditResult.hidden,
+      );
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -195,7 +184,7 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        AppText(label, style: const TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 9),
         CupertinoTextField(
           key: ValueKey('local-edit-$label'),
@@ -250,7 +239,7 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
               _field('作者', _author, limit: 160),
               Row(
                 children: [
-                  const Text(
+                  const AppText(
                     '分类',
                     style: TextStyle(fontWeight: FontWeight.w600),
                   ),
@@ -259,7 +248,7 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
                     child: GlassTextButton(
                       key: const ValueKey('local-edit-category'),
                       onPressed: _busy || _groups == null ? null : _chooseGroup,
-                      child: Text(_groups?.nameOf(_group) ?? '正在读取分类'),
+                      child: AppText(_groups?.nameOf(_group) ?? '正在读取分类'),
                     ),
                   ),
                 ],
@@ -268,7 +257,7 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
               GlassTextButton(
                 key: const ValueKey('local-edit-volumes'),
                 onPressed: _busy ? null : _volumes,
-                child: Text(
+                child: AppText(
                   widget.books.seriesFor(widget.book.id) == null
                       ? '合并分卷'
                       : '管理分卷',
@@ -279,7 +268,7 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 16),
-                  child: Text(
+                  child: AppText(
                     _error!,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.error,
@@ -296,8 +285,8 @@ class _LocalBookEditorState extends State<LocalBookEditor> {
               GlassTextButton(
                 key: const ValueKey('local-edit-delete'),
                 onPressed: _busy ? null : _delete,
-                child: Text(
-                  '删除本机原书',
+                child: AppText(
+                  '移除书籍',
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),

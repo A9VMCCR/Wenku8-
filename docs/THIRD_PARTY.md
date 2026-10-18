@@ -33,11 +33,25 @@
 
 ## Flutter 与依赖包
 
+### MOBI 导入：libmobi
+
+使用 [libmobi 0.12](https://github.com/bfabiszewski/libmobi/tree/v0.12)，Copyright 2014–2022 Bartek Fabiszewski，LGPL-3.0-or-later。完整、未修改的上游源码与许可在 `third_party/libmobi/`；Android 以独立 `libmobi.so` 动态链接，应用导出与 JNI 适配位于 `android/app/src/main/cpp/`，CMake 构建不启用加密支持。修改或替换库后可使用同一工程重新构建。源码导出包含库源码和构建脚本，应用开源许可页包含 LGPL v3 与 GPL v3 原文。
+
+MOBI 在本机重建为 EPUB 后使用现有阅读器，不访问转换服务，不解密 DRM 文件。
+
+### 文档导入
+
+Android 文档转换使用 [jsoup 1.23.2](https://jsoup.org/)（MIT，Jonathan Hedley）、[commonmark-java 0.30.1](https://github.com/commonmark/commonmark-java)（BSD-2-Clause，Atlassian）和 [PDFBox Android 2.0.27.0](https://github.com/TomRoush/PdfBox-Android)（Apache-2.0，Tom Roush / Apache Software Foundation）。PDFBox 的 Bouncy Castle 1.72 依赖遵循 MIT-style 许可。Android 旧版本兼容使用 Google 的 `desugar_jdk_libs_nio` 2.1.5（GPL-2.0 with Classpath Exception）。固定版本列于 `android/app/build.gradle.kts`，原文与 PDFBox / FontBox 声明保存在 `assets/licenses/` 并注册到应用许可页。FB2 / DOCX 的 SAX 转换与 RTF 正文导入为本工程实现。
+
+OpenJDK 兼容库的完整未修改源码、许可与构建脚本保存在 `third_party/desugar_jdk_libs-2.1.5/`，对应上游发布准备提交 `73170c345e6a762fc6a1f0301bb15218850023ef`；来源见 `third_party/DESUGAR_JDK_LIBS.md`，随应用对应源码一起提供。
+
 依赖版本锁定于 `pubspec.lock`。Flutter、Cupertino Icons、音频与存储插件保留各自许可；Flutter 构建生成的许可集合可在 **设置 → 关于轻小说文库 → 开源许可与字体授权** 查看。该页面也包括上面的内置字体与协议适配声明。
 
 液态玻璃基于 [liquid_glass_easy 5.0.0](https://pub.dev/packages/liquid_glass_easy/versions/5.0.0)，作者 Ahmed Gamil，使用 MIT License。源码和原许可保留于 [`third_party/liquid_glass_easy`](../third_party/liquid_glass_easy)；本地 GPU 性能修改单独记录在 [`PATCHES.md`](../third_party/liquid_glass_easy/PATCHES.md)。应用保留原作者署名，版权与许可随源码及 Flutter 的开源许可集合分发。
 
 ## 内容与展示图
+
+中文显示使用 [OpenCC ver.1.1.9](https://github.com/BYVoid/OpenCC/tree/ver.1.1.9) 的原始字词典（BYVoid 及贡献者，Apache-2.0）。词典及来源说明位于 `assets/opencc/`，完整许可位于 `assets/licenses/opencc.txt`，注册到应用开源许可页。区域字形转换与有界缓存由 Dart 实现，不包含 OpenCC 原生二进制。
 
 TXT / EPUB 目录解析、图片尺寸样式与同步归档使用 `archive`（MIT）、`html`（MIT）及 `csslib`（BSD-3-Clause），版本保留于锁文件，许可包含在 Flutter 生成的开源许可集合中。应用使用本项目选定的奶白人物剪影图标，原始位图与适配信息保留于 `assets/branding/`，不包含莱茵生命标志或宣传片素材。
 

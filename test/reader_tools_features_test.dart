@@ -1,12 +1,19 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/reader_panels.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/library_state.dart';
 import 'package:wenku8_flutter/pages.dart';
 import 'package:wenku8_flutter/reader_landing_highlight.dart';
+import 'package:wenku8_flutter/reader_preferences.dart';
+import 'package:wenku8_flutter/reader_tools.dart';
+import 'package:wenku8_flutter/reader_paged_view.dart';
+import 'support/visual_review.dart';
+import 'reader_modes_test.dart' show settleReader;
 
 import 'support/offline_fixture.dart';
 
@@ -59,11 +66,16 @@ void main({
   capture,
 }) {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(loadReviewFonts);
   late LibraryState state;
   late OfflineFixtureRepository remote;
   late GlobalKey boundary;
   setUp(() async {
-    SharedPreferences.setMockInitialValues({'reduceMotion': true});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+      'reduceMotion': true,
+    });
     state = await LibraryState.load();
     remote = OfflineFixtureRepository();
     boundary = GlobalKey();
@@ -113,6 +125,44 @@ void main({
   Future<void> shot(WidgetTester tester, String name) async {
     if (capture != null) await capture(tester, boundary, name);
   }
+
+  testWidgets(
+    'page-effect choices wrap at large text, persist and do not repaginate',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 740);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(
+        () => state.setReaderPreferences(
+          const ReaderPreferences(mode: ReaderMode.paged),
+        ),
+      );
+      await reader(tester, scale: 1.4, brightness: Brightness.dark);
+      await settleReader(tester);
+      final controller = tester
+          .widget<ReaderPagedView>(find.byType(ReaderPagedView))
+          .controller;
+      final generation = controller.debugLayoutGeneration;
+      await settings(tester);
+      await tester.ensureVisible(find.text('翻页效果'));
+      await tester.pumpAndSettle();
+      await captureReview(tester, boundary, 'reader-effects-compact-dark');
+      for (final effect in ReaderPageEffect.values.reversed) {
+        final button = find.byKey(
+          ValueKey('reader-page-effect-${effect.name}'),
+        );
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
+        await tester.tap(button);
+        await _io(tester);
+        expect(state.readerPreferences.pageEffect, effect);
+        expect(controller.debugLayoutGeneration, generation);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   testWidgets(
     'typography previews live through a clear sheet and persists only on release',
@@ -206,6 +256,56 @@ void main({
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final (name, initial, next) in [
+    ('margin', 24.0, 40.0),
+    ('paragraph-gap', 16.0, 28.0),
+  ]) {
+    testWidgets(
+      '$name adjustment previews live through a transparent panel and commits only on release',
+      (tester) async {
+        await reader(tester);
+        await settings(tester);
+        final finder = find.byKey(ValueKey('reader-$name-slider'));
+        await tester.ensureVisible(finder);
+        await tester.pumpAndSettle();
+        final stored = await SharedPreferences.getInstance();
+        final before = stored.getString('readerPreferences');
+        var slider = tester.widget<AppGlassSlider>(finder);
+        slider.onChangeStart!(initial);
+        slider.onChanged!(next);
+        await tester.pump();
+        expect(
+          tester
+              .widget<GlassOverlaySurface>(find.byType(GlassOverlaySurface))
+              .transparent,
+          isTrue,
+        );
+        expect(
+          name == 'margin'
+              ? state.readerPreferences.margin
+              : state.readerPreferences.paragraphGap,
+          next,
+        );
+        expect(stored.getString('readerPreferences'), before);
+        slider = tester.widget<AppGlassSlider>(finder);
+        slider.onChangeEnd!(next);
+        await _io(tester);
+        expect(
+          tester
+              .widget<GlassOverlaySurface>(find.byType(GlassOverlaySurface))
+              .transparent,
+          isFalse,
+        );
+        expect(
+          stored.getString('readerPreferences'),
+          contains(name == 'margin' ? '"margin":40' : '"paragraphGap":28'),
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
 
   testWidgets(
     'reader accessibility increments commit without waiting for pointer release',
@@ -322,11 +422,10 @@ void main({
   );
 
   testWidgets(
-    'bookmark entry opens saved positions directly with an explicit guide',
+    'the unified settings bookmark tab opens saved positions with an explicit guide',
     (tester) async {
       await reader(tester);
-      await tester.tap(_control('阅读书签'));
-      await tester.pumpAndSettle();
+      await openReaderPanel(tester, tab: '书签');
       expect(find.byKey(const ValueKey('reader-add-bookmark')), findsOneWidget);
       expect(find.text('先添加当前位置，再点按下方书签即可回到这里。'), findsOneWidget);
       await shot(tester, 'reader-bookmark-entry');
@@ -378,37 +477,114 @@ void main({
   );
 
   testWidgets(
-    'progress applies only on release, reaches chapter end and continues with the existing Dock',
+    'chapter progress detents are light, rate limited and only run during dragging',
     (tester) async {
+      final haptics = <Object?>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'HapticFeedback.vibrate') {
+            haptics.add(call.arguments);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ReaderValueSlider(
+            sliderKey: const ValueKey('test-progress'),
+            label: '本章进度',
+            value: 0,
+            min: 0,
+            max: 1,
+            divisions: 500,
+            hapticSteps: 100,
+            format: (value) => '${(value * 100).round()}%',
+            onCommitted: (_) {},
+          ),
+        ),
+      );
+      final slider = tester.widget<AppGlassSlider>(
+        find.byKey(const ValueKey('test-progress')),
+      );
+      slider.onChangeStart!(0);
+      slider.onChanged!(.001);
+      expect(haptics, isEmpty);
+      slider.onChanged!(.011);
+      slider.onChanged!(.022);
+      expect(haptics, ['HapticFeedbackType.selectionClick']);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 75)),
+      );
+      slider.onChanged!(.034);
+      expect(haptics.length, 2);
+      slider.onChangeEnd!(.034);
+      slider.onChanged!(.08);
+      expect(haptics.length, 2);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'progress scrubs through a transparent sheet, commits on release and continues with the existing Dock',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       await reader(tester);
-      await settings(tester);
+      await openReaderChapterProgress(tester);
+      await tester.ensureVisible(
+        find.ancestor(
+          of: find.byKey(const ValueKey('reader-progress-slider')),
+          matching: find.byType(ReaderValueSlider),
+        ),
+      );
+      await tester.pumpAndSettle();
       final progress = tester.widget<AppGlassSlider>(
         find.byKey(const ValueKey('reader-progress-slider')),
       );
       progress.onChangeStart!(progress.value);
       progress.onChanged!(.65);
-      await tester.pump();
-      expect(_article(tester).position.pixels, 0);
+      await tester.pump(const Duration(milliseconds: 64));
+      expect(
+        tester
+            .widget<GlassOverlaySurface>(find.byType(GlassOverlaySurface))
+            .transparent,
+        isTrue,
+      );
+      expect(_article(tester).position.pixels, greaterThan(0));
+      await captureReview(
+        tester,
+        boundary,
+        'reader-progress-transparent-preview',
+      );
       progress.onChangeEnd!(.65);
       await tester.pumpAndSettle();
-      expect(find.byType(GlassOverlaySurface), findsNothing);
+      expect(
+        tester
+            .widget<GlassOverlaySurface>(find.byType(GlassOverlaySurface))
+            .transparent,
+        isFalse,
+      );
       expect(_article(tester).position.pixels, greaterThan(0));
       expect(state.positionFor(71)!.fraction, closeTo(.65, .02));
-      await settings(tester);
-      await tester.scrollUntilVisible(
-        find.text('跳至章末'),
-        160,
-        scrollable: find.descendant(
-          of: find.byKey(const ValueKey('reader-settings-scroll')),
-          matching: find.byType(Scrollable),
-        ),
-      );
+      await tester.ensureVisible(find.text('跳至章末'));
       await tester.tap(find.text('跳至章末'));
       await tester.pumpAndSettle();
       final scroll = _article(tester).position;
       expect(scroll.pixels, closeTo(scroll.maxScrollExtent, 1));
-      expect(find.byKey(const ValueKey('reader-end-next')), findsOneWidget);
-      await tester.tap(find.text('继续下一章'));
+      expect(find.text('继续向下阅读下一章'), findsOneWidget);
+      await tester.drag(
+        find.byKey(const ValueKey('reader-scroll')),
+        const Offset(0, -160),
+      );
       await tester.pumpAndSettle();
       expect(state.positionFor(71)!.chapter, 1);
       expect(_article(tester).position.pixels, 0);
@@ -433,11 +609,15 @@ void main({
         matching: find.byType(Scrollable),
       );
       await tester.scrollUntilVisible(
-        find.text('跳至章末'),
+        find.text('恢复默认排版'),
         160,
         scrollable: scroll,
       );
       await shot(tester, 'reader-tools-small-dark');
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await openReaderChapterProgress(tester);
+      await tester.ensureVisible(find.text('跳至章末'));
       await tester.tap(find.text('跳至章末'));
       await tester.pumpAndSettle();
       expect(

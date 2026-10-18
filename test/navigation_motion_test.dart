@@ -15,7 +15,10 @@ Future<LibraryState> mountApp(
   WidgetTester tester, {
   NovelRepository repository = const DemoNovelRepository(),
 }) async {
-  SharedPreferences.setMockInitialValues({});
+  SharedPreferences.setMockInitialValues({
+    'readerChromeVisible': true,
+    'readerChromeHintSeen': true,
+  });
   final state = await LibraryState.load();
   await tester.pumpWidget(NovelApp(state: state, repository: repository));
   await tester.pumpAndSettle();
@@ -160,7 +163,10 @@ void main() {
   testWidgets(
     'reader has a compact fluid dock, a bottom underlay and chapter boundaries',
     (tester) async {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+      });
       final state = await LibraryState.load();
       await tester.pumpWidget(
         MaterialApp(
@@ -175,7 +181,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       final dock = find.byKey(const ValueKey('reader-liquid-dock'));
-      expect(tester.getSize(dock), const Size(196, 54));
+      expect(tester.getSize(dock).width, closeTo(3 * 184 / 3 + 12, .01));
+      expect(tester.getSize(dock).height, 54);
       expect(
         find.byKey(const ValueKey('reader-chrome-edge-blur')),
         findsOneWidget,
@@ -234,7 +241,7 @@ void main() {
       final rightTouch = tester.widget<LiquidGlass>(lens).touchPosition;
       expect(rightTouch, greaterThan(.8));
       expect(find.text('轻小说文库'), findsOneWidget);
-      expect(find.text('阅读偏好'), findsNothing);
+      expect(find.byKey(const ValueKey('my-settings')), findsNothing);
       await gesture.moveTo(
         middle,
         timeStamp: const Duration(milliseconds: 420),
@@ -293,7 +300,7 @@ void main() {
     expect(tester.getRect(lens).size, rest.size);
     await gesture.up(timeStamp: const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
-    expect(find.text('阅读偏好'), findsOneWidget);
+    expect(find.byKey(const ValueKey('my-settings')), findsOneWidget);
   });
 
   testWidgets('dock has one soft transmitting surface, without a second tint', (
@@ -512,12 +519,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
     await tester.pump();
-    expect(find.text('阅读偏好'), findsOneWidget);
+    expect(find.byKey(const ValueKey('my-settings')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('long chapters only lay out nearby paragraphs', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+    });
     final state = await LibraryState.load();
     await tester.pumpWidget(
       MaterialApp(

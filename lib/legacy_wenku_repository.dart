@@ -3,12 +3,22 @@ import 'package:flutter/material.dart' show Color;
 import 'package:xml/xml.dart';
 
 import 'catalog.dart';
+import 'book_search.dart';
 import 'legacy_transport.dart';
 import 'publication_catalog.dart';
+import 'tag_catalogue.dart';
 import 'reader_content.dart' show readerIllustrationUrl;
 import 'wenku_account.dart' show WenkuApiError, wenkuResponseCode;
 
 typedef LegacyRequest = Future<String> Function(String action);
+
+class _TagCursor {
+  _TagCursor({this.refresh = false});
+  bool refresh;
+  int next = 1;
+  int? pages;
+  bool done = false;
+}
 
 List<NovelChapter> _decodeChapters(String source) {
   final document = XmlDocument.parse(source);
@@ -41,7 +51,12 @@ List<NovelChapter> _decodeChapters(String source) {
   ]);
 }
 
-List<int> _decodeSearchIds(String source) {
+List<({int id, Map<String, String> fields})> _decodeSearchResults(
+  String source,
+) {
+  final code = wenkuResponseCode(source);
+  if (code == 19) return const [];
+  if (code != null) throw WenkuApiError(code);
   final document = XmlDocument.parse(source);
   if (document.rootElement.name.local != 'result') {
     throw const FormatException('搜索接口返回了非列表内容');
@@ -49,7 +64,7 @@ List<int> _decodeSearchIds(String source) {
   return [
     for (final item in document.findAllElements('item'))
       if (int.tryParse(item.getAttribute('aid') ?? '') case final int id)
-        if (id > 0) id,
+        if (id > 0) (id: id, fields: LegacyWenkuRepository._fields(item)),
   ];
 }
 
@@ -71,22 +86,28 @@ String _normalizeBody(String source) => source
 /// Android v1.30 protocol adapter. The bridge keeps the original POST envelope;
 /// this class only maps its existing XML responses into Flutter view models.
 class LegacyWenkuRepository extends NovelRepository
-    implements PublicationCatalog {
+    implements PublicationCatalog, ProgressiveTagCatalogue {
   LegacyWenkuRepository({
     LegacyRequest? request,
     LegacyRequest? publicationRequest,
+    Object Function()? publicationSessionKey,
   }) : _request = request ?? LegacyTransport.request,
        _publicationRequest =
-           publicationRequest ?? request ?? LegacyTransport.sessionRead;
+           publicationRequest ?? request ?? LegacyTransport.sessionRead,
+       _publicationSessionKey = publicationSessionKey;
 
   final LegacyRequest _request;
   final LegacyRequest _publicationRequest;
+  final Object Function()? _publicationSessionKey;
   final Map<(NovelSort, int), NovelPage> _pages = {};
   final Map<NovelSort, int> _listVersions = {};
   final Map<(NovelSort, int, int), Future<NovelPage>> _pageRequests = {};
   final Map<String, List<int>> _searchIds = {};
   final Map<String, int> _searchVersions = {};
   final Map<(String, int), Future<List<int>>> _searchRequests = {};
+  final Map<(String, int), _TagCursor> _tagCursors = {};
+  final _cappedTags = <(String, int)>{};
+  final Map<(String, int), Future<void>> _tagRequests = {};
   final Map<int, Novel> _meta = {};
   final Map<int, Future<Novel?>> _metaRequests = {};
   final Map<int, List<NovelChapter>> _indexes = {};
@@ -96,7 +117,7 @@ class LegacyWenkuRepository extends NovelRepository
   Future<List<PublicationLibrary>>? _libraries;
   int _libraryVersion = 0;
   final Map<int, int> _publicationVersions = {};
-  final Map<(int, int, int), Future<NovelPage>> _publicationPages = {};
+  final Map<(Object?, int, int, int), Future<NovelPage>> _publicationPages = {};
 
   @override
   Future<List<PublicationLibrary>> publicationLibraries({
@@ -128,19 +149,21 @@ class LegacyWenkuRepository extends NovelRepository
     if (libraryId <= 0 || page <= 0) {
       throw ArgumentError('Invalid publication page');
     }
+    final session = _publicationSessionKey?.call();
+    _publicationPages.removeWhere((key, _) => key.$1 != session);
     if (refresh) {
       if (page == 1) {
         _publicationVersions[libraryId] =
             (_publicationVersions[libraryId] ?? 0) + 1;
-        _publicationPages.removeWhere((key, _) => key.$1 == libraryId);
+        _publicationPages.removeWhere((key, _) => key.$2 == libraryId);
       } else {
         _publicationPages.removeWhere(
-          (key, _) => key.$1 == libraryId && key.$2 == page,
+          (key, _) => key.$2 == libraryId && key.$3 == page,
         );
       }
     }
     final version = _publicationVersions[libraryId] ?? 0;
-    final key = (libraryId, page, version);
+    final key = (session, libraryId, page, version);
     return _publicationPages.putIfAbsent(key, () async {
       try {
         final source = await _publicationRequest(
@@ -149,7 +172,8 @@ class LegacyWenkuRepository extends NovelRepository
         final code = wenkuResponseCode(source);
         if (code != null) throw WenkuApiError(code);
         final result = _parsePage(source, page);
-        if ((_publicationVersions[libraryId] ?? 0) == version) {
+        if (_publicationSessionKey?.call() == session &&
+            (_publicationVersions[libraryId] ?? 0) == version) {
           for (final novel in result.items) {
             if (_meta[novel.id]?.lastUpdate != novel.lastUpdate) {
               _indexes.remove(novel.id);
@@ -238,7 +262,10 @@ class LegacyWenkuRepository extends NovelRepository
       final id = int.tryParse(item.getAttribute('aid') ?? '');
       if (id == null || id <= 0) continue;
       final values = _fields(item);
-      final novel = _makeNovel(id, values);
+      var novel = _makeNovel(id, values);
+      if (novel.tags.isEmpty && _meta[id]?.tags.isNotEmpty == true) {
+        novel = novel.withGenre(_meta[id]!.genre);
+      }
       novels.add(novel);
       if ((_listVersions[sort] ?? 0) == version) {
         final previous = _meta[id];
@@ -309,33 +336,93 @@ class LegacyWenkuRepository extends NovelRepository
     String author, {
     int page = 1,
     bool refresh = false,
-  }) => _searchPage(author, page: page, refresh: refresh, authorOnly: true);
+  }) => _searchPage(
+    author,
+    page: page,
+    refresh: refresh,
+    field: BookSearchField.author,
+  );
+
+  @override
+  Future<NovelPage> searchFilteredPage(
+    String query, {
+    BookSearchField field = BookSearchField.all,
+    int page = 1,
+    bool refresh = false,
+  }) => _searchPage(query, field: field, page: page, refresh: refresh);
+
+  @override
+  Future<NovelPage> tagPage(
+    String tag, {
+    int page = 1,
+    bool refresh = false,
+    bool Function()? current,
+  }) {
+    final term = tag.trim();
+    return _searchPage(
+      term.startsWith('#') ? term.substring(1) : term,
+      field: BookSearchField.tags,
+      page: page,
+      refresh: refresh,
+      current: current,
+    );
+  }
 
   Future<NovelPage> _searchPage(
     String query, {
     int page = 1,
     bool refresh = false,
-    bool authorOnly = false,
+    BookSearchField field = BookSearchField.all,
+    bool Function()? current,
   }) async {
     if (page < 1) throw ArgumentError.value(page, 'page');
-    final term = query.trim();
+    var term = query.trim();
+    if (term.startsWith('#') && field == BookSearchField.all) {
+      field = BookSearchField.tags;
+      term = term.substring(1).trim();
+    }
     if (term.isEmpty) {
-      return authorOnly
+      return field != BookSearchField.all
           ? NovelPage.fromItems(const [], page)
           : browse(page: page, refresh: refresh);
     }
-    final cacheKey = '${authorOnly ? 'author' : 'all'}:$term';
+    if (field == BookSearchField.id) {
+      final id = int.tryParse(term);
+      final book = id == null || id <= 0 ? null : await find(id);
+      return NovelPage.fromItems(book == null ? const [] : [book], page);
+    }
+    final cacheKey = '${field.name}:$term';
     if (refresh && page == 1) {
       _searchIds.remove(cacheKey);
+      _tagCursors.removeWhere((key, _) => key.$1 == cacheKey);
+      _cappedTags.removeWhere((key) => key.$1 == cacheKey);
       _searchVersions[cacheKey] = (_searchVersions[cacheKey] ?? 0) + 1;
     }
     final version = _searchVersions[cacheKey] ?? 0;
-    final ids =
+    var ids =
         _searchIds[cacheKey] ??
-        await _matchingIds(term, version, cacheKey, authorOnly);
+        await _matchingIds(term, version, cacheKey, field);
+    // The public tags search is capped at 20 and ignores page=. Continue
+    // against the paginated, tag-bearing catalogue instead of declaring its
+    // first 20 matches to be the complete collection. Existing browse cache is
+    // shared by discovery and every tag; no detail request per catalogue book.
+    _TagCursor? tagCursor;
+    if (field == BookSearchField.tags &&
+        (_cappedTags.contains((cacheKey, version)) ||
+            _tagCursors.containsKey((cacheKey, version)))) {
+      tagCursor = _tagCursors.putIfAbsent((
+        cacheKey,
+        version,
+      ), () => _TagCursor(refresh: refresh));
+      if ((page > 1 || ids.length < 20) && !tagCursor.done) {
+        await _extendTagIndex(term, cacheKey, version, page * 20 + 1, current);
+        ids = _searchIds[cacheKey] ?? ids;
+      }
+    }
     final matches = ids.skip((page - 1) * 20).take(20).toList();
     final found = <Novel>[];
     for (var start = 0; start < matches.length; start += 4) {
+      if (current?.call() == false) break;
       final batch = matches.skip(start).take(4);
       final novels = await Future.wait(batch.map(find));
       found.addAll(novels.whereType<Novel>());
@@ -343,21 +430,96 @@ class LegacyWenkuRepository extends NovelRepository
     return NovelPage(
       items: List.unmodifiable(found),
       page: page,
-      totalItems: ids.length,
-      totalPages: (ids.length / 20).ceil(),
+      totalItems: tagCursor != null && !tagCursor.done ? null : ids.length,
+      totalPages: tagCursor != null && !tagCursor.done
+          ? null
+          : (ids.length / 20).ceil(),
     );
+  }
+
+  Future<void> _extendTagIndex(
+    String term,
+    String key,
+    int version,
+    int needed,
+    bool Function()? current,
+  ) async {
+    final ticket = (key, version);
+    if (current?.call() == false) return;
+    final pending = _tagRequests[ticket];
+    if (pending != null) await pending;
+    if ((_searchVersions[key] ?? 0) != version || current?.call() == false) {
+      return;
+    }
+    final cursor = _tagCursors[ticket]!;
+    if (cursor.done || (_searchIds[key]?.length ?? 0) >= needed) return;
+    final request = () async {
+      final ids = <int>{...?_searchIds[key]};
+      final pattern = BookSearch(term, field: BookSearchField.tags);
+      while (current?.call() != false &&
+          !cursor.done &&
+          ids.length < needed &&
+          (_searchVersions[key] ?? 0) == version) {
+        final count = cursor.pages == null
+            ? 1
+            : (cursor.pages! - cursor.next + 1).clamp(0, 4);
+        if (count == 0) {
+          cursor.done = true;
+          break;
+        }
+        final pages = await Future.wait(
+          List.generate(
+            count,
+            (i) => browse(
+              page: cursor.next + i,
+              refresh: cursor.refresh && cursor.next + i == 1,
+            ),
+          ),
+        );
+        if ((_searchVersions[key] ?? 0) != version ||
+            current?.call() == false) {
+          return;
+        }
+        for (final result in pages) {
+          if (result.items.isNotEmpty &&
+              result.items.every((b) => b.tags.isEmpty)) {
+            throw const FormatException('书目接口没有返回标签，请稍后重试');
+          }
+          for (final book in result.items) {
+            if (pattern.matches(
+              title: book.title,
+              author: book.author,
+              tags: book.genre,
+            )) {
+              ids.add(book.id);
+            }
+          }
+          cursor.refresh = false;
+          cursor.pages = result.totalPages;
+          cursor.next = result.page + 1;
+          if (!result.hasMore || result.items.isEmpty) cursor.done = true;
+        }
+        _searchIds[key] = List<int>.unmodifiable(ids);
+      }
+    }();
+    _tagRequests[ticket] = request;
+    try {
+      await request;
+    } finally {
+      if (identical(_tagRequests[ticket], request)) _tagRequests.remove(ticket);
+    }
   }
 
   Future<List<int>> _matchingIds(
     String term,
     int version,
     String cacheKey,
-    bool authorOnly,
+    BookSearchField field,
   ) async {
     final key = (cacheKey, version);
     final pending = _searchRequests[key];
     if (pending != null) return pending;
-    final request = _loadMatchingIds(term, version, cacheKey, authorOnly);
+    final request = _loadMatchingIds(term, version, cacheKey, field);
     _searchRequests[key] = request;
     try {
       return await request;
@@ -370,23 +532,80 @@ class LegacyWenkuRepository extends NovelRepository
     String term,
     int version,
     String cacheKey,
-    bool authorOnly,
+    BookSearchField field,
   ) async {
+    final pattern = BookSearch(term, field: field);
+    final multipleTags =
+        field == BookSearchField.tags && pattern.terms.length > 1;
+    // A complete (<20) single-tag response is the cheapest complete seed for
+    // an intersection. Only capped seeds need the shared paginated catalogue.
     final encoded = Uri.encodeQueryComponent(term);
     final responses = await Future.wait([
-      if (!authorOnly)
+      if (field == BookSearchField.all || field == BookSearchField.title)
         _request('action=search&searchtype=articlename&searchkey=$encoded&t=0'),
-      _request('action=search&searchtype=author&searchkey=$encoded&t=0'),
+      if (field == BookSearchField.all || field == BookSearchField.author)
+        _request('action=search&searchtype=author&searchkey=$encoded&t=0'),
+      if (multipleTags)
+        for (final tag in pattern.terms)
+          _request(
+            'action=search&searchtype=tags&searchkey=${Uri.encodeQueryComponent(tag.text)}&t=0',
+          )
+      else if (field == BookSearchField.all || field == BookSearchField.tags)
+        _request('action=search&searchtype=tags&searchkey=$encoded&t=0'),
     ]);
     final ids = <int>{};
+    List<int>? bestSeed;
+    var allCapped = true;
     for (final response in responses) {
-      ids.addAll(
-        response.length > 64 * 1024
-            ? await compute(_decodeSearchIds, response)
-            : _decodeSearchIds(response),
-      );
+      final matches = response.length > 64 * 1024
+          ? await compute(_decodeSearchResults, response)
+          : _decodeSearchResults(response);
+      if (matches.length < 20) allCapped = false;
+      if (multipleTags &&
+          (bestSeed == null || matches.length < bestSeed.length)) {
+        bestSeed = matches.map((m) => m.id).toList();
+      }
+      for (final match in matches) {
+        ids.add(match.id);
+        if ((_searchVersions[cacheKey] ?? 0) == version &&
+            match.fields['Title']?.isNotEmpty == true) {
+          final novel = _makeNovel(match.id, match.fields),
+              old = _meta[match.id];
+          if (old == null) {
+            _meta[match.id] = novel;
+          } else if (old.tags.isEmpty && novel.tags.isNotEmpty) {
+            _meta[match.id] = old.withGenre(novel.genre);
+          }
+        }
+      }
     }
-    final result = List<int>.unmodifiable(ids);
+    if (field == BookSearchField.tags &&
+        allCapped &&
+        (_searchVersions[cacheKey] ?? 0) == version) {
+      _cappedTags.add((cacheKey, version));
+    }
+    final filtered = <int>[];
+    if (multipleTags) {
+      final candidates = bestSeed ?? const <int>[];
+      for (var start = 0; start < candidates.length; start += 4) {
+        final books = await Future.wait(
+          candidates.skip(start).take(4).map(find),
+        );
+        filtered.addAll(
+          books
+              .whereType<Novel>()
+              .where(
+                (book) => pattern.matches(
+                  title: book.title,
+                  author: book.author,
+                  tags: book.genre,
+                ),
+              )
+              .map((book) => book.id),
+        );
+      }
+    }
+    final result = List<int>.unmodifiable(multipleTags ? filtered : ids);
     if ((_searchVersions[cacheKey] ?? 0) == version) {
       _searchIds[cacheKey] = result;
     }
@@ -411,7 +630,13 @@ class LegacyWenkuRepository extends NovelRepository
   }
 
   Future<Novel> _loadDetail(Novel novel) async {
-    final meta = await find(novel.id) ?? novel;
+    var meta = await find(novel.id) ?? novel;
+    // The full-meta endpoint can omit Tags even when novellist supplied them.
+    // Sparse responses must not erase the server's already known labels.
+    if (meta.tags.isEmpty && novel.tags.isNotEmpty) {
+      meta = meta.withGenre(novel.genre);
+      _meta[novel.id] = meta;
+    }
     try {
       final source = await _request('action=book&do=intro&aid=${novel.id}&t=0');
       String intro;

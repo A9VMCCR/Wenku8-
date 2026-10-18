@@ -29,6 +29,30 @@ class Novel {
   final String? lastUpdate;
   final int chapterCount;
 
+  List<String> get tags => List.unmodifiable(
+    genre
+        .split(RegExp(r'[\s\u3000·,，、;；|/]+'))
+        .where(
+          (tag) =>
+              tag.isNotEmpty && tag != '轻小说' && tag != '本地导入' && tag != '本地合订本',
+        )
+        .toSet(),
+  );
+
+  Novel withGenre(String value) => Novel(
+    id: id,
+    title: title,
+    author: author,
+    genre: value,
+    summary: summary,
+    colors: colors,
+    chapters: chapters,
+    isComplete: isComplete,
+    coverUrl: coverUrl,
+    lastUpdate: lastUpdate,
+    chapterCount: chapterCount,
+  );
+
   Novel withChapters(List<NovelChapter> items) => Novel(
     id: id,
     title: title,
@@ -169,6 +193,32 @@ abstract class NovelRepository {
     )).where((book) => sameNovelAuthor(book.author, author)).toList(),
     page,
   );
+
+  Future<NovelPage> searchFilteredPage(
+    String query, {
+    BookSearchField field = BookSearchField.all,
+    int page = 1,
+    bool refresh = false,
+  }) async {
+    if (field == BookSearchField.all) {
+      return searchPage(query, page: page, refresh: refresh);
+    }
+    final pattern = BookSearch(query, field: field);
+    return NovelPage.fromItems(
+      (await search(query))
+          .where(
+            (book) => pattern.matches(
+              title: book.title,
+              author: book.author,
+              tags: book.genre,
+              summary: book.summary,
+              id: '${book.id}',
+            ),
+          )
+          .toList(),
+      page,
+    );
+  }
 }
 
 bool sameNovelAuthor(String a, String b) {

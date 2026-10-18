@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/reader_panels.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/catalog.dart';
@@ -34,7 +35,11 @@ void main() {
   late LibraryState library;
   late FakeListeningOutput output;
   setUp(() async {
-    SharedPreferences.setMockInitialValues({'reduceMotion': true});
+    SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+      'reduceMotion': true,
+    });
     library = await LibraryState.load();
     output = FakeListeningOutput();
     controller = ListeningController(
@@ -136,6 +141,9 @@ void main() {
       final slider = tester.widget<AppGlassSlider>(
         find.byKey(const ValueKey('listening-speed')),
       );
+      expect(slider.min, .5);
+      expect(slider.max, 3);
+      expect(slider.divisions, 50);
       state(1, ListeningPhase.preparing);
       await tester.pump();
       state(1, ListeningPhase.playing);
@@ -709,8 +717,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(control('reader-listening-entry'));
-      await tester.pumpAndSettle();
+      await openReaderPanel(tester, tab: '听书');
       expect(find.text('听书'), findsOneWidget);
       await tester.tap(control('listening-play-pause'));
       await tester.pumpAndSettle();
@@ -723,7 +730,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(controller.snapshot.value.phase, ListeningPhase.playing);
       final close = find.byWidgetPredicate(
-        (widget) => widget is GlassIconButton && widget.label == '关闭听书面板',
+        (widget) => widget is GlassIconButton && widget.label == '关闭阅读设置',
       );
       await tester.tap(
         find.descendant(of: close, matching: find.byType(InkWell)).first,

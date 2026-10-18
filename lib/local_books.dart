@@ -17,6 +17,7 @@ import 'book_import_limits.dart';
 import 'local_book_media.dart';
 import 'local_book_series.dart';
 import 'epub_image_styles.dart';
+import 'local_text_import.dart';
 import 'reader_content.dart' show readerIllustrationUrl;
 
 export 'book_identity.dart' show localBookIdStart, isLocalBook;
@@ -244,8 +245,9 @@ ImportedBook _epub(
   String digest, {
   Archive? archive,
   void Function(String name, ArchiveFile file)? saveImage,
+  void Function(int index, String body)? saveBody,
 }) {
-  final zip = archive ?? boundedZip(input.bytes, maxSize: 512 * 1024 * 1024);
+  final zip = archive ?? boundedZip(input.bytes, maxSize: 1024 * 1024 * 1024);
   final files = {
     for (final f in zip)
       if (f.isFile) f.name: f,
@@ -255,7 +257,9 @@ ImportedBook _epub(
     if (file == null || file.size > 8 * 1024 * 1024) {
       throw const FormatException('EPUB 缺少有效的章节或目录');
     }
-    return utf8.decode(file.readBytes()!);
+    final output = OutputMemoryStream();
+    file.writeContent(output);
+    return utf8.decode(output.getBytes());
   }
 
   if (files.containsKey('META-INF/encryption.xml')) {
@@ -403,7 +407,44 @@ ImportedBook _epub(
       manifest.values
           .where((e) => e.props.split(' ').contains('cover-image'))
           .firstOrNull;
-  final coverUrl = cover == null ? null : addImage(cover.path, cover: true);
+  String? coverPath = cover?.path;
+  // A broken optional cover reference must not reject an otherwise readable
+  // book. EPUB2 guide entries may name XHTML/SVG wrappers rather than images.
+  try {
+    coverPath ??= elements
+        .where(
+          (e) =>
+              e.name.local == 'reference' && e.getAttribute('type') == 'cover',
+        )
+        .map((e) => e.getAttribute('href'))
+        .whereType<String>()
+        .map((href) => resolve(opfPath, href))
+        .firstOrNull;
+    if (coverPath != null &&
+        RegExp(r'\.(x?html?|svg)$', caseSensitive: false).hasMatch(coverPath)) {
+      final doc = html.parse(read(coverPath));
+      final image = doc.querySelector('img, image');
+      final href =
+          image?.attributes['src'] ??
+          image?.attributes['href'] ??
+          image?.attributes['xlink:href'];
+      coverPath = href == null ? null : resolve(coverPath, href);
+    }
+  } on FormatException {
+    coverPath = null;
+  }
+  coverPath ??= manifest.values
+      .where(
+        (e) =>
+            e.type.startsWith('image/') &&
+            RegExp(
+              r'(^|[/_.-])cover([_.-]|$)',
+              caseSensitive: false,
+            ).hasMatch(e.path),
+      )
+      .firstOrNull
+      ?.path;
+  final coverUrl = coverPath == null ? null : addImage(coverPath, cover: true);
   final chapters = <NovelChapter>[];
   final bodies = <String>[];
   var currentVolume = '';
@@ -477,7 +518,11 @@ ImportedBook _epub(
           volumeId: volumeId,
         ),
       );
-      bodies.add(body);
+      if (saveBody == null) {
+        bodies.add(body);
+      } else {
+        saveBody(chapters.length, body);
+      }
     }
 
     void visit(html.Node node) {
@@ -594,11 +639,12 @@ class _ImportJob {
     this.input,
     this.path,
     this.text,
+    this.decodedPath,
   });
   final String root, name;
   final Map<int, String> known;
   final LocalBookInput? input;
-  final String? path, text;
+  final String? path, text, decodedPath;
 }
 
 class _ImportedFile {
@@ -638,7 +684,9 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
         LocalBookInput(job.name, Uint8List(0)),
         id,
         digest,
-        archive: _boundedZipStream(stream, maxSize: 512 * 1024 * 1024),
+        archive: _boundedZipStream(stream, maxSize: 1024 * 1024 * 1024),
+        saveBody: (index, body) =>
+            File('${staging.path}/c$index.txt').writeAsStringSync(body),
         saveImage: (name, image) {
           final output = OutputFileStream('${staging.path}/$name');
           try {
@@ -647,6 +695,30 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
             output.closeSync();
           }
         },
+      );
+    } else if (file != null &&
+        job.name.toLowerCase().endsWith('.txt') &&
+        job.text == null) {
+      final chapters = await importTextChapters(
+        File(job.decodedPath ?? file.path),
+        job.name,
+        (index, body) =>
+            File('${staging.path}/c$index.txt').writeAsStringSync(body),
+      );
+      parsed = ImportedBook(
+        _novel(
+          id,
+          job.name
+              .replaceAll('\\', '/')
+              .split('/')
+              .last
+              .replaceFirst(RegExp(r'\.txt$', caseSensitive: false), ''),
+          '',
+          chapters,
+        ),
+        digest,
+        const [],
+        const {},
       );
     } else {
       parsed = parseLocalBook(
@@ -658,7 +730,7 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
     final source = <String, dynamic>{
       'name': job.name,
       'digest': digest,
-      'encoding': text == null ? 'utf8' : 'decoded',
+      'encoding': text == null && job.decodedPath == null ? 'utf8' : 'decoded',
       'parser': 2,
       'imageSizing': 1,
       'importedAt': DateTime.now().millisecondsSinceEpoch,
@@ -675,6 +747,8 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
       await File(
         '${staging.path}/decoded.txt',
       ).writeAsString(text, flush: true);
+    } else if (job.decodedPath != null) {
+      await File(job.decodedPath!).copy('${staging.path}/decoded.txt');
     }
     for (var i = 0; i < parsed.bodies.length; i++) {
       File('${staging.path}/c${i + 1}.txt').writeAsStringSync(parsed.bodies[i]);
@@ -682,23 +756,26 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
     for (final image in parsed.images.entries) {
       File('${staging.path}/${image.key}').writeAsBytesSync(image.value);
     }
-    await File('${staging.path}/book.json').writeAsString(
-      jsonEncode({
-        'version': 1,
-        'novel': parsed.novel.toSnapshot(),
-        'source': source,
-        'chapters': [
-          for (final c in parsed.novel.chapters)
-            {
-              'id': c.id,
-              'title': c.title,
-              'volumeId': c.volumeId,
-              'volumeTitle': c.volumeTitle,
-            },
-        ],
-      }),
-      flush: true,
-    );
+    final metadata = jsonEncode({
+      'version': 1,
+      'novel': parsed.novel.toSnapshot(),
+      'source': source,
+      'chapters': [
+        for (final c in parsed.novel.chapters)
+          {
+            'id': c.id,
+            'title': c.title,
+            'volumeId': c.volumeId,
+            'volumeTitle': c.volumeTitle,
+          },
+      ],
+    });
+    if (utf8.encode(metadata).length > 4 * 1024 * 1024) {
+      throw const FormatException('书籍目录过大，请拆分原书后导入');
+    }
+    await File(
+      '${staging.path}/book.json',
+    ).writeAsString(metadata, flush: true);
     await staging.rename('${job.root}/$id');
     return _ImportedFile(id, parsed.novel, source);
   } on ArchiveException {
@@ -744,12 +821,20 @@ class LocalBookStore extends ChangeNotifier {
   Future<void> _writes = Future.value();
   final _imageUpgrades = <int, Future<void>>{};
   bool _disposed = false;
+  List<Novel>? _visibleBooks;
+  @override
+  void notifyListeners() {
+    _visibleBooks = null;
+    super.notifyListeners();
+  }
+
   List<Novel> get books {
+    if (_visibleBooks case final snapshot?) return snapshot;
     final members = <int>{
       for (final id in _seriesBooks.keys)
         ..._series[id]!.volumes.map((v) => v.bookId),
     };
-    return List.unmodifiable([
+    return _visibleBooks = List.unmodifiable([
       ..._books.values.where((b) => !members.contains(b.id)),
       ..._seriesBooks.values,
     ]);
@@ -909,14 +994,19 @@ class LocalBookStore extends ChangeNotifier {
   Future<Novel> import(LocalBookInput input) =>
       _import(input.name, input: input);
 
-  Future<Novel> importFile(String name, String path, {String? text}) =>
-      _import(name, path: path, text: text);
+  Future<Novel> importFile(
+    String name,
+    String path, {
+    String? text,
+    String? decodedPath,
+  }) => _import(name, path: path, text: text, decodedPath: decodedPath);
 
   Future<Novel> _import(
     String name, {
     LocalBookInput? input,
     String? path,
     String? text,
+    String? decodedPath,
   }) async {
     late Novel result;
     final work = _writes.catchError((Object _) {}).then((_) async {
@@ -928,6 +1018,7 @@ class LocalBookStore extends ChangeNotifier {
           input: input,
           path: path,
           text: text,
+          decodedPath: decodedPath,
           known: {
             for (final e in _sources.entries)
               e.key: e.value['digest'] as String,

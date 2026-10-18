@@ -21,7 +21,12 @@ import 'support/visual_review.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(loadReviewFonts);
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(
+    () => SharedPreferences.setMockInitialValues({
+      'readerChromeVisible': true,
+      'readerChromeHintSeen': true,
+    }),
+  );
 
   for (final brightness in Brightness.values) {
     testWidgets(

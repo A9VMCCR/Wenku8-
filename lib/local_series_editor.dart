@@ -1,15 +1,14 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_ui.dart';
+import 'app_search_field.dart';
 import 'catalog.dart';
 import 'feature_pages.dart' show confirmNovelAction;
 import 'library_state.dart';
 import 'local_books.dart';
 import 'local_book_series.dart';
-import 'local_library_preferences.dart';
 import 'local_series_actions.dart';
 import 'listening/widgets.dart';
 
@@ -143,12 +142,12 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
           const SizedBox(height: 16),
           GlassTextButton(
             onPressed: () => Navigator.pop(sheet, 0),
-            child: const Text('新建合订本'),
+            child: const AppText('新建合订本'),
           ),
           for (final series in widget.books.series)
             GlassTextButton(
               onPressed: () => Navigator.pop(sheet, series.id),
-              child: Text('${series.title} · ${series.volumes.length} 卷'),
+              child: AppText('${series.title} · ${series.volumes.length} 卷'),
             ),
         ],
       ),
@@ -185,15 +184,9 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
           for (final id in _order) (bookId: id, title: _label(id).text),
         ],
       );
-      final groups = LocalLibraryPreferences(
-        await SharedPreferences.getInstance(),
-      )..load();
-      try {
-        if (_series == null && _order.isNotEmpty) {
-          await groups.assign(book.id, groups.groupOf(_order.first));
-        }
-      } finally {
-        groups.dispose();
+      final groups = widget.library.organization;
+      if (_series == null && _order.isNotEmpty) {
+        await groups.assign(book.id, groups.groupOf(_order.first));
       }
       if (mounted) {
         Navigator.pop(context, LocalSeriesEditResult(bookId: book.id));
@@ -264,7 +257,7 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
+                  AppText(
                     book.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -280,7 +273,7 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
                     controller: _label(id),
                     enabled: !_busy,
                     maxLength: 160,
-                    placeholder: '分卷名称',
+                    placeholder: appText(context, '分卷名称'),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 14,
                       vertical: 12,
@@ -396,7 +389,7 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             if (widget.suggested) ...[
-                              const Text(
+                              const AppText(
                                 '发现同系列书籍。确认分卷与顺序后，合并为一部作品。',
                                 style: TextStyle(height: 1.7),
                               ),
@@ -406,10 +399,12 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
                               GlassTextButton(
                                 key: const ValueKey('series-target'),
                                 onPressed: _busy ? null : _chooseTarget,
-                                child: Text('合并到：${_series?.title ?? '新建合订本'}'),
+                                child: AppText(
+                                  '合并到：${_series?.title ?? '新建合订本'}',
+                                ),
                               ),
                             const SizedBox(height: 16),
-                            const Text(
+                            const AppText(
                               '合订本书名',
                               style: TextStyle(fontWeight: FontWeight.w600),
                             ),
@@ -439,7 +434,7 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
                               code: 'DRAG TO REORDER',
                             ),
                             const SizedBox(height: 8),
-                            const Text(
+                            const AppText(
                               '拖动右侧横线调整顺序，分卷名称可直接修改。',
                               style: TextStyle(fontSize: 13, height: 1.65),
                             ),
@@ -463,7 +458,7 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             if (_error != null) ...[
-                              Text(
+                              AppText(
                                 _error!,
                                 style: TextStyle(
                                   color: Theme.of(context).colorScheme.error,
@@ -489,7 +484,7 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
                               GlassTextButton(
                                 key: const ValueKey('series-dissolve'),
                                 onPressed: _busy ? null : _dissolve,
-                                child: const Text('恢复为独立书籍'),
+                                child: const AppText('恢复为独立书籍'),
                               ),
                             ],
                             const SizedBox(height: 28),
@@ -498,9 +493,9 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
                               code: 'LOCAL / ORIGINALS',
                             ),
                             const SizedBox(height: 14),
-                            CupertinoSearchTextField(
+                            AppSearchField(
                               controller: _search,
-                              placeholder: '搜索书名、作者',
+                              hint: '搜索书名、作者',
                               onChanged: (_) => setState(() {}),
                             ),
                           ],
@@ -535,12 +530,12 @@ class _LocalSeriesEditorState extends State<LocalSeriesEditor> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(
+                                        AppText(
                                           book.title,
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
                                         ),
-                                        Text(
+                                        AppText(
                                           book.author,
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,

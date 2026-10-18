@@ -16,6 +16,8 @@ import 'cover_arrival.dart';
 import 'glass_optics.dart';
 import 'glass_palette.dart';
 import 'glass_controls.dart';
+import 'app_language.dart';
+export 'app_language.dart';
 import 'legacy_cover.dart';
 import 'loading_ui.dart';
 import 'motion_ui.dart';
@@ -578,7 +580,7 @@ class GlassText extends StatelessWidget {
   final TextOverflow? overflow;
   final TextAlign? textAlign;
   @override
-  Widget build(BuildContext context) => Text(
+  Widget build(BuildContext context) => AppText(
     data,
     maxLines: maxLines,
     overflow: overflow,
@@ -633,6 +635,7 @@ class LiquidGlass extends StatefulWidget {
 
 class _LiquidGlassState extends State<LiquidGlass> {
   bool _pressed = false;
+  bool _cancelledPress = false;
 
   @override
   Widget build(BuildContext context) {
@@ -647,7 +650,7 @@ class _LiquidGlassState extends State<LiquidGlass> {
         GlassAppearance.tintOf(context, opacity: tintOpacity);
     return AnimatedScale(
       scale: _pressed && !media.disableAnimations ? .97 : 1,
-      duration: media.disableAnimations
+      duration: media.disableAnimations || _cancelledPress
           ? Duration.zero
           : _pressed
           ? NovelMotion.contact
@@ -691,9 +694,15 @@ class _LiquidGlassState extends State<LiquidGlass> {
                 label: widget.semanticLabel,
                 child: InkWell(
                   onTap: widget.onTap,
+                  onTapCancel: widget.onTap == null
+                      ? null
+                      : () => _cancelledPress = true,
                   onHighlightChanged: widget.onTap == null
                       ? null
-                      : (pressed) => setState(() => _pressed = pressed),
+                      : (pressed) => setState(() {
+                          _pressed = pressed;
+                          if (pressed) _cancelledPress = false;
+                        }),
                   splashFactory: NoSplash.splashFactory,
                   splashColor: Colors.transparent,
                   highlightColor: Colors.transparent,
@@ -758,13 +767,13 @@ class GlassIconButton extends StatelessWidget {
       button: true,
       enabled: onPressed != null,
       child: Tooltip(
-        message: label,
+        message: appText(context, label),
         triggerMode: TooltipTriggerMode.manual,
         excludeFromSemantics: true,
         child: LiquidGlass(
           radius: 24,
           elevated: false,
-          semanticLabel: label,
+          semanticLabel: appText(context, label),
           onTap: onPressed,
           child: SizedBox(
             width: 46,
@@ -837,7 +846,7 @@ class GlassPillButton extends StatelessWidget {
                           Icon(icon, size: 18, color: color),
                           const SizedBox(width: 9),
                           Flexible(
-                            child: Text(
+                            child: AppText(
                               label,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -867,10 +876,12 @@ class GlassTextButton extends StatelessWidget {
     required this.child,
     required this.onPressed,
     this.compact = false,
+    this.selected,
   });
   final Widget child;
   final VoidCallback? onPressed;
   final bool compact;
+  final bool? selected;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -880,9 +891,20 @@ class GlassTextButton extends StatelessWidget {
     child: Semantics(
       button: true,
       enabled: onPressed != null,
+      selected: selected,
       child: LiquidGlass(
         radius: 22,
         elevated: false,
+        tintColor: selected == true
+            ? Color.lerp(
+                GlassAppearance.tintOf(
+                  context,
+                  opacity: GlassAppearance.of(context).opacity,
+                ),
+                Theme.of(context).colorScheme.onSurface,
+                .10,
+              )
+            : null,
         onTap: onPressed,
         child: ConstrainedBox(
           constraints: BoxConstraints(
@@ -1008,13 +1030,16 @@ class JellyTapSurface extends StatefulWidget {
 
 class _JellyTapSurfaceState extends State<JellyTapSurface> {
   bool _pressed = false;
+  bool _cancelledPress = false;
 
   @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return AnimatedScale(
       scale: _pressed && !reduceMotion ? .985 : 1,
-      duration: reduceMotion
+      // A scroll winning the gesture is not a released tap. Do not leave a
+      // settling scale on the card while its list is already flinging.
+      duration: reduceMotion || _cancelledPress
           ? Duration.zero
           : _pressed
           ? NovelMotion.contact
@@ -1025,9 +1050,15 @@ class _JellyTapSurfaceState extends State<JellyTapSurface> {
         child: InkWell(
           splashFactory: NoSplash.splashFactory,
           highlightColor: Colors.transparent,
+          onTapCancel: widget.onTap == null
+              ? null
+              : () => _cancelledPress = true,
           onHighlightChanged: widget.onTap == null
               ? null
-              : (pressed) => setState(() => _pressed = pressed),
+              : (pressed) => setState(() {
+                  _pressed = pressed;
+                  if (pressed) _cancelledPress = false;
+                }),
           onTap: widget.onTap == null
               ? null
               : () {
@@ -1129,7 +1160,7 @@ class NovelCover extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          Text(
+          AppText(
             novel.title,
             // This is printed cover artwork; the adjacent book title still
             // follows the reader's accessibility text scale.
@@ -1144,7 +1175,7 @@ class NovelCover extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
+          AppText(
             novel.author,
             textScaler: TextScaler.noScaling,
             maxLines: 1,
@@ -1171,7 +1202,7 @@ class NovelCover extends StatelessWidget {
               return FutureBuilder<Uint8List>(
                 key: ValueKey('cover-bytes-${novel.id}'),
                 future: novel.coverUrl?.startsWith('wenku-local:') == true
-                    ? LocalBookMedia.load(novel.coverUrl!)
+                    ? LocalBookMedia.loadCover(novel.coverUrl!)
                     : LegacyCover.bytes(novel.id),
                 initialData:
                     LocalBookMedia.peek(novel.coverUrl) ??
@@ -1183,6 +1214,9 @@ class NovelCover extends StatelessWidget {
                   }
                   return Image.memory(
                     bytes,
+                    cacheWidth: (width * MediaQuery.devicePixelRatioOf(context))
+                        .ceil()
+                        .clamp(1, 1536),
                     fit: BoxFit.cover,
                     gaplessPlayback: true,
                     errorBuilder: (context, error, stack) => fallback,
@@ -1354,14 +1388,14 @@ class ContentNotice extends StatelessWidget {
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
           const SizedBox(height: 16),
-          Text(
+          AppText(
             title,
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
           ),
           if (message != null) ...[
             const SizedBox(height: 8),
-            Text(
+            AppText(
               message!,
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -1373,7 +1407,7 @@ class ContentNotice extends StatelessWidget {
           ],
           if (onRetry != null) ...[
             const SizedBox(height: 16),
-            GlassTextButton(onPressed: onRetry, child: Text(actionLabel)),
+            GlassTextButton(onPressed: onRetry, child: AppText(actionLabel)),
           ],
         ],
       ),
@@ -1706,7 +1740,7 @@ class GlassMenuItem extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
+                  child: AppText(
                     label,
                     style: TextStyle(
                       color: selected

@@ -11,7 +11,10 @@ import 'package:wenku8_flutter/native_effects.dart';
 import 'package:wenku8_flutter/pages.dart';
 
 Future<LibraryState> _mount(WidgetTester tester) async {
-  SharedPreferences.setMockInitialValues({});
+  SharedPreferences.setMockInitialValues({
+    'readerChromeVisible': true,
+    'readerChromeHintSeen': true,
+  });
   final state = await LibraryState.load();
   await tester.pumpWidget(
     NovelApp(state: state, repository: const DemoNovelRepository()),
@@ -52,7 +55,16 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('跟随系统'));
+      await tester.tap(find.byKey(const ValueKey('my-settings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-reading-entry')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('settings-appearance')),
+          matching: find.text('跟随系统'),
+        ),
+      );
       await tester.pumpAndSettle();
       final route = ModalRoute.of(
         tester.element(find.byType(GlassMenuItem).first),
@@ -64,7 +76,10 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byType(GlassMenuItem), findsNothing);
-      expect(find.byType(SettingsPage), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('settings-reading-page')),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     },
   );
@@ -197,7 +212,14 @@ void main() {
       final state = await _mount(tester);
       await tester.tap(find.byKey(const ValueKey('dock-tab-3')));
       await tester.pumpAndSettle();
-      final trigger = find.text('跟随系统');
+      await tester.tap(find.byKey(const ValueKey('my-settings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-reading-entry')));
+      await tester.pumpAndSettle();
+      final trigger = find.descendant(
+        of: find.byKey(const ValueKey('settings-appearance')),
+        matching: find.text('跟随系统'),
+      );
       await Scrollable.ensureVisible(tester.element(trigger), alignment: .2);
       await tester.pumpAndSettle();
       final anchor = tester.getRect(
@@ -240,7 +262,10 @@ void main() {
   testWidgets(
     'reading drawer is glass and dragging moves its content with its shell',
     (tester) async {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({
+        'readerChromeVisible': true,
+        'readerChromeHintSeen': true,
+      });
       final state = await LibraryState.load();
       await tester.pumpWidget(
         NovelApp(state: state, repository: const DemoNovelRepository()),

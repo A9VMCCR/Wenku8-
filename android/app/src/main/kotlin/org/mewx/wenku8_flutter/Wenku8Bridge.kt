@@ -21,7 +21,12 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
     private val io = Executors.newFixedThreadPool(4)
     private val accounts = Executors.newSingleThreadExecutor()
     private val imageIo = Executors.newSingleThreadExecutor()
+    private val publicGateway = WenkuPublicGateway(context)
     private val store = AccountSessionStore(context)
+    private val webStore = AccountSessionStore(context, "web")
+    private val webCatalog = WenkuWebCatalogClient()
+    private val publication = WenkuPublicationSession(webCatalog)
+    private var webCookie: ApiSessionCookies? = null
     @Volatile private var sessionCookie: ApiSessionCookies? = null
     @Volatile private var sessionLoaded = false
     @Volatile private var sessionRevision = 0
@@ -30,25 +35,71 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
     private data class Response(val bytes: ByteArray, val cookies: List<String>)
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        if (call.method !in setOf("request", "cover", "requestBytes", "accountRequest", "login", "hasSession", "clearSession", "illustration", "clearIllustrations", "encodeReview")) {
+        if (call.method == "updatePriority") {
+            publicGateway.updatePriority = call.argument<Boolean>("enabled") == true
+            result.success(null)
+            return
+        }
+        if (call.method !in setOf("request", "cover", "requestBytes", "accountRequest", "accountAvatar", "login", "hasSession", "clearSession", "illustration", "clearIllustrations", "encodeReview", "webLogin", "publicationPage")) {
             result.notImplemented()
             return
         }
-        val account = call.method in setOf("accountRequest", "login", "hasSession", "clearSession")
+        val account = call.method in setOf("accountRequest", "login", "hasSession", "clearSession", "webLogin", "publicationPage")
         val queuedRevision = sessionRevision
-        (if (account) accounts else if (call.method in setOf("illustration", "clearIllustrations")) imageIo else io).execute {
+        (if (account) accounts else if (call.method in setOf("illustration", "clearIllustrations", "accountAvatar")) imageIo else io).execute {
             try {
                 if (account && !sessionLoaded) {
                     sessionCookie = store.read()?.let { ApiSessionCookies.fromStored(it) }
+                    webCookie = webStore.read()?.let { ApiSessionCookies.fromStored(it, requireSession = false) }
                     sessionLoaded = true
                 }
                 val response: Any? = when (call.method) {
                     "hasSession" -> sessionCookie?.hasSession == true
+                    "accountAvatar" -> {
+                        check(queuedRevision == sessionRevision && sessionCookie?.hasSession == true)
+                        val reply = request("action=avatar", sessionCookie)
+                        check(queuedRevision == sessionRevision)
+                        require(reply.bytes.size <= 2 * 1024 * 1024)
+                        validateImage(reply.bytes)
+                        reply.bytes
+                    }
                     "clearSession" -> {
                         store.write(null)
+                        webStore.write(null)
                         sessionCookie = null
+                        webCookie = null
+                        publication.reset()
                         sessionRevision++
                         null
+                    }
+                    "webLogin" -> {
+                        check(sessionCookie?.hasSession == true && queuedRevision == sessionRevision)
+                        val username = call.argument<String>("username") ?: ""
+                        val password = call.argument<String>("password") ?: ""
+                        val cookie = webCatalog.login(username, password, sessionCookie!!)
+                        webStore.write(cookie.stored())
+                        webCookie = cookie
+                        null
+                    }
+                    "publicationPage" -> {
+                        check(queuedRevision == sessionRevision)
+                        val reply = publication.read(call.argument<Int>("library") ?: 0, call.argument<Int>("page") ?: 0, sessionCookie, webCookie) { action, cookie ->
+                            val response = request(action, cookie)
+                            WenkuPublicationSession.ApiReply(response.bytes.toString(Charsets.UTF_8), cookie.merge(response.cookies))
+                        }
+                        reply.apiCookies?.let { next ->
+                            if (next != sessionCookie) {
+                                store.write(if (next.hasSession) next.stored() else null)
+                                sessionCookie = next.takeIf { it.hasSession }
+                            }
+                        }
+                        reply.webCookies?.let { next ->
+                            if (next != webCookie) {
+                                webStore.write(if (next.hasWebLogin) next.stored() else null)
+                                webCookie = next.takeIf { it.hasWebLogin }
+                            }
+                        }
+                        reply.body
                     }
                     "encodeReview" -> {
                         val text = call.argument<String>("text") ?: throw IllegalArgumentException("Missing text")
@@ -79,6 +130,10 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
                                 val cookie = ApiSessionCookies.empty().merge(reply.cookies)
                                 check(cookie.hasSession) { "Missing session" }
                                 store.write(cookie.stored())
+                                // Never retain another account's website session.
+                                webStore.write(null)
+                                webCookie = null
+                                publication.reset()
                                 sessionCookie = cookie
                                 sessionRevision++
                             }
@@ -103,6 +158,8 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
                     }
                 }
                 postToMain(Runnable { result.success(response) })
+            } catch (failure: WebCatalogFailure) {
+                postToMain(Runnable { result.error(failure.code, failure.publicMessage, null) })
             } catch (_: Exception) {
                 // Never expose actions, credentials or cookie-bearing exceptions.
                 postToMain(Runnable { result.error("LEGACY_API_ERROR", "Request or local storage failed", null) })
@@ -136,6 +193,14 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
                 GZIPInputStream(BufferedInputStream(connection.inputStream))
             } else connection.inputStream
             return Response(stream.use { readBounded(it, 8 * 1024 * 1024) }, cookies)
+        } catch (failure: Exception) {
+            // The existing catalogue relay already uses Cloudflare. Only
+            // public image bytes use the small spare gateway allowance.
+            if (cookie == null) publicGateway.cover(action)?.let { bytes ->
+                validateImage(bytes)
+                return Response(bytes, emptyList())
+            }
+            throw failure
         } finally {
             connection.disconnect()
         }
@@ -171,6 +236,17 @@ internal class Wenku8Bridge(context: Context, private val postToMain: (Runnable)
     }
 
     private fun downloadIllustration(source: URL): ByteArray {
+        try {
+            return downloadOriginalIllustration(source)
+        } catch (failure: Exception) {
+            publicGateway.image(source)?.let { bytes ->
+                try { validateImage(bytes); return bytes } catch (_: Exception) { /* Preserve original failure. */ }
+            }
+            throw failure
+        }
+    }
+
+    private fun downloadOriginalIllustration(source: URL): ByteArray {
         var url = source
         for (hop in 0..3) {
             val connection = (url.openConnection() as HttpURLConnection).apply {

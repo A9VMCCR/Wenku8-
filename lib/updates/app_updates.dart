@@ -7,17 +7,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../legacy_transport.dart';
 
+const officialUpdateRepository = 'mikufoxxx/Wenku8_Flutter';
+const updateMirrorOrigin = 'https://git.3952039.xyz';
 const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
-  defaultValue: 'mikufoxxx/Wenku8_Flutter',
+  defaultValue: officialUpdateRepository,
 );
-const currentAppVersion = '0.3.4';
-const currentAppBuild = 36;
+const currentAppVersion = '0.3.5';
+const currentAppBuild = 60;
 const currentReleaseNotes = '''
-修复应用内更新复用安装地址的问题，每次下载使用独立安装包，避免新旧版本混用。
-检查、下载与安装互斥，下载完成后核对实际版本、构建号与签名，安装前再次验证。
-更新页显示安装包的实际版本与构建号；无效安装包可重新下载，保留安装授权后的继续安装。
+阅读器新增五种翻页效果、四边页边距、透明进度预览，修复翻页选字与控件收放闪烁；听书支持 0.5～3 倍速。
+扩展本地导入与扫描，支持自定义分类、批量删除、字体导入和繁体中文；发现支持多标签筛选。
+更新入口与阅读工具重新归组，详情支持 EPUB／TXT 下载，版本检测与 APK 下载自动优先镜像并保留原站兜底。
+完整说明见「我的 → 关于 → 本版更新」。
 ''';
 
 class ReleaseVersion implements Comparable<ReleaseVersion> {
@@ -243,6 +247,11 @@ class AndroidUpdatePlatform implements UpdatePlatform {
 
 class UpdateCancelled implements Exception {}
 
+/// Transport failures may use the original host. Identity/integrity failures may not.
+class UpdateServiceUnavailable extends HttpException {
+  const UpdateServiceUnavailable(super.message);
+}
+
 class _DigestSink implements Sink<Digest> {
   Digest? value;
   @override
@@ -277,21 +286,76 @@ abstract interface class UpdateSource {
 class GithubUpdateSource implements UpdateSource {
   GithubUpdateSource({
     this.repository = updateRepository,
+    this.gateway,
     HttpClient Function()? clientFactory,
   }) : _clientFactory = clientFactory ?? HttpClient.new;
   final String repository;
+
+  /// Canonical release identity stays on GitHub; only transport is mirrored.
+  final Uri? gateway;
   final HttpClient Function() _clientFactory;
+  Uri _gateway() {
+    final uri = gateway!;
+    if (uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.port != 443 ||
+        uri.query.isNotEmpty ||
+        uri.fragment.isNotEmpty ||
+        uri.path.isNotEmpty && uri.path != '/') {
+      throw const FormatException('更新镜像地址无效');
+    }
+    return uri;
+  }
+
+  Uri _assetTransport(UpdateAsset asset) {
+    if (gateway == null) return asset.url;
+    final url = asset.url;
+    final parts = url.pathSegments;
+    if (url.scheme != 'https' ||
+        url.host != 'github.com' ||
+        url.userInfo.isNotEmpty ||
+        url.port != 443 ||
+        url.hasQuery ||
+        url.hasFragment ||
+        parts.length != 6 ||
+        !listEquals(parts.take(2).toList(), repository.split('/')) ||
+        parts[2] != 'releases' ||
+        parts[3] != 'download' ||
+        parts[5] != asset.name) {
+      throw const FormatException('安装包下载地址无效');
+    }
+    return _gateway().replace(
+      pathSegments: parts,
+      queryParameters: asset.id == null ? null : {'asset': '${asset.id}'},
+    );
+  }
+
   @override
-  Future<AppRelease?> latest() async {
+  Future<AppRelease?> latest() => _release('latest');
+
+  Future<AppRelease?> _release(String suffix, {UpdateDownload? task}) async {
     if (!RegExp(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$').hasMatch(repository)) {
       throw const FormatException('更新仓库格式错误');
     }
     final client = _clientFactory()
-      ..connectionTimeout = const Duration(seconds: 12);
+      ..connectionTimeout = Duration(seconds: gateway == null ? 12 : 4);
+    if (task != null) {
+      task.check();
+      task._client = client;
+    }
     try {
-      final request = await client.getUrl(
-        Uri.https('api.github.com', '/repos/$repository/releases/latest'),
-      );
+      final request = await client
+          .getUrl(
+            gateway == null
+                ? Uri.https(
+                    'api.github.com',
+                    '/repos/$repository/releases/$suffix',
+                  )
+                : _gateway().resolve('/api/releases/latest'),
+          )
+          .timeout(Duration(seconds: gateway == null ? 12 : 4));
+      if (gateway != null) request.followRedirects = false;
       request.headers.set(
         HttpHeaders.acceptHeader,
         'application/vnd.github+json',
@@ -300,23 +364,36 @@ class GithubUpdateSource implements UpdateSource {
       request.headers.set('X-GitHub-Api-Version', '2022-11-28');
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(
-        const Duration(seconds: 20),
+        Duration(seconds: gateway == null ? 20 : 8),
       );
       if (response.statusCode == 404) return null;
       if (response.statusCode != 200) {
-        throw HttpException('GitHub ${response.statusCode}');
+        throw UpdateServiceUnavailable('更新服务 ${response.statusCode}');
       }
       final data = <int>[];
-      await for (final chunk in response.timeout(const Duration(seconds: 20))) {
+      await for (final chunk in response.timeout(
+        Duration(seconds: gateway == null ? 20 : 6),
+      )) {
         data.addAll(chunk);
         if (data.length > 1024 * 1024) throw const FormatException('版本说明过大');
       }
-      return AppRelease.fromGithub(
-        jsonDecode(utf8.decode(data)) as Map<String, dynamic>,
-        repository,
-      );
+      Map<String, dynamic> metadata;
+      try {
+        final value = jsonDecode(utf8.decode(data));
+        if (value is! Map<String, dynamic>) {
+          throw const FormatException('版本说明格式错误');
+        }
+        metadata = value;
+      } on FormatException {
+        if (gateway != null) {
+          throw const UpdateServiceUnavailable('更新镜像返回无效响应');
+        }
+        rethrow;
+      }
+      return AppRelease.fromGithub(metadata, repository);
     } finally {
       client.close(force: true);
+      if (task != null) task._client = null;
     }
   }
 
@@ -327,32 +404,56 @@ class GithubUpdateSource implements UpdateSource {
     UpdateDownload task,
     void Function(int bytes) progress,
   ) async {
+    task.check();
+    if (gateway == null && asset.id != null) {
+      final parts = asset.url.pathSegments;
+      if (parts.length != 6 ||
+          !listEquals(parts.take(2).toList(), repository.split('/')) ||
+          parts[2] != 'releases' ||
+          parts[3] != 'download' ||
+          parts[5] != asset.name) {
+        throw const FormatException('安装包下载地址无效');
+      }
+      final current = await _release('tags/${parts[4]}', task: task);
+      task.check();
+      if (current == null || !current.assets.any(asset.samePackage)) {
+        throw const FormatException('更新文件已变化，请重新检查版本后下载');
+      }
+    }
     final client = _clientFactory()
-      ..connectionTimeout = const Duration(seconds: 15);
+      ..connectionTimeout = Duration(seconds: gateway == null ? 15 : 4);
     task._client = client;
     IOSink? sink;
     try {
-      var url = asset.url;
+      var url = _assetTransport(asset);
       HttpClientResponse? response;
       for (var hop = 0; hop < 6; hop++) {
         task.check();
         if (url.scheme != 'https' ||
             url.userInfo.isNotEmpty ||
             url.port != 443 ||
-            !const {
-              'github.com',
-              'release-assets.githubusercontent.com',
-              'objects.githubusercontent.com',
-            }.contains(url.host)) {
+            !(gateway != null
+                    ? {gateway!.host}
+                    : const {
+                        'github.com',
+                        'release-assets.githubusercontent.com',
+                        'objects.githubusercontent.com',
+                      })
+                .contains(url.host)) {
           throw const FormatException('安装包下载地址无效');
         }
-        final request = await client.getUrl(url);
+        final request = await client
+            .getUrl(url)
+            .timeout(Duration(seconds: gateway == null ? 15 : 4));
         request.followRedirects = false;
         request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
         final candidate = await request.close().timeout(
-          const Duration(seconds: 30),
+          Duration(seconds: gateway == null ? 30 : 8),
         );
         if (const [301, 302, 303, 307, 308].contains(candidate.statusCode)) {
+          if (gateway != null) {
+            throw const UpdateServiceUnavailable('更新镜像暂不可用');
+          }
           final location = candidate.headers.value(HttpHeaders.locationHeader);
           if (location == null) throw const FormatException('下载重定向无效');
           url = url.resolve(location);
@@ -362,8 +463,11 @@ class GithubUpdateSource implements UpdateSource {
         response = candidate;
         break;
       }
+      if (response?.statusCode == 409) {
+        throw const FormatException('更新文件已变化，请重新检查版本后下载');
+      }
       if (response == null || response.statusCode != 200) {
-        throw const HttpException('安装包下载失败');
+        throw UpdateServiceUnavailable('安装包下载服务 ${response?.statusCode ?? 0}');
       }
       sink = file.openWrite();
       var count = 0;
@@ -371,7 +475,9 @@ class GithubUpdateSource implements UpdateSource {
       final hashing = asset.digest == null
           ? null
           : sha256.startChunkedConversion(digest);
-      await for (final chunk in response.timeout(const Duration(seconds: 30))) {
+      await for (final chunk in response.timeout(
+        Duration(seconds: gateway == null ? 30 : 10),
+      )) {
         task.check();
         count += chunk.length;
         if (count > asset.size) throw const FormatException('安装包大小不匹配');
@@ -382,14 +488,66 @@ class GithubUpdateSource implements UpdateSource {
       hashing?.close();
       await sink.flush();
       task.check();
-      if (count != asset.size ||
-          (asset.digest != null && digest.value.toString() != asset.digest)) {
+      if (count < asset.size) {
+        throw const UpdateServiceUnavailable('安装包传输未完成');
+      }
+      if (asset.digest != null && digest.value.toString() != asset.digest) {
         throw const FormatException('安装包校验失败，请重新下载');
       }
     } finally {
       await sink?.close();
       client.close(force: true);
       task._client = null;
+    }
+  }
+}
+
+class MirrorFirstUpdateSource implements UpdateSource {
+  MirrorFirstUpdateSource({
+    required this.mirror,
+    required this.original,
+    this.onRoute,
+  });
+  final UpdateSource mirror, original;
+  final void Function(bool original)? onRoute;
+
+  static bool _canRetry(Object failure) =>
+      failure is SocketException ||
+      failure is TimeoutException ||
+      failure is TlsException ||
+      failure is HttpException;
+
+  @override
+  Future<AppRelease?> latest() async {
+    onRoute?.call(false);
+    try {
+      return await mirror.latest();
+    } catch (failure) {
+      if (!_canRetry(failure)) rethrow;
+      onRoute?.call(true);
+      return original.latest();
+    }
+  }
+
+  @override
+  Future<void> download(
+    UpdateAsset asset,
+    File file,
+    UpdateDownload task,
+    void Function(int bytes) progress,
+  ) async {
+    onRoute?.call(false);
+    try {
+      await mirror.download(asset, file, task, progress);
+    } catch (failure) {
+      task.check();
+      if (!_canRetry(failure)) rethrow;
+      // Never append original-host bytes to a partially downloaded mirror APK.
+      if (await file.exists()) await file.delete();
+      task.check();
+      progress(0);
+      onRoute?.call(true);
+      await original.download(asset, file, task, progress);
     }
   }
 }
@@ -412,15 +570,67 @@ class AppUpdates extends ChangeNotifier {
     UpdatePlatform? platform,
     Future<Directory> Function()? directory,
     DateTime Function()? clock,
-  }) : source = source ?? GithubUpdateSource(),
+    Future<void> Function(bool)? networkPriority,
+  }) : _source = source,
        platform = platform ?? AndroidUpdatePlatform(),
        _directory = directory ?? getTemporaryDirectory,
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _networkPriority =
+           networkPriority ??
+           (Platform.isAndroid
+               ? LegacyTransport.setUpdatePriority
+               : (_) async {});
   final SharedPreferences preferences;
-  final UpdateSource source;
+  final UpdateSource? _source;
+  late final _githubSource = GithubUpdateSource();
+  late final _mirrorSource = GithubUpdateSource(
+    gateway: Uri.parse(updateMirrorOrigin),
+  );
+  late final _mirrorFirstSource = MirrorFirstUpdateSource(
+    mirror: _mirrorSource,
+    original: _githubSource,
+  );
+  bool get _usesMirror => updateRepository == officialUpdateRepository;
+  Uri get projectPage => _usesMirror
+      ? Uri.parse(updateMirrorOrigin)
+      : Uri.https('github.com', '/$updateRepository');
+  Uri get releasePage => _usesMirror
+      ? Uri.parse('$updateMirrorOrigin/#releases')
+      : release?.page ??
+            Uri.https('github.com', '/$updateRepository/releases/');
+  UpdateSource get source =>
+      _source ?? (_usesMirror ? _mirrorFirstSource : _githubSource);
+
+  Future<void> openProjectPage({bool showRelease = false}) async {
+    var page = showRelease ? releasePage : projectPage;
+    if (_usesMirror) {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 4);
+      try {
+        final request = await client
+            .headUrl(Uri.parse(updateMirrorOrigin))
+            .timeout(const Duration(seconds: 4));
+        request.followRedirects = false;
+        final response = await request.close().timeout(
+          const Duration(seconds: 5),
+        );
+        if (response.statusCode != 200) throw const HttpException('项目入口暂不可用');
+      } catch (_) {
+        page = showRelease
+            ? release?.page ??
+                  Uri.https('github.com', '/$updateRepository/releases/')
+            : Uri.https('github.com', '/$updateRepository');
+      } finally {
+        client.close(force: true);
+      }
+    }
+    await platform.openRelease(page);
+  }
+
   final UpdatePlatform platform;
   final Future<Directory> Function() _directory;
   final DateTime Function() _clock;
+  final Future<void> Function(bool) _networkPriority;
   InstalledApp? installed;
   AppRelease? release;
   String? error;
@@ -438,6 +648,22 @@ class AppUpdates extends ChangeNotifier {
   Future<InstalledApp>? _loadingInfo;
   bool get busy => checking || downloading || installing;
   bool get autoCheck => preferences.getBool('checkAppUpdates') ?? true;
+  String? get installedReleaseKey =>
+      installed == null ? null : '${installed!.version}+${installed!.build}';
+  bool get shouldShowReleaseNotes =>
+      installedReleaseKey != null &&
+      preferences.getString('completedReleaseNotes') != installedReleaseKey;
+
+  Future<void> rememberReleaseNotes(InstalledApp shown) async {
+    if (!await preferences.setString(
+      'completedReleaseNotes',
+      '${shown.version}+${shown.build}',
+    )) {
+      throw const FileSystemException('更新说明阅读状态保存失败');
+    }
+    _notify();
+  }
+
   bool get available =>
       release != null && installed != null && release!.isNewerThan(installed!);
   UpdateAsset? get asset =>
@@ -504,6 +730,7 @@ class AppUpdates extends ChangeNotifier {
     error = null;
     _notify();
     try {
+      await _networkPriority(true);
       await loadInstalled(refresh: true);
       final candidate = await source.latest();
       if (_disposed) return;
@@ -519,8 +746,11 @@ class AppUpdates extends ChangeNotifier {
         now.millisecondsSinceEpoch,
       );
     } catch (_) {
-      if (!_disposed) error = '无法检查更新，请确认 GitHub 网络连接后重试';
+      if (!_disposed) {
+        error = '无法检查更新，请检查网络后重试';
+      }
     } finally {
+      await _networkPriority(false);
       checking = false;
       _notify();
     }
@@ -543,6 +773,7 @@ class AppUpdates extends ChangeNotifier {
     Directory? attempt;
     var retained = false;
     try {
+      await _networkPriority(true);
       final root = Directory('${(await _directory()).path}/updates');
       await root.create(recursive: true);
       // Android stages a content URI asynchronously. Never replace a file that
@@ -593,6 +824,7 @@ class AppUpdates extends ChangeNotifier {
           await attempt.delete(recursive: true);
         }
       } finally {
+        await _networkPriority(false);
         _download = null;
         downloading = false;
         _notify();

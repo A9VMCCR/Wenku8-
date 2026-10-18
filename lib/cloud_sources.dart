@@ -213,8 +213,7 @@ class CloudBookEntry {
   final String id, name;
   final bool folder;
   final int size;
-  bool get isBook =>
-      !folder && RegExp(r'\.(txt|epub)$', caseSensitive: false).hasMatch(name);
+  bool get isBook => !folder && supportsBookImport(name);
 }
 
 class CloudBookListing {
@@ -351,8 +350,12 @@ class CloudHttp {
     String? bookName,
     void Function(int, int?)? onProgress,
   }) async {
-    if (res.headers.contentType?.mimeType == 'text/html' ||
-        res.headers.contentType?.mimeType == 'application/xhtml+xml') {
+    final importingHtml =
+        bookName != null &&
+        RegExp(r'\.(html?|xhtml)$', caseSensitive: false).hasMatch(bookName);
+    if (!importingHtml &&
+        (res.headers.contentType?.mimeType == 'text/html' ||
+            res.headers.contentType?.mimeType == 'application/xhtml+xml')) {
       await res.listen((_) {}).cancel();
       throw const CloudSourceFailure('网盘返回了登录网页，请更新连接或开启 OpenList 下载代理');
     }
@@ -521,7 +524,9 @@ class WebDavBookClient implements CloudBookClient {
     File target, {
     void Function(int, int?)? onProgress,
   }) async {
-    if (!entry.isBook) throw const CloudSourceFailure('请选择 TXT 或 EPUB 书籍');
+    if (!entry.isBook) {
+      throw const CloudSourceFailure('请选择支持的电子书或文档');
+    }
     final res = await http.request(
       'GET',
       _resource(entry.id),
@@ -664,7 +669,9 @@ class QuarkBookClient implements CloudBookClient {
     File target, {
     void Function(int, int?)? onProgress,
   }) async {
-    if (!entry.isBook) throw const CloudSourceFailure('请选择 TXT 或 EPUB 书籍');
+    if (!entry.isBook) {
+      throw const CloudSourceFailure('请选择支持的电子书或文档');
+    }
     final value = await _call(
       '/file/download',
       body: {

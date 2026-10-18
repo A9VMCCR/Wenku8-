@@ -4,12 +4,14 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import 'catalog.dart';
+import 'book_search.dart';
 import 'offline_cache.dart';
 import 'local_books.dart';
 import 'network_status.dart';
 import 'reader_content.dart'
     show readerHasMissingIllustrations, readerIllustrationUrl;
 import 'ui_notifiers.dart';
+import 'tag_catalogue.dart';
 
 enum DownloadPhase {
   queued,
@@ -38,13 +40,13 @@ class ChapterDownload {
     _ => false,
   };
   String get label => switch (phase) {
-    DownloadPhase.queued => '等待下载',
+    DownloadPhase.queued => '等待缓存',
     DownloadPhase.preparing => '正在获取目录',
     DownloadPhase.downloading => '已缓存 $completed / $total 章',
-    DownloadPhase.completed => '下载完成 · $completed 章',
+    DownloadPhase.completed => '缓存完成 · $completed 章',
     DownloadPhase.cancelled => '已取消 · 保留已缓存章节',
     DownloadPhase.failed =>
-      failedChapter == null ? '获取目录失败，可重试' : '「$failedChapter」下载失败，可重试',
+      failedChapter == null ? '获取目录失败，可重试' : '「$failedChapter」缓存失败，可重试',
   };
 }
 
@@ -58,7 +60,7 @@ class _ChapterRequest {
 /// Adds persistent offline reading without changing the remote request contract.
 /// Download notifications are independent of appearance/reader state updates.
 class OfflineNovelRepository extends FrameChangeNotifier
-    implements NovelRepository {
+    implements NovelRepository, ProgressiveTagCatalogue {
   OfflineNovelRepository({
     required this.remote,
     required this.cache,
@@ -143,6 +145,67 @@ class OfflineNovelRepository extends FrameChangeNotifier
     int page = 1,
     bool refresh = false,
   }) => remote.searchPage(query, page: page, refresh: refresh);
+
+  @override
+  Future<NovelPage> searchFilteredPage(
+    String query, {
+    BookSearchField field = BookSearchField.all,
+    int page = 1,
+    bool refresh = false,
+  }) async {
+    if (!offline) {
+      return remote.searchFilteredPage(
+        query,
+        field: field,
+        page: page,
+        refresh: refresh,
+      );
+    }
+    await cache.load();
+    final pattern = BookSearch(query, field: field);
+    final books = <int, Novel>{
+      for (final entry in cache.books)
+        if (entry.cachedCount > 0) entry.novel.id: entry.novel,
+      for (final book in local?.books ?? const <Novel>[]) book.id: book,
+    };
+    return NovelPage.fromItems(
+      books.values
+          .where(
+            (book) => pattern.matches(
+              title: book.title,
+              author: book.author,
+              tags: book.genre,
+              summary: book.summary,
+              id: '${book.id}',
+            ),
+          )
+          .toList(),
+      page,
+    );
+  }
+
+  @override
+  Future<NovelPage> tagPage(
+    String tag, {
+    int page = 1,
+    bool refresh = false,
+    bool Function()? current,
+  }) {
+    if (!offline && remote is ProgressiveTagCatalogue) {
+      return (remote as ProgressiveTagCatalogue).tagPage(
+        tag,
+        page: page,
+        refresh: refresh,
+        current: current,
+      );
+    }
+    return searchFilteredPage(
+      tag,
+      field: BookSearchField.tags,
+      page: page,
+      refresh: refresh,
+    );
+  }
 
   @override
   Future<NovelPage> authorPage(
@@ -317,6 +380,7 @@ class OfflineNovelRepository extends FrameChangeNotifier
         saved.title == novel.title &&
         saved.author == novel.author &&
         saved.summary == novel.summary &&
+        saved.genre == novel.genre &&
         saved.coverUrl == novel.coverUrl &&
         saved.isComplete == novel.isComplete &&
         saved.lastUpdate == novel.lastUpdate &&

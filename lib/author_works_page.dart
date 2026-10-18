@@ -3,10 +3,12 @@ import 'package:flutter/cupertino.dart';
 import 'app_ui.dart';
 import 'book_collection_layout.dart';
 import 'catalog.dart';
+import 'book_search.dart';
 import 'feature_pages.dart' show ArchiveFeaturePage;
 import 'library_state.dart';
 import 'novel_feed_controller.dart';
 import 'offline_repository.dart';
+import 'tag_catalogue.dart';
 import 'pages.dart' show NovelRow, FeedRefresh, FeedFooter, openDetail;
 
 class AuthorWorksRepository extends NovelRepository {
@@ -14,10 +16,14 @@ class AuthorWorksRepository extends NovelRepository {
     this.source,
     this.author, {
     this.localOnly = false,
+    this.tagSearch = false,
+    this.current,
   });
   final NovelRepository source;
   final String author;
   final bool localOnly;
+  final bool tagSearch;
+  final bool Function()? current;
   @override
   Future<NovelPage> browse({
     NovelSort sort = NovelSort.lastUpdate,
@@ -33,7 +39,22 @@ class AuthorWorksRepository extends NovelRepository {
         page,
       );
     }
-    return source.authorPage(author, page: page, refresh: refresh);
+    if (tagSearch && source is ProgressiveTagCatalogue) {
+      return (source as ProgressiveTagCatalogue).tagPage(
+        author,
+        page: page,
+        refresh: refresh,
+        current: current,
+      );
+    }
+    return tagSearch
+        ? source.searchFilteredPage(
+            author,
+            field: BookSearchField.tags,
+            page: page,
+            refresh: refresh,
+          )
+        : source.authorPage(author, page: page, refresh: refresh);
   }
 
   @override
@@ -58,11 +79,13 @@ class AuthorWorksPage extends StatefulWidget {
     required this.repository,
     required this.state,
     this.localOnly = false,
+    this.tagSearch = false,
   });
   final String author;
   final NovelRepository repository;
   final LibraryState state;
   final bool localOnly;
+  final bool tagSearch;
   @override
   State<AuthorWorksPage> createState() => _AuthorWorksPageState();
 }
@@ -73,6 +96,8 @@ class _AuthorWorksPageState extends State<AuthorWorksPage> {
       widget.repository,
       widget.author,
       localOnly: widget.localOnly,
+      tagSearch: widget.tagSearch,
+      current: () => mounted,
     ),
     initialItems: 20,
   );
@@ -90,8 +115,12 @@ class _AuthorWorksPageState extends State<AuthorWorksPage> {
 
   @override
   Widget build(BuildContext context) => ArchiveFeaturePage(
-    title: '作者作品',
-    code: widget.localOnly ? 'AUTHOR / LOCAL WORKS' : 'AUTHOR / WORKS',
+    title: widget.tagSearch ? '标签书单' : '作者作品',
+    code: widget.tagSearch
+        ? 'TAGS / CATALOGUE'
+        : widget.localOnly
+        ? 'AUTHOR / LOCAL WORKS'
+        : 'AUTHOR / WORKS',
     child: AnimatedBuilder(
       animation: _feed,
       builder: (context, _) {
@@ -125,7 +154,7 @@ class _AuthorWorksPageState extends State<AuthorWorksPage> {
               feed: _feed,
               child: CustomScrollView(
                 key: PageStorageKey(
-                  'author-works-${widget.author}-${widget.localOnly}',
+                  'related-works-${widget.author}-${widget.localOnly}-${widget.tagSearch}',
                 ),
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
@@ -143,7 +172,7 @@ class _AuthorWorksPageState extends State<AuthorWorksPage> {
                         context,
                         widget.author,
                         _feed.totalItems == null
-                            ? ''
+                            ? '已显示 ${_feed.items.length} 部作品'
                             : '${_feed.totalItems} 部作品',
                       ),
                     ),
@@ -156,11 +185,11 @@ class _AuthorWorksPageState extends State<AuthorWorksPage> {
                       ),
                     ),
                   if (_feed.items.isEmpty && !_feed.loading)
-                    const SliverFillRemaining(
+                    SliverFillRemaining(
                       hasScrollBody: false,
                       child: ContentNotice(
                         icon: CupertinoIcons.book,
-                        title: '暂未找到此作者的作品',
+                        title: widget.tagSearch ? '暂未找到这个标签的书籍' : '暂未找到此作者的作品',
                       ),
                     ),
                   SliverPadding(
@@ -202,5 +231,24 @@ class _AuthorWorksPageState extends State<AuthorWorksPage> {
         );
       },
     ),
+  );
+}
+
+class TagWorksPage extends StatelessWidget {
+  const TagWorksPage({
+    super.key,
+    required this.tag,
+    required this.repository,
+    required this.state,
+  });
+  final String tag;
+  final NovelRepository repository;
+  final LibraryState state;
+  @override
+  Widget build(BuildContext context) => AuthorWorksPage(
+    author: tag,
+    repository: repository,
+    state: state,
+    tagSearch: true,
   );
 }

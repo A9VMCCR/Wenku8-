@@ -30,8 +30,10 @@ class ListeningStore {
     return defaultEdgeVoice;
   }
 
-  double get speed =>
-      (preferences.getDouble('listening.speed.v1') ?? 1).clamp(.75, 2);
+  double get speed => (preferences.getDouble('listening.speed.v1') ?? 1).clamp(
+    listeningMinimumSpeed,
+    listeningMaximumSpeed,
+  );
   bool get follow => preferences.getBool('listening.follow.v1') ?? true;
   Future<void> saveVoice(SpeechVoice voice) {
     if (!voice.availableForListening) {
@@ -47,7 +49,10 @@ class ListeningStore {
   }
 
   Future<void> saveSpeed(double value) => _write(
-    () => preferences.setDouble('listening.speed.v1', value.clamp(.75, 2)),
+    () => preferences.setDouble(
+      'listening.speed.v1',
+      value.clamp(listeningMinimumSpeed, listeningMaximumSpeed),
+    ),
     '语速设置保存失败',
   );
   Future<void> saveFollow(bool value) => _write(

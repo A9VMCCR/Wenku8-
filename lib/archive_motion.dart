@@ -159,6 +159,22 @@ class ArchiveRevealRender extends _ArchiveAnimatedRender {
   Offset _travel;
   final _clipLayer = LayerHandle<ClipRectLayer>();
   final _transformLayer = LayerHandle<TransformLayer>();
+  double? _observedProgress;
+
+  @override
+  void tick() {
+    final next = progress;
+    final previous = _observedProgress;
+    if (previous == next) return;
+    _observedProgress = next;
+    markNeedsPaint();
+    // A batch clock continues after its early rows have landed. Those rows
+    // need neither another paint nor a fresh accessibility tree every frame.
+    // Keep listening: reversing the shared clock must reveal the same path.
+    if (previous == null || (previous >= .05) != (next >= .05)) {
+      markNeedsSemanticsUpdate();
+    }
+  }
 
   double get progress => Interval(
     _start,
@@ -190,7 +206,8 @@ class ArchiveRevealRender extends _ArchiveAnimatedRender {
     _end = end;
     _axis = axis;
     _travel = travel;
-    tick();
+    _observedProgress = progress;
+    super.tick();
   }
 
   @override

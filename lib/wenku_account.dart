@@ -5,6 +5,7 @@ import 'package:xml/xml.dart';
 
 import 'legacy_transport.dart';
 import 'library_state.dart';
+import 'wenku_shelf_sync.dart' show CloudShelfPlan;
 
 typedef AccountRequest = Future<String> Function(String action);
 
@@ -118,21 +119,48 @@ class CloudUploadResult {
   final Object? error;
 }
 
-/// User-triggered mutations only. A shelf fetch never uploads, deletes or
-/// replaces local progress. Passwords live only in the submitted form/request.
+/// Session owner for user actions and the explicit cloud-shelf synchronizer.
+/// A plain shelf fetch never mutates membership or reading progress.
 class WenkuAccount extends ChangeNotifier {
   WenkuAccount({
     AccountRequest? request,
     AccountRequest? loginRequest,
     Future<bool> Function()? hasSession,
     Future<void> Function()? clearSession,
+    Future<void> Function(String username, String password)? publicationLogin,
+    Future<Uint8List> Function()? avatarRequest,
   }) : _request = request ?? LegacyTransport.accountRequest,
        _login = loginRequest ?? LegacyTransport.login,
        _hasSession = hasSession ?? LegacyTransport.hasSession,
-       _clear = clearSession ?? LegacyTransport.clearSession;
+       _clear = clearSession ?? LegacyTransport.clearSession,
+       _avatarRequest = avatarRequest ?? LegacyTransport.accountAvatar,
+       _publicationLogin =
+           publicationLogin ?? LegacyTransport.connectPublications;
   final AccountRequest _request, _login;
+  final Future<Uint8List> Function() _avatarRequest;
+  Uint8List? avatar;
+  Future<void> _loadAvatar() async {
+    final identity = _identity;
+    try {
+      final bytes = await _avatarRequest();
+      if (!_disposed &&
+          identity == _identity &&
+          authenticated &&
+          bytes.length <= 2 * 1024 * 1024) {
+        avatar = bytes;
+        _notify();
+      }
+    } catch (_) {
+      /* An absent avatar does not invalidate a login. */
+    }
+  }
+
   final Future<bool> Function() _hasSession;
   final Future<void> Function() _clear;
+  final Future<void> Function(String username, String password)
+  _publicationLogin;
+  int _publicationRevision = 0;
+  int get publicationRevision => _publicationRevision;
   Future<void>? _initialization;
   bool _disposed = false;
   int _identity = 0;
@@ -161,6 +189,7 @@ class WenkuAccount extends ChangeNotifier {
     authenticated = session;
     if (authenticated) {
       profile = WenkuProfile.parse(await _send('action=userinfo'));
+      unawaited(_loadAvatar());
     }
   }).catchError((Object _) {});
 
@@ -192,6 +221,7 @@ class WenkuAccount extends ChangeNotifier {
       _identity++;
       authenticated = false;
       profile = null;
+      avatar = null;
       cloudBooks = null;
       syncedAt = null;
       signedToday = false;
@@ -221,15 +251,31 @@ class WenkuAccount extends ChangeNotifier {
     _identity++;
     authenticated = true;
     profile = null;
+    avatar = null;
     cloudBooks = null;
     syncedAt = null;
     signedToday = false;
     // The session is valid even if the following profile request is offline.
     profile = WenkuProfile.parse(await _send('action=userinfo'));
+    unawaited(_loadAvatar());
+    // Classification uses this API session. Do not send the password a second
+    // time to the unrelated website login or hold up a valid API sign-in.
+    _publicationRevision++;
+  });
+
+  Future<void> connectPublications(String password) => _run('正在连接分类', () async {
+    if (!authenticated) throw const WenkuApiError(4);
+    if (password.isEmpty || password.length > 30) {
+      throw const FormatException('请填写当前账号的密码');
+    }
+    profile = WenkuProfile.parse(await _send('action=userinfo'));
+    await _publicationLogin(profile!.username, password);
+    _publicationRevision++;
   });
 
   Future<void> refreshProfile() => _run('正在更新账号', () async {
     profile = WenkuProfile.parse(await _send('action=userinfo'));
+    unawaited(_loadAvatar());
   });
 
   /// A classification refusal is not evidence that a working account expired.
@@ -270,6 +316,7 @@ class WenkuAccount extends ChangeNotifier {
     _identity++;
     authenticated = false;
     profile = null;
+    avatar = null;
     cloudBooks = null;
     syncedAt = null;
     signedToday = false;
@@ -279,6 +326,39 @@ class WenkuAccount extends ChangeNotifier {
     cloudBooks = books;
     syncedAt = DateTime.now().millisecondsSinceEpoch;
     return books;
+  });
+
+  Future<CloudShelfPlan> exchangeShelf({
+    required Set<int> local,
+    Set<int>? lastLocal,
+    Set<int>? lastCloud,
+  }) => _run('正在同步书架', () async {
+    final remote = CloudBook.parse(await _send('action=bookcase&t=0'));
+    final ids = remote.map((b) => b.id).toSet();
+    final plan = CloudShelfPlan(
+      local: local,
+      remote: ids,
+      lastLocal: lastLocal,
+      lastCloud: lastCloud,
+    );
+    for (final id in plan.target.difference(ids)) {
+      requireWenkuSuccess(
+        await _send('action=bookcase&do=add&aid=$id'),
+        accepted: const {1, 5},
+      );
+    }
+    for (final id in ids.difference(plan.target)) {
+      requireWenkuSuccess(
+        await _send('action=bookcase&do=del&aid=$id'),
+        accepted: const {1, 7},
+      );
+    }
+    cloudBooks = List.unmodifiable([
+      ...remote.where((b) => plan.target.contains(b.id)),
+      for (final id in plan.target.difference(ids)) CloudBook(id: id),
+    ]);
+    syncedAt = DateTime.now().millisecondsSinceEpoch;
+    return plan;
   });
 
   Future<CloudUploadResult> uploadMissing(Set<int> localIds) => _run(

@@ -14,25 +14,30 @@ class HomeNavigation extends ChangeNotifier {
 
   final LibraryState preferences;
   final NetworkStatus? network;
-  late ({bool localReader, bool cachedShelf}) _value;
+  late ({bool localReader, bool cachedShelf, bool combinedShelf}) _value;
 
-  ({bool localReader, bool cachedShelf}) _read() => (
+  ({bool localReader, bool cachedShelf, bool combinedShelf}) _read() => (
     localReader: preferences.localReaderMode,
     cachedShelf: preferences.adaptWhenOffline && (network?.offline ?? false),
+    combinedShelf: preferences.combinedShelf,
   );
 
   bool get cachedShelf => _value.cachedShelf;
   bool get localReader => _value.localReader;
-  List<int> get tabs => localReader
-      ? const [2, 3]
-      : cachedShelf
-      ? const [1, 2, 3]
-      : const [0, 1, 2, 3];
+  bool get combinedShelf => _value.combinedShelf;
+  bool get readableShelfOnly => cachedShelf || localReader;
+  List<int> get tabs {
+    if (localReader) return combinedShelf ? const [1, 3] : const [2, 3];
+    if (combinedShelf) return cachedShelf ? const [1, 3] : const [0, 1, 3];
+    return cachedShelf ? const [1, 2, 3] : const [0, 1, 2, 3];
+  }
 
   int destination(int current) => tabs.contains(current)
       ? current
       : localReader
-      ? 2
+      ? combinedShelf
+            ? 1
+            : 2
       : 1;
 
   void _changed() {

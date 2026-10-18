@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/reader_panels.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/catalog.dart';
@@ -151,8 +152,7 @@ void main({
       ),
     );
     await fixture.settleReader(tester);
-    await tester.tap(find.byKey(const ValueKey('reader-listening-entry')));
-    await tester.pumpAndSettle();
+    await openReaderPanel(tester, tab: '听书');
     for (final paper in [ReaderPaper.night, ReaderPaper.parchment]) {
       await library.setReaderPreferences(
         library.readerPreferences.copyWith(paper: paper),

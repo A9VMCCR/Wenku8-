@@ -41,7 +41,7 @@ Widget _app(
   ),
 );
 
-Future<void> _settleIo(WidgetTester tester) async {
+Future<void> _settleIo(WidgetTester tester, {bool Function()? until}) async {
   for (var i = 0; i < 12; i++) {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 12)),
@@ -49,6 +49,20 @@ Future<void> _settleIo(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 16));
   }
   await tester.pumpAndSettle();
+  if (until != null) {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (!until() && DateTime.now().isBefore(deadline)) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 8)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(
+      until(),
+      isTrue,
+      reason: 'deferred cache operation did not complete',
+    );
+  }
 }
 
 Future<void> _tapIo(
@@ -130,7 +144,7 @@ void main({
           GlobalKey(),
         ),
       );
-      await _settleIo(tester);
+      await _settleIo(tester, until: () => remote.activeReads == 1);
       expect(find.text('前文。'), findsOneWidget);
       expect(remote.activeReads, 1);
       final slot = find.byWidgetPredicate(
@@ -187,7 +201,7 @@ void main({
     if (capture != null) await capture(tester, key, 'offline-detail-menu');
     await _tapIo(
       tester,
-      find.text('下载全部章节'),
+      find.text('缓存全部章节'),
       until: () => repository.jobFor(71)?.phase == DownloadPhase.completed,
     );
     expect(cache.book(71)!.cachedCount, 3);
@@ -262,11 +276,13 @@ void main({
         _app(SettingsPage(state: state, repository: repository), key),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-data-entry')));
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('缓存管理'),
         180,
         scrollable: find.descendant(
-          of: find.byKey(const PageStorageKey('settings')),
+          of: find.byKey(const PageStorageKey('settings-data')),
           matching: find.byType(Scrollable),
         ),
       );
@@ -309,10 +325,10 @@ void main({
       await _tapIo(tester, _control('下载与缓存'));
       await _tapIo(
         tester,
-        find.text('下载全部章节'),
+        find.text('缓存全部章节'),
         until: () => repository.jobFor(71)?.phase == DownloadPhase.failed,
       );
-      expect(find.textContaining('下载失败，可重试'), findsOneWidget);
+      expect(find.textContaining('缓存失败，可重试'), findsOneWidget);
       expect(cache.book(71)!.cachedCount, 1);
       if (capture != null) {
         await capture(tester, key, 'offline-download-failed');
@@ -321,7 +337,7 @@ void main({
       await _tapIo(tester, _control('下载与缓存'));
       await _tapIo(
         tester,
-        find.text('继续下载'),
+        find.text('继续缓存'),
         until: () => repository.jobFor(71)?.phase == DownloadPhase.completed,
       );
       expect(cache.book(71)!.cachedCount, 3);
@@ -346,11 +362,11 @@ void main({
       await _tapIo(tester, _control('下载与缓存'));
       await _tapIo(
         tester,
-        find.text('下载全部章节'),
+        find.text('缓存全部章节'),
         until: () => remote.activeReads == 1,
       );
       await _tapIo(tester, _control('下载与缓存'));
-      await _tapIo(tester, find.text('取消下载'));
+      await _tapIo(tester, find.text('取消缓存'));
       reply.complete(novel.chapters.first.content);
       await _settleIo(tester);
       expect(repository.jobFor(71)!.phase, DownloadPhase.cancelled);
@@ -360,7 +376,7 @@ void main({
       await _tapIo(tester, _control('下载与缓存'));
       await _tapIo(
         tester,
-        find.text('继续下载'),
+        find.text('继续缓存'),
         until: () => repository.jobFor(71)?.phase == DownloadPhase.completed,
       );
       expect(cache.book(71)!.cachedCount, 3);
@@ -392,7 +408,7 @@ void main({
       await _tapIo(tester, _control('下载与缓存'));
       await _tapIo(
         tester,
-        find.text('下载后续 20 章'),
+        find.text('缓存后续 20 章'),
         until: () => repository.jobFor(71)?.phase == DownloadPhase.completed,
       );
       expect(repository.jobFor(71)!.total, 3);

@@ -27,6 +27,15 @@ class BookCollectionSliver extends StatefulWidget {
 }
 
 class _BookCollectionSliverState extends State<BookCollectionSliver> {
+  Widget? _rows;
+  int? _columns;
+
+  @override
+  void didUpdateWidget(BookCollectionSliver oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _rows = null;
+  }
+
   Widget _item(BuildContext context, int index) {
     final item = widget.itemBuilder(context, index);
     return LibraryReflowPart(relocate: false, order: index, child: item);
@@ -38,13 +47,19 @@ class _BookCollectionSliverState extends State<BookCollectionSliver> {
       final columns = BookCollectionLayout.columnsFor(
         constraints.crossAxisExtent,
       );
+      // SliverConstraints include scrollOffset, so this builder is called on
+      // every fling frame. Replacing the delegate here rebuilds all mounted
+      // book rows, including covers and glass. Only a new data builder or a
+      // column-count change needs a new delegate; width still flows to layout.
+      if (_rows != null && _columns == columns) return _rows!;
+      _columns = columns;
       if (columns == 1) {
-        return SliverList.builder(
+        return _rows = SliverList.builder(
           itemCount: widget.itemCount,
           itemBuilder: _item,
         );
       }
-      return SliverList.builder(
+      return _rows = SliverList.builder(
         itemCount: (widget.itemCount / columns).ceil(),
         itemBuilder: (context, row) => Row(
           crossAxisAlignment: CrossAxisAlignment.start,

@@ -15,7 +15,10 @@ Future<LibraryState> _mountDetail(
   Novel novel, {
   double textScale = 1,
 }) async {
-  SharedPreferences.setMockInitialValues({});
+  SharedPreferences.setMockInitialValues({
+    'readerChromeVisible': true,
+    'readerChromeHintSeen': true,
+  });
   final state = await LibraryState.load();
   await state.setReduceMotion(true);
   await tester.pumpWidget(

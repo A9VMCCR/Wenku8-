@@ -157,12 +157,11 @@ void main() {
           if (params['action'] == 'search') {
             expect(params['searchkey'], '名 & 作者');
             expect(params.containsKey('page'), isFalse);
-            return _listXml(
-              List.generate(
-                30,
-                (i) => i + (params['searchtype'] == 'author' ? 21 : 1),
-              ),
+            final ids = List.generate(
+              30,
+              (i) => i + (params['searchtype'] == 'author' ? 21 : 1),
             );
+            return '<result>${ids.map((id) => '<item aid="$id"/>').join()}</result>';
           }
           active++;
           peak = peak < active ? active : peak;
@@ -180,7 +179,7 @@ void main() {
       expect(second.items.map((b) => b.id), List.generate(20, (i) => i + 21));
       expect(third.items.map((b) => b.id), List.generate(10, (i) => i + 41));
       expect(third.hasMore, isFalse);
-      expect(actions.where((a) => a.startsWith('action=search')).length, 2);
+      expect(actions.where((a) => a.startsWith('action=search')).length, 3);
       expect(peak, lessThanOrEqualTo(4));
     },
   );

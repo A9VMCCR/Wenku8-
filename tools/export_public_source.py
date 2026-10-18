@@ -15,13 +15,13 @@ FILES = (
     "tools/verify_apk_runtime.py", "tools/test_verify_apk_runtime.py",
     "tools/create_update_fixtures.py",
 )
-DIRECTORIES = ("lib", "assets", "shaders", "test", "integration_test", "android", "ios", "docs/images", "third_party/liquid_glass_easy")
+DIRECTORIES = ("lib", "assets", "shaders", "test", "integration_test", "android", "ios", "docs/images", "third_party/liquid_glass_easy", "third_party/libmobi", "tools/update-mirror", "tools/content-gateway")
 PRIVATE_NAMES = {
     "local.properties", "key.properties", "GeneratedPluginRegistrant.java",
     "Generated.xcconfig", "flutter_export_environment.sh", ".DS_Store",
     ".last_build_id", "ephemeral", "Flutter.podspec", "flutter_export_environment.sh",
 }
-SKIP_DIRS = {"build", ".gradle", ".cxx", "Pods", ".symlinks", "__pycache__", ".git",
+SKIP_DIRS = {"build", ".gradle", ".cxx", ".wrangler", "node_modules", "Pods", ".symlinks", "__pycache__", ".git",
              "xcuserdata", "ephemeral", ".idea", ".dart_tool", "App.framework", "Flutter.framework"}
 DEVELOPMENT_ENTRIES = {
     "lib/performance_page.dart", "lib/ui_performance.dart",
@@ -51,6 +51,10 @@ def main():
         if source.is_symlink() or not source.is_file():
             return
         if any(part in SKIP_DIRS for part in relative.parts):
+            return
+        if relative.parts[:3] == ("tools", "update-mirror", "public"):
+            return
+        if source.name.startswith((".env", ".dev.vars")):
             return
         if source.name in PRIVATE_NAMES or source.suffix in {".jks", ".keystore", ".apk", ".aab", ".log", ".pyc", ".p12", ".pem", ".key", ".mobileprovision", ".xcuserstate"}:
             return

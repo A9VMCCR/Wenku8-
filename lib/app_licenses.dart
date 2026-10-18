@@ -15,5 +15,21 @@ void registerAppLicenses() {
     yield LicenseEntryWithLineBreaks(const [
       'edge-tts protocol · rany',
     ], await rootBundle.loadString('assets/licenses/edge-tts.txt'));
+    yield LicenseEntryWithLineBreaks(const [
+      'libmobi · Bartek Fabiszewski',
+    ], await rootBundle.loadString('assets/licenses/libmobi.txt'));
+    for (final item in const {
+      'jsoup · Jonathan Hedley': 'jsoup',
+      'commonmark-java · Atlassian': 'commonmark',
+      'PDFBox Android · Apache Software Foundation / Tom Roush': 'pdfbox',
+      'PDFBox / FontBox notices': 'pdfbox-notice',
+      'Bouncy Castle': 'bouncycastle',
+      'OpenJDK desugaring · Oracle / Google': 'desugar-jdk',
+      'OpenCC dictionaries · BYVoid and contributors': 'opencc',
+    }.entries) {
+      yield LicenseEntryWithLineBreaks([
+        item.key,
+      ], await rootBundle.loadString('assets/licenses/${item.value}.txt'));
+    }
   });
 }

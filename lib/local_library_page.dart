@@ -4,93 +4,27 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'app_interactions.dart';
 import 'app_ui.dart';
+import 'app_search_field.dart';
 import 'archive_carousel.dart';
 import 'book_collection_layout.dart';
+import 'book_categories.dart';
 import 'book_documents.dart';
 import 'book_sync.dart';
 import 'catalog.dart';
 import 'cloud_book_sync_panel.dart';
-import 'cloud_library_page.dart';
 import 'cloud_sources.dart';
-import 'feature_pages.dart' show confirmNovelAction;
 import 'library_state.dart';
+import 'library_toolbar.dart';
 import 'library_reflow.dart';
 import 'local_books.dart';
-import 'local_import_batch.dart';
-import 'local_import_review.dart';
+import 'local_book_importer.dart';
 import 'local_library_preferences.dart';
-import 'local_series_actions.dart';
 import 'local_series_editor.dart';
+import 'local_book_removal.dart';
+import 'local_book_batch_page.dart';
 import 'pages.dart' show NovelRow;
 
 export 'cloud_book_sync_panel.dart' show CloudBookSyncPanel;
-
-class _CategoryNameSheet extends StatefulWidget {
-  const _CategoryNameSheet({required this.organization, this.id});
-  final LocalLibraryPreferences organization;
-  final String? id;
-  @override
-  State<_CategoryNameSheet> createState() => _CategoryNameSheetState();
-}
-
-class _CategoryNameSheetState extends State<_CategoryNameSheet> {
-  late final text = TextEditingController(
-    text: widget.id == null ? '' : widget.organization.groups[widget.id],
-  );
-  bool busy = false;
-  @override
-  void dispose() {
-    text.dispose();
-    super.dispose();
-  }
-
-  Future<void> save() async {
-    setState(() => busy = true);
-    try {
-      if (widget.id == null) {
-        await widget.organization.addGroup(text.text);
-      } else {
-        await widget.organization.renameGroup(widget.id!, text.text);
-      }
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        setState(() => busy = false);
-        showNovelFeedback(context, e is FormatException ? e.message : '分类保存失败');
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ArchiveSection(
-          title: widget.id == null ? '新建分类' : '重命名分类',
-          code: 'LOCAL / CATEGORY',
-        ),
-        const SizedBox(height: 20),
-        CupertinoTextField(
-          controller: text,
-          enabled: !busy,
-          placeholder: '分类名称',
-          maxLength: 30,
-          padding: const EdgeInsets.all(16),
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-        ),
-        const SizedBox(height: 18),
-        GlassPillButton(
-          icon: CupertinoIcons.checkmark,
-          label: '保存分类',
-          onPressed: busy ? null : save,
-        ),
-      ],
-    ),
-  );
-}
 
 class LocalLibraryController extends ChangeNotifier {
   void Function(BuildContext)? importMenu;
@@ -169,10 +103,17 @@ class LocalLibraryPage extends StatefulWidget {
   State<LocalLibraryPage> createState() => _LocalLibraryPageState();
 }
 
-class _LocalLibraryPageState extends State<LocalLibraryPage> {
+class _LocalLibraryPageState extends State<LocalLibraryPage>
+    with WidgetsBindingObserver {
   late final _documents = widget.documents ?? BookDocuments();
   late final _controller = widget.controller ?? LocalLibraryController();
   late final _cloudSources = widget.cloudSettings ?? CloudSourceSettings();
+  late final _importer = LocalBookImporter(
+    books: widget.books,
+    library: widget.state,
+    documents: _documents,
+    cloudSettings: _cloudSources,
+  );
   final _search = TextEditingController();
   final _searchFocus = FocusNode(debugLabel: 'local-library-search');
   bool _searchOpen = false;
@@ -183,20 +124,36 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
   bool _importing = false;
   (int, int)? _importProgress;
   bool? _routeCurrent;
-  final _newImports = <int>{};
+  bool _scanActive = false;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller.refresh = _reload;
     _controller.search = widget.onSearch ?? _toggleSearch;
     _controller.importMenu = _importMenu;
+    _importer.addListener(_importChanged);
     _load();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _importer.scanOnEntry(context, resumed: true);
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final current = ModalRoute.isCurrentOf(context);
+    final scanActive = current != false && TickerMode.valuesOf(context).enabled;
+    if (scanActive && !_scanActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _importer.scanOnEntry(context);
+      });
+    }
+    _scanActive = scanActive;
     if (current == true && _routeCurrent == false) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && ModalRoute.isCurrentOf(context) == true) _reload();
@@ -226,39 +183,29 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
   }
 
   Future<void> _importMenu(BuildContext anchor) async {
-    if (_importing) return;
-    final action = await showGlassMenu<String>(
-      context: anchor,
-      reduceMotion: widget.state.reduceMotion,
-      builder: (menu) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          GlassMenuItem(
-            label: '导入书籍',
-            onPressed: () => Navigator.pop(menu, 'local'),
-          ),
-          GlassMenuItem(
-            label: '从网盘导入',
-            onPressed: () => Navigator.pop(menu, 'cloud'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || action == null) return;
     _searchFocus.unfocus();
-    if (action == 'local') {
-      await _import();
-    } else {
-      await _cloud();
-    }
+    await _importer.showMenu(anchor);
+    if (mounted) _reload();
+  }
+
+  void _importChanged() {
+    if (!mounted) return;
+    setState(() {
+      _importing = _importer.busy;
+      _importProgress = _importer.progress;
+      _error = _importer.error;
+    });
+    _controller
+      ..importing = _importing
+      ..importMenu = _importing ? null : _importMenu
+      ..changed();
   }
 
   Future<void> _load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (!mounted) return;
-      final organization = LocalLibraryPreferences(prefs)..load();
+      final organization = widget.state.organization;
       final sync = BookSync(
         books: widget.books,
         state: widget.state,
@@ -300,117 +247,6 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
     }
   }
 
-  Future<Novel> _importFile(String name, String path) async {
-    final imported = await widget.books.importFile(
-      name,
-      path,
-      text: name.toLowerCase().endsWith('.txt')
-          ? await _documents.decodeText(path, encoding: _encoding)
-          : null,
-    );
-    final parent = widget.books.seriesFor(imported.id);
-    final book = parent == null ? imported : widget.books.book(parent.id)!;
-    if (parent != null) await reconcileLocalSeries(widget.books, widget.state);
-    await widget.state.setShelfMembership(book.id, false, novel: book);
-    final group = _organization?.selected;
-    if (group != null && group != LocalLibraryPreferences.all) {
-      await _organization!.assign(book.id, group);
-    }
-    if (parent == null) _newImports.add(book.id);
-    return book;
-  }
-
-  Future<void> _import() async {
-    if (_importing) return;
-    setState(() {
-      _importing = true;
-      _error = null;
-    });
-    _controller
-      ..importing = true
-      ..importMenu = null
-      ..changed();
-    List<BookDocumentSelection> selected = const [];
-    LocalImportReport? report;
-    try {
-      selected = await _documents.pickBooks();
-      if (selected.isEmpty || !mounted) return;
-      setState(() => _importProgress = (0, selected.length));
-      report = await importLocalBatch(
-        selections: selected,
-        books: widget.books,
-        importFile: _importFile,
-        onProgress: (completed, total) {
-          if (mounted) setState(() => _importProgress = (completed, total));
-        },
-      );
-      _newImports.removeAll(report.bookIds);
-    } catch (e) {
-      if (mounted) setState(() => _error = cloudFailureMessage(e));
-    } finally {
-      try {
-        await _documents.releaseBooks(selected);
-      } catch (_) {
-        // The original has already been saved; disposable cache cleanup must
-        // not turn a completed import into a book-import failure.
-      }
-      if (mounted) {
-        setState(() {
-          _importing = false;
-          _importProgress = null;
-        });
-        _controller
-          ..importing = false
-          ..importMenu = _importMenu
-          ..changed();
-      }
-    }
-    if (mounted && report != null) await _reviewImports(report);
-  }
-
-  Future<void> _reviewImports(LocalImportReport report) async {
-    if (localImportGroups(widget.books, report.bookIds).isNotEmpty ||
-        report.failures.isNotEmpty) {
-      await pushNovelPage<void>(
-        context,
-        LocalImportReview(
-          books: widget.books,
-          library: widget.state,
-          report: report,
-        ),
-        reduceMotion: widget.state.reduceMotion,
-      );
-      if (mounted) _reload();
-    } else {
-      showNovelFeedback(context, report.summary);
-    }
-  }
-
-  Future<void> _cloud() async {
-    if (_importing) return;
-    await pushNovelPage<void>(
-      context,
-      CloudLibraryPage(
-        settings: _cloudSources,
-        onImport: _importFile,
-        reduceMotion: widget.state.reduceMotion,
-      ),
-      reduceMotion: widget.state.reduceMotion,
-    );
-    if (!mounted) return;
-    final suggestions = _newImports.toList();
-    _newImports.clear();
-    if (suggestions.isNotEmpty) {
-      await _reviewImports(
-        LocalImportReport(
-          bookIds: suggestions,
-          added: suggestions.length,
-          existing: 0,
-        ),
-      );
-    }
-  }
-
   Future<void> _volumes(Novel book, {bool suggested = false}) async {
     final result = await pushNovelPage<LocalSeriesEditResult>(
       context,
@@ -445,22 +281,12 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
   }
 
   Future<void> _remove(Novel book) async {
-    final series = widget.books.seriesFor(book.id);
-    if (!await confirmNovelAction(
-      context,
-      title: series == null ? '删除本机原书？' : '删除整部书的本机原书？',
-      message:
-          '${series == null ? '《${book.title}》的' : '《${book.title}》的 ${series.volumes.length} 卷原书将从本机移除，'}阅读记录仍保留，网盘文件不会删除。',
-      confirmLabel: '删除本机原书',
-      reduceMotion: widget.state.reduceMotion,
-    )) {
-      return;
-    }
     await _save(() async {
-      await removeLocalBook(
+      await chooseLocalBookRemoval(
+        context,
+        book: book,
         books: widget.books,
         library: widget.state,
-        id: book.id,
       );
     });
   }
@@ -484,17 +310,21 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
             }.entries)
               GlassTextButton(
                 onPressed: () => Navigator.pop(sheet, entry.key),
-                child: Text('移至 ${entry.value}'),
+                child: AppText('移至 ${entry.value}'),
               ),
             GlassTextButton(
               onPressed: () => Navigator.pop(sheet, '_series'),
-              child: Text(
+              child: AppText(
                 widget.books.seriesFor(book.id) == null ? '合并分卷' : '管理分卷',
               ),
             ),
             GlassTextButton(
+              onPressed: () => Navigator.pop(sheet, '_batch'),
+              child: const AppText('批量选择'),
+            ),
+            GlassTextButton(
               onPressed: () => Navigator.pop(sheet, '_delete'),
-              child: const Text('删除本机原书'),
+              child: const AppText('移除书籍'),
             ),
           ],
         ),
@@ -505,97 +335,57 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
       await _volumes(book);
     } else if (value == '_delete') {
       await _remove(book);
+    } else if (value == '_batch') {
+      await openLocalBookBatch(
+        context,
+        books: widget.books,
+        library: widget.state,
+        selected: {book.id},
+      );
     } else {
       await _save(() => organization.assign(book.id, value));
     }
   }
 
-  Future<void> _nameGroup({String? id}) async {
-    final organization = _organization!;
-    await showJellySheet<void>(
-      context: context,
-      reduceMotion: widget.state.reduceMotion,
-      heightFactor: .58,
-      builder: (_) => _CategoryNameSheet(organization: organization, id: id),
-    );
-  }
+  Future<void> _categories() => showBookCategories(
+    context,
+    _organization!,
+    reduceMotion: widget.state.reduceMotion,
+  );
 
-  Future<void> _categories() async {
+  Future<void> _display() async {
     final organization = _organization!;
-    final result = await showJellySheet<String>(
+    final more = await showJellySheet<bool>(
       context: context,
       reduceMotion: widget.state.reduceMotion,
       heightFactor: .72,
-      builder: (sheet) => SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const ArchiveSection(title: '本地分类', code: 'LOCAL / CATEGORIES'),
-            const SizedBox(height: 16),
-            for (final entry in {
-              LocalLibraryPreferences.all: '全部书籍',
-              LocalLibraryPreferences.unfiled: '未分类',
-              ...organization.groups,
-            }.entries)
-              Row(
-                children: [
-                  Expanded(
-                    child: GlassTextButton(
-                      onPressed: () => Navigator.pop(sheet, entry.key),
-                      child: Text(entry.value),
-                    ),
-                  ),
-                  if (!entry.key.startsWith('_')) ...[
-                    GlassIconButton(
-                      icon: CupertinoIcons.pencil,
-                      label: '重命名 ${entry.value}',
-                      onPressed: () =>
-                          Navigator.pop(sheet, 'rename:${entry.key}'),
-                    ),
-                    const SizedBox(width: 8),
-                    GlassIconButton(
-                      icon: CupertinoIcons.trash,
-                      label: '删除分类 ${entry.value}',
-                      onPressed: () =>
-                          Navigator.pop(sheet, 'delete:${entry.key}'),
-                    ),
-                  ],
-                ],
-              ),
-            const SizedBox(height: 12),
-            GlassPillButton(
-              icon: CupertinoIcons.plus,
-              label: '新建分类',
-              onPressed: () => Navigator.pop(sheet, '_new'),
+      builder: (sheet) => AnimatedBuilder(
+        animation: organization,
+        builder: (_, _) => LibraryViewOptions(
+          shelf: organization.view == LocalLibraryView.shelf,
+          viewHint: '当前分类满 10 本时显示立体书架，列表始终显示全部书籍。',
+          reading: organization.readingFilter,
+          sort: organization.sort.name,
+          onView: (v) => _save(
+            () => organization.setView(
+              v ? LocalLibraryView.shelf : LocalLibraryView.list,
             ),
-          ],
+          ),
+          onReading: (v) => _save(() => organization.setReadingFilter(v)),
+          onSort: (v) => _save(
+            () => organization.setSort(LocalLibrarySort.values.byName(v)),
+          ),
+          footer: GlassTextButton(
+            onPressed: () => Navigator.pop(sheet, true),
+            child: const AppText('更多本地设置'),
+          ),
         ),
       ),
     );
-    if (!mounted || result == null) return;
-    if (result == '_new') {
-      await _nameGroup();
-    } else if (result.startsWith('rename:')) {
-      await _nameGroup(id: result.substring(7));
-    } else if (result.startsWith('delete:')) {
-      final id = result.substring(7);
-      if (await confirmNovelAction(
-        context,
-        title: '删除这个分类？',
-        message: '书籍会回到未分类，原书与阅读记录保留。',
-        confirmLabel: '删除分类',
-        reduceMotion: widget.state.reduceMotion,
-      )) {
-        await _save(() => organization.removeGroup(id));
-      }
-    } else {
-      await _save(() => organization.select(result));
-    }
+    if (mounted && more == true) await _settings();
   }
 
-  Future<void> _display() async {
+  Future<void> _settings() async {
     final organization = _organization!;
     await showJellySheet<void>(
       context: context,
@@ -611,28 +401,7 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
             children: [
               const ArchiveSection(title: '书库设置', code: 'LOCAL / SETTINGS'),
               const SizedBox(height: 18),
-              for (final value in LocalLibraryView.values)
-                GlassTextButton(
-                  onPressed: () => _save(() => organization.setView(value)),
-                  child: Text(
-                    '${organization.view == value ? '✓  ' : ''}${value == LocalLibraryView.shelf ? '立体书架 + 列表' : '仅列表'}',
-                  ),
-                ),
-              const Text('当前分类达到 10 本时显示立体书架。', style: TextStyle(height: 1.65)),
-              const Divider(height: 32),
-              for (final value in LocalLibrarySort.values)
-                GlassTextButton(
-                  onPressed: () => _save(() => organization.setSort(value)),
-                  child: Text(
-                    '${organization.sort == value ? '✓  ' : ''}${switch (value) {
-                      LocalLibrarySort.recentAdded => '最近导入',
-                      LocalLibrarySort.recentRead => '最近阅读',
-                      LocalLibrarySort.title => '书名排序',
-                    }}',
-                  ),
-                ),
-              const Divider(height: 32),
-              const Text(
+              const AppText(
                 'TXT 编码',
                 style: TextStyle(fontWeight: FontWeight.w600),
               ),
@@ -647,17 +416,32 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
                     await organization.setEncoding(entry.key);
                     if (mounted) setState(() => _encoding = entry.key);
                   }),
-                  child: Text(
+                  child: AppText(
                     '${_encoding == entry.key ? '✓  ' : ''}${entry.value}',
                   ),
                 ),
               const Divider(height: 32),
               GlassTextButton(
+                key: const ValueKey('local-removed-books'),
+                onPressed: () {
+                  Navigator.pop(sheet);
+                  pushNovelPage<void>(
+                    this.context,
+                    RemovedLocalBooksPage(
+                      books: widget.books,
+                      library: widget.state,
+                    ),
+                    reduceMotion: widget.state.reduceMotion,
+                  );
+                },
+                child: const AppText('已移出的本地书'),
+              ),
+              GlassTextButton(
                 onPressed: () {
                   Navigator.pop(sheet);
                   _syncSettings();
                 },
-                child: const Text('跨设备同步设置'),
+                child: const AppText('跨设备同步设置'),
               ),
             ],
           ),
@@ -676,13 +460,15 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller
       ..importMenu = null
       ..search = null
       ..refresh = null;
     if (widget.controller == null) _controller.dispose();
     _sync?.dispose();
-    _organization?.dispose();
+    _importer.removeListener(_importChanged);
+    _importer.dispose();
     if (widget.cloudSettings == null) _cloudSources.dispose();
     _search.dispose();
     _searchFocus.dispose();
@@ -701,21 +487,45 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
         animation: Listenable.merge([
           widget.books,
           widget.state.historyChanges,
+          widget.state.shelfViewChanges,
           ?organization,
         ]),
         builder: (context, _) {
           final books =
-              organization?.filter(
-                widget.books.books,
-                query: _search.text,
-                addedAt: widget.books.importedAt,
-                readAt: (id) => widget.state.positionFor(id)?.updatedAt ?? 0,
-              ) ??
+              organization
+                  ?.filter(
+                    widget.books.books.where(
+                      (book) => widget.state.localBookVisible(book.id),
+                    ),
+                    query: _search.text,
+                    addedAt: widget.books.importedAt,
+                    readAt: (id) =>
+                        widget.state.positionFor(id)?.updatedAt ?? 0,
+                  )
+                  .where(
+                    (book) => switch (organization.readingFilter) {
+                      'unread' => !widget.state.hasRead(book.id),
+                      'reading' =>
+                        widget.state.hasRead(book.id) &&
+                            !widget.state.finishedReading(book),
+                      'finished' => widget.state.finishedReading(book),
+                      _ => true,
+                    },
+                  )
+                  .toList() ??
               const <Novel>[];
           final shelf = organization?.showsShelf(books.length) == true;
-          final rows = shelf ? books.skip(10).toList() : books;
+          // A carousel is a featured view, not a replacement for the index.
+          // Every filtered book remains reachable in the same complete list.
+          final rows = books;
           return LoadedContentSequence(
-            generation: (organization?.selected, _search.text, shelf),
+            generation: (
+              organization?.selected,
+              organization?.readingFilter,
+              organization?.sort,
+              _search.text,
+              shelf,
+            ),
             child: CustomScrollView(
               key: const PageStorageKey('local-library'),
               clipBehavior: LibraryReflowScope.clipOf(context),
@@ -737,50 +547,45 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: GlassTextButton(
-                                key: const ValueKey('local-category'),
-                                onPressed: organization == null
-                                    ? null
-                                    : _categories,
-                                child: Text(
-                                  organization?.nameOf(organization.selected) ??
-                                      '全部书籍',
+                        LibraryToolbar(
+                          categoryKey: const ValueKey('local-category'),
+                          optionsKey: const ValueKey('local-display'),
+                          manageKey: const ValueKey('local-manage'),
+                          onManage:
+                              organization == null || widget.books.books.isEmpty
+                              ? null
+                              : () => openLocalBookBatch(
+                                  context,
+                                  books: widget.books,
+                                  library: widget.state,
                                 ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            GlassIconButton(
-                              key: const ValueKey('local-display'),
-                              icon: CupertinoIcons.slider_horizontal_3,
-                              label: '本地书库设置',
-                              onPressed: organization == null ? null : _display,
-                            ),
-                          ],
+                          category:
+                              organization?.nameOf(organization.selected) ??
+                              '全部书籍',
+                          count: books.length,
+                          loading: organization == null,
+                          activeFilters: organization?.readingFilter == 'all'
+                              ? 0
+                              : 1,
+                          onCategory: organization == null ? null : _categories,
+                          onOptions: organization == null ? null : _display,
                         ),
                         AnimatedOptionSection(
                           expanded: _searchOpen,
                           child: Padding(
                             padding: const EdgeInsets.only(top: 14),
-                            child: CupertinoSearchTextField(
+                            child: AppSearchField(
                               controller: _search,
                               focusNode: _searchFocus,
-                              placeholder: '搜索本地书名、作者',
+                              hint: '搜索本地书名、作者',
                               onChanged: (_) => setState(() {}),
                             ),
                           ),
                         ),
-                        const SizedBox(height: 20),
-                        ArchiveSection(
-                          title: '${books.length} 本书，随时阅读',
-                          code: 'TXT / EPUB',
-                        ),
                         const SizedBox(height: 14),
                         if (widget.books.books.isEmpty &&
                             organization != null) ...[
-                          const Text(
+                          const AppText(
                             '还没有本地书籍，点击右上角 ＋ 添加。',
                             style: TextStyle(height: 1.7),
                           ),
@@ -793,7 +598,7 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
                                 : '正在导入 ${_importProgress!.$1} / ${_importProgress!.$2} 本',
                           ),
                         if ((_error ?? widget.books.seriesError) != null) ...[
-                          Text(
+                          AppText(
                             (_error ?? widget.books.seriesError)!,
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.error,
@@ -802,7 +607,7 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
                           if (organization == null)
                             GlassTextButton(
                               onPressed: _load,
-                              child: const Text('重试'),
+                              child: const AppText('重试'),
                             ),
                         ],
                         if (organization != null &&
@@ -810,7 +615,7 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
                             widget.books.books.isNotEmpty)
                           const Padding(
                             padding: EdgeInsets.symmetric(vertical: 24),
-                            child: Text('没有符合条件的书籍，换个分类或关键词试试。'),
+                            child: AppText('没有符合条件的书籍，换个分类或关键词试试。'),
                           ),
                       ],
                     ),
@@ -818,12 +623,15 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
                 ),
                 if (shelf)
                   SliverToBoxAdapter(
-                    child: ArchiveFileCarousel(
-                      key: ValueKey(('local-shelf', organization!.selected)),
-                      books: books.take(10).toList(),
-                      reduceMotion: widget.state.reduceMotion,
-                      animateEntrance: true,
-                      onOpen: _open,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: ArchiveFileCarousel(
+                        key: ValueKey(('local-shelf', organization!.selected)),
+                        books: books.take(10).toList(),
+                        reduceMotion: widget.state.reduceMotion,
+                        animateEntrance: true,
+                        onOpen: _open,
+                      ),
                     ),
                   ),
                 if (shelf && rows.isNotEmpty)
@@ -831,7 +639,7 @@ class _LocalLibraryPageState extends State<LocalLibraryPage> {
                     padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
                     sliver: SliverToBoxAdapter(
                       child: ArchiveSection(
-                        title: '更多书籍',
+                        title: '全部书籍',
                         code: '${rows.length} FILES',
                       ),
                     ),

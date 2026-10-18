@@ -27,20 +27,20 @@ class RecentSearches extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
+              const AppText(
                 '清空最近搜索？',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 12),
-              const Text('只清除本机关键词，不影响书架、阅读进度或书签。'),
+              const AppText('只清除本机关键词，不影响书架、阅读进度或书签。'),
               const SizedBox(height: 16),
               GlassTextButton(
                 onPressed: () => Navigator.pop(sheet, true),
-                child: const Text('清空搜索记录'),
+                child: const AppText('清空搜索记录'),
               ),
               GlassTextButton(
                 onPressed: () => Navigator.pop(sheet, false),
-                child: const Text('取消'),
+                child: const AppText('取消'),
               ),
             ],
           ),
@@ -69,7 +69,7 @@ class RecentSearches extends StatelessWidget {
             Row(
               children: [
                 const Expanded(
-                  child: Text(
+                  child: AppText(
                     '最近搜索',
                     style: TextStyle(fontWeight: FontWeight.w600),
                   ),
@@ -101,7 +101,7 @@ class RecentSearches extends StatelessWidget {
                         ).colorScheme.onSurface.withValues(alpha: .055),
                         borderRadius: BorderRadius.circular(18),
                       ),
-                      child: Text(
+                      child: AppText(
                         query,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,

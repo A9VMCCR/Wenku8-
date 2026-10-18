@@ -67,13 +67,13 @@ void main() {
           'version': 1,
           'groups': {},
           'assignments': {
-            '1': {'group': 'x', 'at': 1},
+            '0': {'group': 'x', 'at': 1},
           },
         }),
         throwsFormatException,
       );
       expect(
-        () => view.assign(1, LocalLibraryPreferences.unfiled),
+        () => view.assign(0, LocalLibraryPreferences.unfiled),
         throwsFormatException,
       );
       await view.addGroup('分类');

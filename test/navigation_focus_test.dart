@@ -136,10 +136,10 @@ void main() {
       expect(previous.canRequestFocus, isFalse);
       previous.requestFocus();
       await _expectDismissed(tester, previous);
-      final about = find.byKey(const ValueKey('settings-app-update'));
+      final about = find.byKey(const ValueKey('my-about'));
       final scrollable = find
           .descendant(
-            of: find.byKey(const PageStorageKey('settings')),
+            of: find.byKey(const PageStorageKey('my-page')),
             matching: find.byType(Scrollable),
           )
           .first;

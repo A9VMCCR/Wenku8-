@@ -636,7 +636,7 @@ void main({FeatureCapture? capture}) {
     );
     await tester.tap(back);
     await tester.pumpAndSettle();
-    expect(find.text('作品书评'), findsOneWidget);
+    expect(find.text('作品评论'), findsOneWidget);
     await tester.tap(find.text('书评 81'));
     await tester.pumpAndSettle();
     for (
@@ -766,7 +766,7 @@ void main({FeatureCapture? capture}) {
           onPosted: () => posted++,
         ),
       );
-      await tester.tap(find.text('回复这条书评'));
+      await tester.tap(find.byKey(const ValueKey('review-compose')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('review-title')), findsNothing);
       await tester.enterText(

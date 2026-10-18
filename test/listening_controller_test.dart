@@ -557,6 +557,31 @@ void main() {
     await controller.setSpeed(1.5);
     expect(output.speed, 1.5);
   });
+  test('3x speed persists through paragraph changes and resume', () async {
+    final book = speechBook(['第一段。', '第二段。']);
+    await controller.start(book, chapter: 0);
+    await controller.seek(const Duration(seconds: 6));
+    final loads = output.loaded.length;
+    await controller.setSpeed(3);
+    expect(output.speed, 3);
+    expect(output.loaded.length, loads);
+    expect(controller.progress.value.position.inSeconds, 6);
+    expect(controller.store.speed, 3);
+    expect(ListeningStore(controller.store.preferences).speed, 3);
+    output.complete();
+    await listeningMicrotasks();
+    expect(controller.snapshot.value.current!.paragraph, 1);
+    expect(output.speed, 3);
+    await controller.pause();
+    await controller.resume();
+    expect(output.speed, 3);
+    await controller.setSpeed(8);
+    expect(controller.snapshot.value.speed, 3);
+    expect(output.speed, 3);
+    await controller.setSpeed(.25);
+    expect(controller.snapshot.value.speed, .5);
+    expect(output.speed, .5);
+  });
   test(
     'offline is pending development and never calls a system engine',
     () async {

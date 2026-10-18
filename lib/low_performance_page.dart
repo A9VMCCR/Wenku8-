@@ -72,9 +72,12 @@ class _LowPerformancePageState extends State<LowPerformancePage> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                Text('保留的效果', style: Theme.of(context).textTheme.titleMedium),
+                AppText(
+                  '保留的效果',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const SizedBox(height: 8),
-                Text(
+                AppText(
                   '开启的效果越少，图形开销越低。正文、书签、缓存和听书功能保持不变。',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -110,7 +113,7 @@ class _LowPerformancePageState extends State<LowPerformancePage> {
                       ? null
                       : () =>
                             _save(const PerformancePreferences(enabled: true)),
-                  child: const Text('恢复轻量预设'),
+                  child: const AppText('恢复轻量预设'),
                 ),
               ],
             ),
@@ -132,9 +135,9 @@ class _LowPerformancePageState extends State<LowPerformancePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+            AppText(title, style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
-            Text(
+            AppText(
               description,
               style: TextStyle(
                 fontSize: 13,
