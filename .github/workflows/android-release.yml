@@ -126,9 +126,9 @@ jobs:
         run: |
           if gh release view "$RELEASE_TAG" --json isDraft > build/existing-release.json 2>/dev/null; then
             python3 -c 'import json; assert json.load(open("build/existing-release.json"))["isDraft"], "Published assets must not be replaced; publish a new version instead."'
-            gh release upload "$RELEASE_TAG" build/release-assets/* --clobber
+            gh release upload "$RELEASE_TAG" build/release-assets/*.apk --clobber
           else
-            gh release create "$RELEASE_TAG" build/release-assets/* --verify-tag --draft --title "纸间文库 $RELEASE_TAG" --notes-file build/release-notes.md
+            gh release create "$RELEASE_TAG" build/release-assets/*.apk --verify-tag --draft --title "纸间文库 $RELEASE_TAG" --notes-file build/release-notes.md
           fi
       - name: Remove runner signing material
         if: always()

@@ -38,7 +38,7 @@ python3 tools/verify_apk_runtime.py build/app/outputs/flutter-apk/app-release.ap
 
 ## 签名与构建
 
-Flutter 3.41.5、Dart 3.11.3、JDK 17、Android SDK。源码包中保留的 Gradle wrapper 用于复现构建；Flutter、Gradle 及依赖首次构建需要下载。
+Flutter 3.41.5、Dart 3.11.3、JDK 17、Android SDK。Gradle 配置随源码保留，首次 Flutter 构建会生成 wrapper 与插件注册文件；Flutter、Gradle 及依赖首次构建需要下载。
 
 ```sh
 flutter pub get
@@ -84,7 +84,7 @@ cd android
 1. 更新 `pubspec.yaml` 的版本号和更大的 Android 构建号，并同步 `lib/updates/app_updates.dart` 的本版说明与版本常量。
 2. 在 `CHANGELOG.md` 添加对应版本的说明，并同步 `lib/updates/release_highlights.dart` 的精简摘要与详细分类。详细说明按实际功能、界面与操作、修复和性能分组；按钮或入口迁移要写清位置和使用方式。应用按安装版本名与构建号记录已完成阅读的说明，不依赖联网检查开关。运行 `python3 tools/prepare_release.py --tag v0.4.0 --notes build/release-notes.md` 可检查当前版本与标签是否一致。
 3. 完成内容与宣传审查，并取得发布授权后，提交到自己的 Fork，推送与版本一致的标签。本地整理脚本不会提交或推送。
-4. Actions 完成检查和三架构构建，上传 APK / 工程源码并创建 **Draft Release**。先核对签名、工程归档、脱敏与第三方条件，再点击 **Publish release**。
+4. Actions 完成检查和三架构构建，创建只附带 APK 的 **Draft Release**。源码使用该标签下 GitHub 自动生成的 **Source code (zip)** 与 **Source code (tar.gz)**，不重复上传 `source.zip`。工程归档仍在 Actions 产物中供核对。核对签名、对应源码、脱敏与第三方条件后，再点击 **Publish release**。
 5. 已安装应用会在下次前台检查时显示新版本；也可以在「关于纸间文库」立即检查。草稿、预发布和普通 Actions Artifacts 不进入自动更新渠道。
 
 正式标签构建缺少四项签名配置时会直接失败，不会用每次变化的临时证书发布更新。重跑只可替换草稿附件，不覆盖已发布版本；有修订时增加版本号再发布。
