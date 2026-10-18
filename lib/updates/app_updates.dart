@@ -15,12 +15,12 @@ const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: officialUpdateRepository,
 );
-const currentAppVersion = '0.3.7';
-const currentAppBuild = 63;
+const currentAppVersion = '0.4.1';
+const currentAppBuild = 88;
 const currentReleaseNotes = '''
-阅读器新增五种翻页效果、四边页边距、透明进度预览，修复翻页选字与控件收放闪烁；听书支持 0.5～3 倍速。
-扩展本地导入与扫描，支持自定义分类、批量删除、字体导入和繁体中文；发现支持多标签筛选。
-更新入口与阅读工具重新归组，小说仅保留 App 内离线缓存；版本检测与 APK 下载自动优先镜像并保留原站兜底。
+【重要说明】本 APP 以后只保留轻小说文库源和本地导入功能，不再支持任何其他源以及自定义书源。
+应用名称为「轻小说文库」。本版功能与 0.3.7 一致，未加入其他功能调整或问题修复。
+0.4.0 用户可直接覆盖升级到本版，无需卸载。建议升级前备份阅读记录。
 完整说明见「我的 → 关于 → 本版更新」。
 ''';
 

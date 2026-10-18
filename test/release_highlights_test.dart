@@ -211,7 +211,7 @@ void main() {
     expect(find.text('下一步'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('release-details-next')));
     await tester.pumpAndSettle();
-    expect(find.text('界面与操作调整'), findsOneWidget);
+    expect(find.text(currentReleaseSections[1].title), findsOneWidget);
     await captureReview(tester, capture, 'my-release-ui-changes-phone');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -236,7 +236,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('release-details-next')));
       await tester.pumpAndSettle();
       expect(find.text('2/${currentReleaseSections.length}'), findsOneWidget);
-      expect(find.text('界面与操作调整'), findsOneWidget);
+      expect(find.text(currentReleaseSections[1].title), findsOneWidget);
       await captureReview(tester, capture, 'release-details-ui-moves');
       await tester.tap(find.byKey(const ValueKey('release-details-previous')));
       await tester.pumpAndSettle();
