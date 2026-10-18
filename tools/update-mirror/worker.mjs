@@ -6,7 +6,8 @@ const VERSION = /^v?(\d+\.\d+\.\d+)(?:\+\d+)?$/;
 const REDIRECT_HOSTS = new Set([
   'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com',
 ]);
-// Withdrawal applies to installers only. Historical corresponding source stays public.
+// Historical uploaded attachments are withdrawn; GitHub-generated source
+// archives and Git tags stay available from the repository.
 function retiredVersion(tag) {
   const version = VERSION.exec(tag)?.[1];
   if (!version) return false;
@@ -76,7 +77,7 @@ export async function release(suffix, origin, dependencies) {
   }
   if (retiredVersion(metadata.tag_name)) {
     if (suffix === 'latest') return { response: error('Installers before 0.4.0 have been withdrawn', 404), state: 'MISS' };
-    metadata.assets = (metadata.assets ?? []).filter(asset => !asset.name?.toLowerCase().endsWith('.apk'));
+    metadata.assets = [];
   }
   const response = new Response(JSON.stringify(metadata), {
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=0, s-maxage=${suffix === 'latest' ? 120 : 300}`, 'X-Wenku-Upstream': 'GitHub' },
@@ -104,7 +105,7 @@ async function assetResponse(request, url, match, dependencies) {
   ]).has(name)) return error('Unknown release asset', 404);
   // Must run before known-ID, Range, HEAD or metadata cache lookup. Old cached
   // bytes must not remain a route around the installer withdrawal.
-  if (name.endsWith('.apk') && retiredVersion(tag)) return error('Installers before 0.4.0 have been withdrawn; source archives remain available', 410);
+  if (retiredVersion(tag)) return error('Uploaded attachments before 0.4.0 have been withdrawn; GitHub source code archives remain available', 410);
   if ([...url.searchParams.keys()].some(key => key !== 'asset') ||
       url.searchParams.getAll('asset').length > 1 ||
       (url.searchParams.has('asset') && !/^\d+$/.test(url.searchParams.get('asset')))) {
@@ -297,7 +298,7 @@ export class ReleaseRegistry {
 
 export const HOME = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>纸间文库 · 版本下载</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#f5f4ee;color:#303633;font:16px/1.65 system-ui,-apple-system,sans-serif}main{max-width:900px;margin:auto;padding:12vh 28px 64px}small{letter-spacing:.16em;color:#65756e}h1{font-size:clamp(32px,6vw,56px);font-weight:500;letter-spacing:-.04em;margin:20px 0 12px}p{color:#65716c;max-width:630px}header{border-bottom:1px solid #d9dfd8;padding-bottom:36px;margin-bottom:32px}a{color:inherit}#files{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:26px 0 42px}.file{display:flex;flex-direction:column;gap:12px;padding:24px;background:#ffffffa8;border:1px solid #ffffff;border-radius:20px;text-decoration:none;transition:transform .2s,background .2s}.file:hover{transform:translateY(-3px);background:#fff}.file b{font-size:18px;font-weight:550}.file span{color:#6c7970;font-size:14px}.file em{font-style:normal;color:#395f4e;margin-top:8px;font-size:14px}footer{font-size:13px;color:#79827b;display:flex;gap:24px;flex-wrap:wrap}.status{font-size:14px;color:#536a5c}pre{font-size:13px;overflow:auto;background:#e9ece5;padding:18px;border-radius:12px}</style>
-<main><header><small>ZHIJIAN / READING ARCHIVE</small><h1>把故事，留在手边。</h1><p>纸间文库，自定义书源与本地阅读工具。立体书架、横排与竖排、本地导入、书签与听书，以轻盈的玻璃界面承载每一页故事。</p><p><strong>重要：自 0.4.0 起为零内置书源版本。不附带任何书源、书源合集或推荐订阅。</strong></p><p><strong>即日起停止提供 0.4.0 之前版本的所有安装包。历史 source.zip、版本记录与 Git 标签保留。</strong></p><p>请仅导入可信、合法且有权使用的书源与作品。本项目明确反对并不支持侵权行为。升级前请备份记录，不要先卸载旧版。</p></header><div class="status" id="status">正在读取最新版本…</div><section id="releases"><div id="files"></div></section><details><summary>本版更新说明</summary><pre id="release-notes" style="white-space:pre-wrap">正在读取…</pre></details><br><footer><a href="https://github.com/mikufoxxx/Wenku8_Flutter">项目仓库 ↗</a><a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases">历史源码与版本记录 ↗</a><span>纸间文库 · Android</span></footer></main>
+<main><header><small>ZHIJIAN / READING ARCHIVE</small><h1>把故事，留在手边。</h1><p>纸间文库，自定义书源与本地阅读工具。立体书架、横排与竖排、本地导入、书签与听书，以轻盈的玻璃界面承载每一页故事。</p><p><strong>重要：自 0.4.0 起为零内置书源版本。不附带任何书源、书源合集或推荐订阅。</strong></p><p><strong>即日起停止提供 0.4.0 之前版本的所有安装包。旧版手动上传的 source.zip 一并撤下，仅保留 GitHub 自动生成的源码 ZIP／TAR.GZ、版本记录与 Git 标签。</strong></p><p>请仅导入可信、合法且有权使用的书源与作品。本项目明确反对并不支持侵权行为。升级前请备份记录，不要先卸载旧版。</p></header><div class="status" id="status">正在读取最新版本…</div><section id="releases"><div id="files"></div></section><details><summary>本版更新说明</summary><pre id="release-notes" style="white-space:pre-wrap">正在读取…</pre></details><br><footer><a href="https://github.com/mikufoxxx/Wenku8_Flutter">项目仓库 ↗</a><a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases">历史源码与版本记录 ↗</a><span>纸间文库 · Android</span></footer></main>
 <script>
 async function read(url, method='GET') {
   const controller = new AbortController(), timer = setTimeout(()=>controller.abort(), 8000);

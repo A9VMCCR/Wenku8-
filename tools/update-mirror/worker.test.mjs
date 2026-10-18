@@ -51,7 +51,7 @@ test('pre-0.4 APK withdrawal precedes even warm, known-ID, HEAD and Range caches
     assert.equal(f.calls.length, 0);
   }
 });
-test('historical source.zip stays downloadable while retired metadata offers no APK', async () => {
+test('historical uploaded source.zip is also withdrawn before any cache lookup', async () => {
   const oldTag = 'v0.3.7+63', sourceName = 'wenku8-0.3.7-source.zip';
   const sourcePath = `/${REPOSITORY}/releases/download/${encodeURIComponent(oldTag)}/${sourceName}`;
   const old = { ...data, tag_name: oldTag, assets: [
@@ -59,13 +59,14 @@ test('historical source.zip stays downloadable while retired metadata offers no 
     { id: 13, name: sourceName, size: 4, browser_download_url: 'https://github.com' + sourcePath },
   ] };
   const f = fixture(old);
+  f.stored.set(host + sourcePath + '?asset=13', new Response('old uploaded source archive'));
   assert.equal((await f.request('/api/releases/latest')).status, 404);
-  const response = await f.request(sourcePath);
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get('content-type'), /application\/zip/);
-  await Promise.all(f.pending);
-  const stored = f.stored.get(host + '/_release-cache-v2/tags/' + encodeURIComponent(oldTag));
-  assert.deepEqual((await stored.json()).assets.map(a => a.name), [sourceName]);
+  for (const suffix of [sourcePath, sourcePath + '?asset=13']) {
+    for (const init of [{}, { method: 'HEAD' }, { headers: { Range: 'bytes=0-3' } }]) {
+      assert.equal((await f.request(suffix, init)).status, 410);
+    }
+  }
+  assert.equal(f.calls.length, 1);
 });
 test('only fixed-repository releases can be requested; credentials never forwarded', async () => {
   const f = fixture();

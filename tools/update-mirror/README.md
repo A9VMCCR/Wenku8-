@@ -4,7 +4,7 @@
 
 介绍页作为免费 Static Asset 提供，不执行 Worker、不占十万次动态请求额度；版本接口或下载网关不可用时，页面脚本仍可直接读取 GitHub 并选择原站下载。
 
-只服务 `mikufoxxx/Wenku8_Flutter` 的公开正式发布。自 0.4.0 起为零内置书源版本；0.4.0 之前版本的 APK 已停止分发，历史 `source.zip` 保留。版本 JSON 保留原始 GitHub 下载地址、资产 ID、大小和 digest，客户端验证后再映射到本站。下载地址为原 GitHub 路径，域名替换为本站，并追加 `?asset=资产ID`。不接收任意目标地址，也不转发访问者的 Cookie 或 Authorization。
+只服务 `mikufoxxx/Wenku8_Flutter` 的公开正式发布。自 0.4.0 起为零内置书源版本；0.4.0 之前的 APK 和手动上传的 `source.zip` 均停止分发，旧版仅保留 GitHub 自动生成的 Source code（ZIP／TAR.GZ）。版本 JSON 保留原始 GitHub 下载地址、资产 ID、大小和 digest，客户端验证后再映射到本站。下载地址为原 GitHub 路径，域名替换为本站，并追加 `?asset=资产ID`。不接收任意目标地址，也不转发访问者的 Cookie 或 Authorization。
 
 ## 部署与维护
 
@@ -13,7 +13,7 @@
 - 两个免费 SQLite Durable Object 只保存公开发布清单和公共请求计数。免费额度为每日 100,000 次请求、13,000 GB-s、读 500 万行、写 10 万行及总存储 5 GB。保持 Free，不启用 R2、付费加速或自动扩容；手动升级 Paid 会改变零费用前提。
 - 维护脚本只需 Wrangler 的账号读取、用户读取和 Worker 脚本写入权限。先 `npx wrangler versions upload`，再将返回版本 ID 通过 `npx wrangler versions deploy 版本ID@100% --yes` 上线。自定义域名在控制台管理，不需要把 DNS 修改权限授予 CLI。
 - `ReleaseRegistry` 在机房之间共用清单，合并并发请求，每 120 秒最多刷新一次最新版本，未知历史标签不触发 GitHub API 请求。边缘缓存最新清单 120 秒，已知标签清单 300 秒。APK 流式转发，按资产 ID 缓存 1 小时，支持 HEAD 和 Range，不将部分响应存成完整包。
-- 版本检测不使用失败后的过期回退清单。下载已有明确身份的包时，可使用 24 小时内验证的清单；已验证的资产缓存可独立于版本接口读取。0.4.0 之前的 APK 在任何缓存读取前返回 410，HEAD、Range 和已知资产 ID 也不能继续读取旧包；历史源码不受此限制。
+- 版本检测不使用失败后的过期回退清单。下载已有明确身份的包时，可使用 24 小时内验证的清单；已验证的资产缓存可独立于版本接口读取。0.4.0 之前的所有上传附件在任何缓存读取前返回 410，HEAD、Range 和已知资产 ID 也不能读取；GitHub 自动生成的源码归档仍从原仓库获取。
 - GitHub 共享出口可能返回 403／429。App 和下载页自动回退；可选只读 `GITHUB_TOKEN` 只能保存到 Cloudflare 加密 Secret，不能放在源码、普通 vars 或前端。
 - 客户端仍核对 APK 长度、GitHub digest（如提供）、包名、版本、构建号和签名。
 - `/health` 返回服务状态及当前 Cloudflare 边缘机房代码，不返回访问者 IP。

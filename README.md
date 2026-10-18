@@ -60,7 +60,7 @@
 
 ## 下载与更新
 
-**当前版本：0.4.0。官方不再提供 0.4.0 之前版本的安装包，历史 `source.zip` 继续保留。**
+**当前版本：0.4.0。官方不再提供 0.4.0 之前版本的安装包，旧版只保留 GitHub 自动生成的 Source code（ZIP／TAR.GZ），不再保留手动上传的 `source.zip`。**
 
 [下载页面](https://git.3952039.xyz/#releases) · [GitHub 官方发布页](https://github.com/mikufoxxx/Wenku8_Flutter/releases/latest) · [本版完整说明](CHANGELOG.md)
 

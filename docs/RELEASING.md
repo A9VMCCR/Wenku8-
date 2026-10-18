@@ -79,7 +79,7 @@ cd android
 
 ## 发布一个可被应用检测的版本
 
-自 0.4.0 发布起，官方渠道撤下 0.4.0 之前版本的所有 APK，包括 Release 附件与 Actions 中包含 APK 的历史产物。保留对应 `source.zip`、历史发布记录、Git 标签与代码历史，不删除整条 Release。更新镜像在缓存读取前拒绝旧 APK，防止旧缓存继续分发。清理前记录附件清单，并确保历史产物中的源码已有独立归档。
+自 0.4.0 发布起，官方渠道撤下 0.4.0 之前版本的所有 APK 和手动上传的 `source.zip`，包括 Actions 中包含旧 APK 的历史产物。旧版仅保留 GitHub 自动生成的 Source code（ZIP／TAR.GZ）、历史发布记录、Git 标签与代码历史，不删除整条 Release。更新镜像在任何缓存读取前拒绝旧附件，防止旧缓存继续分发。清理前记录附件清单；历史对应源码仍可通过原标签获取。
 
 1. 更新 `pubspec.yaml` 的版本号和更大的 Android 构建号，并同步 `lib/updates/app_updates.dart` 的本版说明与版本常量。
 2. 在 `CHANGELOG.md` 添加对应版本的说明，并同步 `lib/updates/release_highlights.dart` 的精简摘要与详细分类。详细说明按实际功能、界面与操作、修复和性能分组；按钮或入口迁移要写清位置和使用方式。应用按安装版本名与构建号记录已完成阅读的说明，不依赖联网检查开关。运行 `python3 tools/prepare_release.py --tag v0.4.0 --notes build/release-notes.md` 可检查当前版本与标签是否一致。
