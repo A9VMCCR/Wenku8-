@@ -101,12 +101,6 @@ void main() {
 
   setUpAll(() async {
     if (_captureDirectory.isEmpty) return;
-    await (FontLoader('SourceHanSerifCN')
-          ..addFont(
-            rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
-          )
-          ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Bold.otf')))
-        .load();
     await (FontLoader('packages/cupertino_icons/CupertinoIcons')..addFont(
           rootBundle.load('packages/cupertino_icons/assets/CupertinoIcons.ttf'),
         ))
@@ -147,7 +141,7 @@ void main() {
       navigatorObservers: [navigation],
       theme: novelTheme(
         brightness,
-        fontFamily: _captureDirectory.isEmpty ? null : 'SourceHanSerifCN',
+        fontFamily: _captureDirectory.isEmpty ? null : 'Roboto',
       ),
       builder: (context, child) => AppUpdateMonitor(
         updates: updates,
@@ -213,7 +207,7 @@ void main() {
       await start(tester);
       expect(find.byKey(const ValueKey('app-update-prompt')), findsOneWidget);
       expect(find.text('发现新版本'), findsOneWidget);
-      expect(find.text('轻小说文库 0.3.2'), findsOneWidget);
+      expect(find.text('纸间文库 0.3.2'), findsOneWidget);
       expect(source.downloads, 0);
       expect(platform.installs, 0);
       if (_captureDirectory.isNotEmpty) {

@@ -14,6 +14,7 @@ import 'package:wenku8_flutter/user_fonts.dart';
 import 'package:wenku8_flutter/book_documents.dart';
 import 'cloud_library_ui_test.dart' show ioSettle;
 import 'support/visual_review.dart';
+import 'support/font_fixture.dart';
 
 class _FontDocuments extends BookDocuments {
   _FontDocuments(this.path);
@@ -30,7 +31,10 @@ class _FontDocuments extends BookDocuments {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUpAll(loadReviewFonts);
+  setUpAll(() async {
+    await loadReviewFonts();
+    await loadFontFixture();
+  });
   test(
     'real OTF imports durably; app and reader fonts remain independent',
     () async {
@@ -51,18 +55,16 @@ void main() {
       );
       addTearDown(state.dispose);
       await fonts.load();
-      final font = await fonts.importFile(
-        '自己的字体.otf',
-        File('assets/fonts/SourceHanSerifCN-Regular.otf').absolute.path,
-      );
+      final original = await createFontFixture(root);
+      final font = await fonts.importFile('自己的字体.otf', original.path);
       expect(loads, 1);
       await state.setAppFont(font.id);
       expect(state.readerFontId, font.id);
       await state.setReaderTypeface('system');
       var readerChanges = 0;
       state.readerSettingsChanges.addListener(() => readerChanges++);
-      await state.setAppTypeface(AppTypeface.sourceHanSerif);
-      expect(state.appFontId, 'sourceHanSerif');
+      await state.setAppTypeface(AppTypeface.system);
+      expect(state.appFontId, 'system');
       expect(state.readerFontId, 'system');
       expect(readerChanges, 0);
       await state.setReaderTypeface(font.id);
@@ -101,12 +103,9 @@ void main() {
       expect(restarted.fonts.fonts.single.name, '自己的字体');
       await restarted.removeUserFont(font.id);
       expect(restarted.readerTypeface, followAppFont);
-      expect(restarted.readerFontId, 'sourceHanSerif');
+      expect(restarted.readerFontId, 'system');
       expect(restarted.fonts.fonts, isEmpty);
-      expect(
-        await File('assets/fonts/SourceHanSerifCN-Regular.otf').exists(),
-        true,
-      );
+      expect(await original.exists(), true);
     },
   );
   test('corrupt and oversized fonts do not enter the catalogue', () async {
@@ -185,9 +184,10 @@ void main() {
     await captureReview(tester, key, 'font-settings-compact-dark');
     await tester.tap(find.text('阅读器字体'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('reader-font-sourceHanSerif')));
+    expect(find.text('内置思源宋体'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('reader-font-system')));
     await tester.pumpAndSettle();
-    expect(state.readerTypeface, 'sourceHanSerif');
+    expect(state.readerTypeface, 'system');
     expect(state.appFontId, 'system');
     expect(tester.takeException(), isNull);
   });
@@ -205,9 +205,8 @@ void main() {
         fonts: fonts,
       );
       addTearDown(state.dispose);
-      final documents = _FontDocuments(
-        File('assets/fonts/SourceHanSerifCN-Regular.otf').absolute.path,
-      );
+      final original = await tester.runAsync(() => createFontFixture(root));
+      final documents = _FontDocuments(original!.path);
       final key = GlobalKey();
       await tester.pumpWidget(
         MaterialApp(

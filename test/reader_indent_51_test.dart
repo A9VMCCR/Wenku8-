@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wenku8_flutter/reader_find.dart';
 import 'package:wenku8_flutter/reader_text.dart';
@@ -12,17 +11,13 @@ import 'package:wenku8_flutter/reader_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const style = TextStyle(
-    fontFamily: 'SourceHanSerifCN',
+    fontFamily: 'Roboto',
     fontSize: 19,
     height: 1.72,
     inherit: false,
   );
   final prose = '这是一段可以同时首行缩进与两端对齐的测试文字。' * 18;
   setUpAll(() async {
-    await (FontLoader('SourceHanSerifCN')..addFont(
-          rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
-        ))
-        .load();
   });
   for (final scale in [1.0, 1.6]) {
     for (final align in [TextAlign.start, TextAlign.justify]) {

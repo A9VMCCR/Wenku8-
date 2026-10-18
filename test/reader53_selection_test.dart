@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
@@ -32,10 +31,6 @@ final selectionBook = Novel(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
-    await (FontLoader('SourceHanSerifCN')..addFont(
-          rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
-        ))
-        .load();
   });
   for (final mode in ReaderMode.values) {
     for (final indent in [false, true]) {
@@ -58,7 +53,7 @@ void main() {
         );
         await tester.pumpWidget(
           MaterialApp(
-            theme: novelTheme(Brightness.light, fontFamily: 'SourceHanSerifCN'),
+            theme: novelTheme(Brightness.light, fontFamily: 'Roboto'),
             home: ReaderPage(
               novel: selectionBook,
               state: state,

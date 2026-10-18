@@ -10,6 +10,8 @@ const followAppFont = 'followApp';
 bool validFontChoice(Object? value, {bool follow = false}) =>
     value is String &&
     (AppTypeface.values.any((font) => font.name == value) ||
+        // Historical backups and reading positions remain importable.
+        value == 'sourceHanSerif' ||
         (follow && value == followAppFont) ||
         RegExp(r'^font_[a-z0-9-]{1,64}$').hasMatch(value));
 

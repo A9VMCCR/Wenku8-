@@ -112,15 +112,17 @@ class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHa
                     } else activity.requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), ALL_REQUEST)
                 } catch (_: Exception) { pending = null; result.error("permission", "系统未提供共享存储授权，请选择指定文件夹", null) }
             }
-            "pickBook", "pickBooks", "pickFont", "openSync", "createSync", "selectScanFolder" -> {
+            "pickBook", "pickBooks", "pickFont", "pickReaderBackground", "openSync", "createSync", "selectScanFolder" -> {
                 if (pending != null) { result.error("busy", "请先完成当前文件选择", null); return }
                 val create = call.method == "createSync"
                 val folder = call.method == "selectScanFolder"
                 val choosingBooks = call.method == "pickBook" || call.method == "pickBooks"
-                val intent = Intent(if (folder) Intent.ACTION_OPEN_DOCUMENT_TREE else if (create) Intent.ACTION_CREATE_DOCUMENT else if (choosingBooks) Intent.ACTION_GET_CONTENT else Intent.ACTION_OPEN_DOCUMENT).apply {
+                val choosingImage = call.method == "pickReaderBackground"
+                val intent = Intent(if (folder) Intent.ACTION_OPEN_DOCUMENT_TREE else if (create) Intent.ACTION_CREATE_DOCUMENT else if (choosingBooks || choosingImage) Intent.ACTION_GET_CONTENT else Intent.ACTION_OPEN_DOCUMENT).apply {
                     if (!folder) { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-                    if (!folder && call.method != "pickFont") addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    if (!folder && call.method != "pickFont" && !choosingImage) addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    if (choosingImage) type = "image/*"
                     if (create) { type = "application/octet-stream"; putExtra(Intent.EXTRA_TITLE, "文库同步.wenku8sync") }
                     if (call.method == "pickBook" || call.method == "pickBooks") {
                         putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/*", "application/epub+zip", "application/zip", "application/x-zip-compressed", "application/x-mobipocket-ebook", "application/vnd.amazon.ebook", "application/pdf", "application/rtf", "application/xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream"))
@@ -129,7 +131,7 @@ class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHa
                 }
                 pending = Pending(call.method, result)
                 try { @Suppress("DEPRECATION") activity.startActivityForResult(
-                    if (folder || choosingBooks) Intent.createChooser(intent, if (folder) "选择支持文件夹授权的应用" else "选择文件应用") else intent,
+                    if (folder || choosingBooks || choosingImage) Intent.createChooser(intent, if (folder) "选择支持文件夹授权的应用" else if (choosingImage) "选择背景图片" else "选择文件应用") else intent,
                     REQUEST) }
                 catch (_: Exception) { pending = null; result.error("picker", "系统文件选择器不可用", null) }
             }
@@ -244,6 +246,17 @@ class BookDocuments(private val activity: Activity) : MethodChannel.MethodCallHa
         background(operation.result) {
             if (operation.method == "selectScanFolder") {
                 scanner.select(uri, data.flags)
+            } else if (operation.method == "pickReaderBackground") {
+                val source = File.createTempFile("background-", ".source", root)
+                val target = File.createTempFile("import-", ".source", root)
+                try {
+                    copy(uri, source, ReaderBackgroundImage.MAX_BYTES)
+                    ReaderBackgroundImage.normalize(source, target)
+                    mapOf("name" to name(uri, "背景图片.png"), "path" to target.path)
+                } catch (error: Exception) {
+                    target.delete()
+                    throw error
+                } finally { source.delete() }
             } else if (operation.method == "pickFont") {
                 val display = name(uri)
                 require(display.substringAfterLast('.').lowercase() in setOf("ttf", "otf")) { "请选择 TTF 或 OTF 字体" }

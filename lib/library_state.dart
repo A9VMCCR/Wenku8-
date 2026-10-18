@@ -275,7 +275,9 @@ class LibraryState extends ChangeNotifier {
         ? custom
         : null;
     final reader = _prefs.get('readerTypeface');
-    _readerTypeface = validFontChoice(reader, follow: true)
+    _readerTypeface = reader == 'sourceHanSerif'
+        ? 'system'
+        : validFontChoice(reader, follow: true)
         ? reader as String
         : followAppFont;
     _performance = PerformancePreferences.fromRecords({
@@ -566,6 +568,7 @@ class LibraryState extends ChangeNotifier {
   bool contains(int id) => _shelf.contains(id);
   int chapterFor(int id) => _chapters[id] ?? _positions[id]?.chapter ?? 0;
   Novel? cachedNovel(int id) => _known[id];
+  Iterable<Novel> get knownNovels => _known.values;
   ReadingPosition? positionFor(int id) => _positions[id];
   List<ReaderBookmark> bookmarksFor(int id) =>
       List.unmodifiable(_bookmarks[id] ?? const <ReaderBookmark>[]);
@@ -1049,6 +1052,43 @@ class LibraryState extends ChangeNotifier {
         for (final id in additions) 'shelf_added_$id': now,
       });
       _shelf.addAll(additions);
+      for (final id in additions) {
+        _added[id] = now;
+        _shelfRevisions[id] = shelfRevision(id) + 1;
+      }
+      if (!_disposed) notifyListeners();
+    });
+  }
+
+  /// Merge an imported source shelf in one journaled write. Metadata and
+  /// membership arrive together; reading positions/bookmarks are untouched.
+  Future<void> addShelfBooks(Iterable<Novel> values) async {
+    final books = {
+      for (final book in values)
+        if (book.id > 0 && !isLocalBook(book.id)) book.id: book,
+    };
+    if (_restoreBarrier case final barrier?) {
+      await barrier.future;
+      return addShelfBooks(books.values);
+    }
+    await _queuePositionWrite(() async {
+      final additions = books.keys.toSet().difference(_shelf);
+      final snapshots = {
+        for (final book in books.values)
+          if (!identical(_persistedNovels[book.id], book))
+            'novel_meta_${book.id}': jsonEncode(book.toSnapshot()),
+      };
+      if (additions.isEmpty && snapshots.isEmpty) return;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await _commitLibraryRecords({
+        if (additions.isNotEmpty)
+          'shelf': {..._shelf, ...additions}.map((id) => '$id').toList(),
+        for (final id in additions) 'shelf_added_$id': now,
+        ...snapshots,
+      });
+      _shelf.addAll(additions);
+      _known.addAll(books);
+      _persistedNovels.addAll(books);
       for (final id in additions) {
         _added[id] = now;
         _shelfRevisions[id] = shelfRevision(id) + 1;
@@ -1928,7 +1968,7 @@ class LibraryState extends ChangeNotifier {
             _appCustomFont = value.isEmpty ? null : value;
           }
           if (records['readerTypeface'] case final String value) {
-            _readerTypeface = value;
+            _readerTypeface = value == 'sourceHanSerif' ? 'system' : value;
           }
           _performance = PerformancePreferences.fromRecords({
             ..._performance.toRecords(),

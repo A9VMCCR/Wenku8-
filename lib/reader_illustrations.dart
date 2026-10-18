@@ -22,7 +22,12 @@ class ReaderIllustrationCache {
     this.maxBytes = 16 * 1024 * 1024,
   }) : _request = request ?? LegacyTransport.illustration;
   static final shared = ReaderIllustrationCache();
-  final IllustrationRequest _request;
+  IllustrationRequest _request;
+  void useResolver(IllustrationRequest request) {
+    clearMemory();
+    _request = request;
+  }
+
   final int maxBytes;
   final _pending = <String, Future<Uint8List>>{};
   final _cache = <String, Uint8List>{};
@@ -165,6 +170,18 @@ class ReaderIllustrationFrame extends StatelessWidget {
   final LocalImageLayout localLayout;
   final double fontSize;
 
+  Widget _resize(BuildContext context, Widget child) {
+    // Zero-duration AnimatedSize can synchronously dirty its own layout when
+    // decoded dimensions arrive. Reduced motion needs no animation controller.
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (preserveSize) {
@@ -183,13 +200,9 @@ class ReaderIllustrationFrame extends StatelessWidget {
             available: available,
             fontSize: fontSize,
           );
-          return AnimatedSize(
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : const Duration(milliseconds: 300),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: Align(
+          return _resize(
+            context,
+            Align(
               alignment: fitPage ? Alignment.center : Alignment.topCenter,
               heightFactor: fitPage ? null : 1,
               child: SizedBox(
@@ -208,13 +221,9 @@ class ReaderIllustrationFrame extends StatelessWidget {
         final width = constraints.hasBoundedWidth
             ? constraints.maxWidth
             : MediaQuery.sizeOf(context).width;
-        return AnimatedSize(
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: SizedBox(
+        return _resize(
+          context,
+          SizedBox(
             width: width,
             height: width / (imageSize?.aspectRatio ?? .75),
             child: ClipRRect(
@@ -233,6 +242,7 @@ class ReaderIllustration extends StatefulWidget {
     super.key,
     required this.url,
     this.onOpen,
+    this.onUnavailable,
     this.cache,
     this.fullScreen = false,
     this.fitPage = false,
@@ -242,6 +252,10 @@ class ReaderIllustration extends StatefulWidget {
   });
   final String url;
   final VoidCallback? onOpen;
+
+  /// Inline readers can omit unavailable remote images from their reading
+  /// order. Galleries leave this unset and retain the explicit retry control.
+  final ValueChanged<String>? onUnavailable;
   final ReaderIllustrationCache? cache;
   final bool fullScreen;
   final bool fitPage;
@@ -255,19 +269,34 @@ class ReaderIllustration extends StatefulWidget {
 }
 
 class _ReaderIllustrationState extends State<ReaderIllustration> {
+  String? _reportedUnavailable;
   ReaderIllustrationCache get _cache =>
       widget.cache ?? ReaderIllustrationCache.shared;
   late Future<({Uint8List? bytes, Size? size, Object? error})> _future =
       _load();
   Future<({Uint8List? bytes, Size? size, Object? error})> _load() async {
+    final cache = _cache, url = widget.url;
     try {
-      final cache = _cache, url = widget.url;
       final bytes = await cache.load(url);
       final size = await cache._rememberSize(url, bytes);
       return (bytes: bytes, size: size, error: null);
     } catch (error) {
+      _notifyUnavailable(url);
       return (bytes: null, size: null, error: error);
     }
+  }
+
+  bool _notifyUnavailable(String url) {
+    if (widget.onUnavailable == null || url.startsWith('wenku-local:')) {
+      return false;
+    }
+    if (_reportedUnavailable != url) {
+      _reportedUnavailable = url;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.url == url) widget.onUnavailable?.call(url);
+      });
+    }
+    return true;
   }
 
   @override
@@ -321,6 +350,10 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
             ),
           );
           if (snapshot.data?.error != null) {
+            if (widget.onUnavailable != null &&
+                !widget.url.startsWith('wenku-local:')) {
+              return const SizedBox.shrink();
+            }
             if (widget.url.startsWith('wenku-local:')) {
               return frame(localRetry());
             }
@@ -389,7 +422,9 @@ class _ReaderIllustrationState extends State<ReaderIllustration> {
                       child: child,
                     ),
                     errorBuilder: (context, error, stack) =>
-                        widget.url.startsWith('wenku-local:')
+                        _notifyUnavailable(widget.url)
+                        ? const SizedBox.shrink()
+                        : widget.url.startsWith('wenku-local:')
                         ? localRetry()
                         : Center(
                             child: GlassTextButton(

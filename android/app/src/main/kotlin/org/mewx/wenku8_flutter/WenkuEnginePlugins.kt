@@ -26,6 +26,7 @@ internal fun attachWenkuEnginePlugins(engine: FlutterEngine) {
     if (!engine.plugins.has(ReaderControlsPlugin::class.java)) engine.plugins.add(ReaderControlsPlugin())
     if (!engine.plugins.has(NetworkStatusPlugin::class.java)) engine.plugins.add(NetworkStatusPlugin())
     if (!engine.plugins.has(FrameRatePlugin::class.java)) engine.plugins.add(FrameRatePlugin())
+    if (!engine.plugins.has(BookSourcePlugin::class.java)) engine.plugins.add(BookSourcePlugin())
 }
 
 class WenkuHostPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityResultListener, PluginRegistry.RequestPermissionsResultListener {
@@ -90,9 +91,13 @@ class WenkuHostPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityRes
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         readerPreview = binding.applicationContext.packageName == "org.mewx.wenku8_flutter.reader_preview"
         val main = Handler(Looper.getMainLooper())
-        api = Wenku8Bridge(binding.applicationContext) { main.post(it) }
+        // Retain the old channel name for saved clients, but never construct or
+        // contact the retired embedded provider in 0.4.
         apiChannel = MethodChannel(binding.binaryMessenger, "org.mewx.wenku8/legacy_api").also {
-            it.setMethodCallHandler(api)
+            it.setMethodCallHandler { call, result ->
+                if (call.method == "updatePriority") result.success(null)
+                else result.error("SOURCE_REQUIRED", "请导入自定义书源；旧版缓存与阅读记录仍保留", null)
+            }
         }
         toolsChannel = MethodChannel(binding.binaryMessenger, "org.mewx.wenku8/local_tools").also {
             it.setMethodCallHandler { call, result ->

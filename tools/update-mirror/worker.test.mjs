@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import worker, { handle, REPOSITORY, ReleaseRegistry } from './worker.mjs';
 
 const host = 'https://git.3952039.xyz';
-const name = 'wenku8-0.3.4-arm64-v8a.apk';
-const path = `/${REPOSITORY}/releases/download/v0.3.4/${name}`;
+const name = 'wenku8-0.4.0-arm64-v8a.apk';
+const path = `/${REPOSITORY}/releases/download/v0.4.0/${name}`;
 const data = {
-  tag_name: 'v0.3.4', draft: false, prerelease: false, body: '说明', assets: [{
+  tag_name: 'v0.4.0', draft: false, prerelease: false, body: '说明', assets: [{
     id: 12, name, size: 4, digest: `sha256:${'a'.repeat(64)}`,
     browser_download_url: `https://github.com${path}`,
   }],
@@ -39,9 +39,37 @@ test('latest keeps canonical GitHub URLs and digests; shared cache is 120 second
   assert.equal(f.calls.length, 1);
   assert.equal(f.calls[0].options.redirect, 'manual');
 });
+test('pre-0.4 APK withdrawal precedes even warm, known-ID, HEAD and Range caches', async () => {
+  for (const tag of ['v0.2.4', 'v0.3.0%2B29', 'v0.3.7%2B63']) {
+    const version = decodeURIComponent(tag).match(/v([\d.]+)/)[1];
+    const old = `/${REPOSITORY}/releases/download/${tag}/wenku8-${version}-arm64-v8a.apk`;
+    const f = fixture();
+    f.stored.set(host + old + '?asset=12', new Response('old cached apk'));
+    for (const init of [{}, { method: 'HEAD' }, { headers: { Range: 'bytes=0-3' } }]) {
+      assert.equal((await f.request(old + '?asset=12', init)).status, 410);
+    }
+    assert.equal(f.calls.length, 0);
+  }
+});
+test('historical source.zip stays downloadable while retired metadata offers no APK', async () => {
+  const oldTag = 'v0.3.7+63', sourceName = 'wenku8-0.3.7-source.zip';
+  const sourcePath = `/${REPOSITORY}/releases/download/${encodeURIComponent(oldTag)}/${sourceName}`;
+  const old = { ...data, tag_name: oldTag, assets: [
+    { ...data.assets[0], name: 'wenku8-0.3.7-arm64-v8a.apk' },
+    { id: 13, name: sourceName, size: 4, browser_download_url: 'https://github.com' + sourcePath },
+  ] };
+  const f = fixture(old);
+  assert.equal((await f.request('/api/releases/latest')).status, 404);
+  const response = await f.request(sourcePath);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /application\/zip/);
+  await Promise.all(f.pending);
+  const stored = f.stored.get(host + '/_release-cache-v2/tags/' + encodeURIComponent(oldTag));
+  assert.deepEqual((await stored.json()).assets.map(a => a.name), [sourceName]);
+});
 test('only fixed-repository releases can be requested; credentials never forwarded', async () => {
   const f = fixture();
-  for (const url of ['/https://example.org/', '/other/repo/releases/download/v0.3.4/a.apk', '/api/releases/latest?url=https://example.org']) {
+  for (const url of ['/https://example.org/', '/other/repo/releases/download/v0.4.0/a.apk', '/api/releases/latest?url=https://example.org']) {
     assert.equal((await f.request(url)).status, 404);
   }
   assert.equal((await f.request(path, { method: 'POST' })).status, 405);
@@ -98,9 +126,9 @@ test('no draft/prerelease or fabricated asset is served', async () => {
   assert.equal((await fixture().request(path + '?other=x')).status, 400);
 });
 test('encoded build tags work with either canonical GitHub encoding', async () => {
-  for (const encoded of ['v0.3.4+57', 'v0.3.4%2B57']) {
-    const f = fixture({ ...data, tag_name: 'v0.3.4+57', assets: [{ ...data.assets[0], browser_download_url: `https://github.com/${REPOSITORY}/releases/download/${encoded}/${name}` }] });
-    assert.equal((await f.request(`/${REPOSITORY}/releases/download/v0.3.4%2B57/${name}`)).status, 200);
+  for (const encoded of ['v0.4.0+57', 'v0.4.0%2B57']) {
+    const f = fixture({ ...data, tag_name: 'v0.4.0+57', assets: [{ ...data.assets[0], browser_download_url: `https://github.com/${REPOSITORY}/releases/download/${encoded}/${name}` }] });
+    assert.equal((await f.request(`/${REPOSITORY}/releases/download/v0.4.0%2B57/${name}`)).status, 200);
   }
 });
 test('native rate bindings fail closed and excessive requests receive retry guidance', async () => {
@@ -129,7 +157,7 @@ test('global release registry shares refreshes and historical guesses spend no u
     assert.ok(results.every(r => r.status === 200)); assert.equal(calls, 1);
     registry = new ReleaseRegistry({ storage });
     assert.equal((await latest()).status, 200); assert.equal(calls, 1);
-    assert.equal((await registry.fetch(new Request('https://registry/tags/v0.3.4?download=1'))).status, 200);
+    assert.equal((await registry.fetch(new Request('https://registry/tags/v0.4.0?download=1'))).status, 200);
     assert.equal((await registry.fetch(new Request('https://registry/tags/v9.9.9?download=1'))).status, 404);
     assert.equal(calls, 1);
     now += 121000; failing = true;

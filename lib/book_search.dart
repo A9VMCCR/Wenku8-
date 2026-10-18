@@ -1,3 +1,5 @@
+import 'app_language.dart';
+
 /// A metadata query for the device's known books. Keywords are partial matches;
 /// spaces join terms with AND, while # limits a term to tags/classification.
 enum BookSearchField {
@@ -34,8 +36,9 @@ class BookSearch {
         rune,
   ]);
   static final _spacing = RegExp(r'[\s·・_\-—–，,。.:：()（）\[\]【】「」『』《》]');
-  static String _normalize(String value) =>
-      _width(value).toLowerCase().replaceAll(_spacing, '');
+  static String _normalize(String value) => ChineseText.searchKey(
+    _width(value),
+  ).toLowerCase().replaceAll(_spacing, '');
 
   bool matches({
     required String title,

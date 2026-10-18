@@ -1,4 +1,5 @@
 import 'dart:ui' show lerpDouble;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'archive_motion.dart';
 import 'reader_pagination.dart';
@@ -92,38 +93,36 @@ class ReaderFragmentMotion extends StatelessWidget {
         ? previousBuilder!(old)
         : null;
     final start = scope.delayFor(index, count, reverse: reverse);
-    return AnimatedBuilder(
+    return _ReaderReflowTranslation(
       animation: scope.animation,
-      child: old != null
-          ? child
-          : ArchiveReveal(
+      displacement: () {
+        final progress = scope.progressFor(index, count, reverse: reverse);
+        final correction = old == null
+            ? Offset.zero
+            : (old.rect.topLeft - fragment.rect.topLeft) * (1 - progress);
+        return scope.displacementFor(index, count, reverse: reverse) +
+            correction;
+      },
+      child: old == null
+          ? ArchiveReveal(
               animation: scope.animation,
               start: start,
               end: start + .8,
               travel: const Offset(-8, 10),
               child: child,
+            )
+          : previousChild == null
+          ? child
+          : _FragmentReplacement(
+              scope: scope,
+              index: index,
+              count: count,
+              reverse: reverse,
+              previous: previousChild,
+              previousSize: old.rect.size,
+              size: fragment.rect.size,
+              child: child,
             ),
-      builder: (context, child) {
-        final progress = scope.progressFor(index, count, reverse: reverse);
-        final correction = old == null
-            ? Offset.zero
-            : (old.rect.topLeft - fragment.rect.topLeft) * (1 - progress);
-        final content = previousChild == null
-            ? child!
-            : _FragmentReplacement(
-                progress: progress,
-                previous: previousChild,
-                previousSize: old!.rect.size,
-                size: fragment.rect.size,
-                child: child!,
-              );
-        return Transform.translate(
-          offset:
-              scope.displacementFor(index, count, reverse: reverse) +
-              correction,
-          child: content,
-        );
-      },
     );
   }
 }
@@ -133,13 +132,18 @@ class ReaderFragmentMotion extends StatelessWidget {
 /// shrinking one must retain its old tail until that tail actually leaves.
 class _FragmentReplacement extends StatelessWidget {
   const _FragmentReplacement({
-    required this.progress,
+    required this.scope,
+    required this.index,
+    required this.count,
+    required this.reverse,
     required this.previous,
     required this.previousSize,
     required this.size,
     required this.child,
   });
-  final double progress;
+  final ReaderReflowScope scope;
+  final int index, count;
+  final bool reverse;
   final Widget previous, child;
   final Size previousSize, size;
   @override
@@ -147,7 +151,7 @@ class _FragmentReplacement extends StatelessWidget {
     final height = previousSize.height > size.height
         ? previousSize.height
         : size.height;
-    final seam = height * progress;
+    double seam() => height * scope.progressFor(index, count, reverse: reverse);
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -157,8 +161,11 @@ class _FragmentReplacement extends StatelessWidget {
           width: size.width,
           height: size.height,
           child: ClipRect(
-            clipper: _ViewportClip(Rect.fromLTRB(0, 0, size.width, seam)),
-            child: child,
+            clipper: _AnimatedViewportClip(
+              scope.animation,
+              () => Rect.fromLTRB(0, 0, size.width, seam()),
+            ),
+            child: RepaintBoundary(child: child),
           ),
         ),
         Positioned(
@@ -170,15 +177,16 @@ class _FragmentReplacement extends StatelessWidget {
             child: ExcludeSemantics(
               child: SelectionContainer.disabled(
                 child: ClipRect(
-                  clipper: _ViewportClip(
-                    Rect.fromLTRB(
+                  clipper: _AnimatedViewportClip(
+                    scope.animation,
+                    () => Rect.fromLTRB(
                       0,
-                      seam.clamp(0, previousSize.height),
+                      seam().clamp(0, previousSize.height),
                       previousSize.width,
                       previousSize.height,
                     ),
                   ),
-                  child: previous,
+                  child: RepaintBoundary(child: previous),
                 ),
               ),
             ),
@@ -210,23 +218,22 @@ class ReaderLeavingFragment extends StatelessWidget {
     return IgnorePointer(
       child: ExcludeSemantics(
         child: SelectionContainer.disabled(
-          child: AnimatedBuilder(
+          child: _ReaderReflowTranslation(
             animation: scope.animation,
-            child: child,
-            builder: (context, child) => Transform.translate(
-              offset: scope.displacementFor(index, count, reverse: reverse),
-              child: ClipRect(
-                clipper: _ViewportClip(
-                  Rect.fromLTWH(
-                    0,
-                    0,
-                    fragment.rect.width,
-                    fragment.rect.height *
-                        (1 - scope.progressFor(index, count, reverse: reverse)),
-                  ),
+            displacement: () =>
+                scope.displacementFor(index, count, reverse: reverse),
+            child: ClipRect(
+              clipper: _AnimatedViewportClip(
+                scope.animation,
+                () => Rect.fromLTWH(
+                  0,
+                  0,
+                  fragment.rect.width,
+                  fragment.rect.height *
+                      (1 - scope.progressFor(index, count, reverse: reverse)),
                 ),
-                child: child,
               ),
+              child: RepaintBoundary(child: child),
             ),
           ),
         ),
@@ -262,31 +269,122 @@ class ReaderIncrementalViewport extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: animation,
-    child: child,
-    builder: (context, child) {
+  Widget build(BuildContext context) => ClipRect(
+    clipper: _AnimatedViewportClip(animation, () {
       final viewport = viewportAt(animation.value);
-      return ClipRect(
-        clipper: _ViewportClip(
-          Rect.fromLTRB(
-            (viewport.left > 0 ? 0 : viewport.left) - horizontalOverflow,
-            viewport.top > 0 ? 0 : viewport.top,
-            viewport.right + horizontalOverflow,
-            viewport.bottom,
-          ),
-        ),
-        child: Transform.translate(offset: viewport.topLeft, child: child),
+      return Rect.fromLTRB(
+        (viewport.left > 0 ? 0 : viewport.left) - horizontalOverflow,
+        viewport.top > 0 ? 0 : viewport.top,
+        viewport.right + horizontalOverflow,
+        viewport.bottom,
       );
-    },
+    }),
+    child: _ReaderReflowTranslation(
+      animation: animation,
+      displacement: () => viewportAt(animation.value).topLeft,
+      child: child,
+    ),
   );
 }
 
-class _ViewportClip extends CustomClipper<Rect> {
-  const _ViewportClip(this.rect);
-  final Rect rect;
+/// Reclip retained ink instead of rebuilding a Stack/Positioned tree per tick.
+class _AnimatedViewportClip extends CustomClipper<Rect> {
+  _AnimatedViewportClip(this.animation, this.rect) : super(reclip: animation);
+  final Animation<double> animation;
+  final Rect Function() rect;
   @override
-  Rect getClip(Size size) => rect;
+  Rect getClip(Size size) => rect();
   @override
-  bool shouldReclip(_ViewportClip oldClipper) => oldClipper.rect != rect;
+  bool shouldReclip(_AnimatedViewportClip oldClipper) =>
+      oldClipper.animation != animation || oldClipper.rect != rect;
+}
+
+/// Same translation and hit-test coordinates as Transform.translate, but the
+/// shared finite clock invalidates paint rather than a widget build/layout.
+class _ReaderReflowTranslation extends SingleChildRenderObjectWidget {
+  const _ReaderReflowTranslation({
+    required this.animation,
+    required this.displacement,
+    required super.child,
+  });
+  final Animation<double> animation;
+  final Offset Function() displacement;
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _ReaderReflowTranslationRender(animation, displacement);
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant _ReaderReflowTranslationRender render,
+  ) => render.update(animation, displacement);
+}
+
+class _ReaderReflowTranslationRender extends RenderProxyBox {
+  _ReaderReflowTranslationRender(this.animation, this.displacement);
+  Animation<double> animation;
+  Offset Function() displacement;
+  final _layer = LayerHandle<TransformLayer>();
+  void _tick() {
+    markNeedsPaint();
+    markNeedsSemanticsUpdate();
+  }
+
+  void update(Animation<double> clock, Offset Function() offset) {
+    if (animation != clock) {
+      if (attached) animation.removeListener(_tick);
+      animation = clock;
+      if (attached) animation.addListener(_tick);
+    }
+    displacement = offset;
+    _tick();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    animation.addListener(_tick);
+  }
+
+  @override
+  void detach() {
+    animation.removeListener(_tick);
+    super.detach();
+  }
+
+  @override
+  void dispose() {
+    _layer.layer = null;
+    super.dispose();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final delta = displacement();
+    if (delta == Offset.zero) {
+      _layer.layer = null;
+      super.paint(context, offset);
+    } else {
+      _layer.layer = context.pushTransform(
+        needsCompositing,
+        offset,
+        Matrix4.translationValues(delta.dx, delta.dy, 0),
+        super.paint,
+        oldLayer: _layer.layer,
+      );
+    }
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      result.addWithPaintOffset(
+        offset: displacement(),
+        position: position,
+        hitTest: (result, position) =>
+            super.hitTestChildren(result, position: position),
+      );
+  @override
+  void applyPaintTransform(RenderBox child, Matrix4 transform) {
+    final delta = displacement();
+    transform.translateByDouble(delta.dx, delta.dy, 0, 1);
+  }
 }

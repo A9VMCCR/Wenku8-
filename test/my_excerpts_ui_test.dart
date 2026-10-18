@@ -29,10 +29,6 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
     await loadReviewFonts();
-    await (FontLoader('SourceHanSerifCN')..addFont(
-          rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
-        ))
-        .load();
   });
   const quote = '时间没有停在那个夏天，但我们依然记得窗边的风。';
   final book = Novel(
@@ -62,7 +58,7 @@ Tomorrow we will meet again.''', id: 7123401),
   tearDown(() => state.dispose());
 
   testWidgets(
-    'My separates account, excerpts, settings and about; no duplicate account entry in settings',
+    'My retains excerpts, settings and about without the retired platform account',
     (tester) async {
       tester.view.physicalSize = const Size(390, 900);
       tester.view.devicePixelRatio = 1;
@@ -88,13 +84,13 @@ Tomorrow we will meet again.''', id: 7123401),
       await tester.pumpAndSettle();
       await captureReview(tester, boundary, 'my-page');
       for (final key in [
-        'my-account',
         'my-bookmarks',
         'my-settings',
         'my-about',
       ]) {
         expect(find.byKey(ValueKey(key)), findsOneWidget);
       }
+      expect(find.byKey(const ValueKey('my-account')), findsNothing);
       await tester.tap(find.byKey(const ValueKey('my-settings')));
       await tester.pumpAndSettle();
       expect(find.byType(SettingsPage), findsOneWidget);

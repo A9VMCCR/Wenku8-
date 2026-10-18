@@ -8,6 +8,7 @@ import 'package:wenku8_flutter/library_state.dart';
 import 'package:wenku8_flutter/my_page.dart';
 import 'package:wenku8_flutter/updates/app_updates.dart';
 import 'package:wenku8_flutter/updates/release_highlights.dart';
+import 'package:wenku8_flutter/updates/release_policy.dart';
 import 'package:wenku8_flutter/updates/update_page.dart';
 import 'support/visual_review.dart';
 
@@ -179,13 +180,17 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(CurrentReleaseCard), findsOneWidget);
+    expect(find.byKey(const ValueKey('release-policy-notice')), findsOneWidget);
     expect(find.byKey(const ValueKey('app-update-channel')), findsNothing);
     expect(
       find.byKey(const ValueKey('switch-app-update-channel')),
       findsNothing,
     );
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('view-current-release-details')),
+    await Scrollable.ensureVisible(
+      tester.element(
+        find.byKey(const ValueKey('view-current-release-details')),
+      ),
+      alignment: .5,
     );
     await tester.pumpAndSettle();
     await tester.runAsync(
@@ -211,7 +216,7 @@ void main() {
     expect(find.text('下一步'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('release-details-next')));
     await tester.pumpAndSettle();
-    expect(find.text('界面与操作调整'), findsOneWidget);
+    expect(find.text('应用更名与入口调整'), findsOneWidget);
     await captureReview(tester, capture, 'my-release-ui-changes-phone');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -224,6 +229,10 @@ void main() {
       final capture = GlobalKey();
       await tester.pumpWidget(host(capture: capture));
       await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('release-policy-notice')),
+        findsOneWidget,
+      );
       expect(find.text(currentReleaseSections.first.title), findsNothing);
       for (final summary in currentReleaseSummary) {
         expect(find.text('· $summary'), findsOneWidget);
@@ -233,10 +242,14 @@ void main() {
       );
       await tester.pumpAndSettle();
       await captureReview(tester, capture, 'release-details-features');
+      expect(find.text('· $zeroSourceNotice'), findsOneWidget);
+      expect(find.text('· $retiredPackagesNotice'), findsOneWidget);
+      final policy = tester.widget<Text>(find.text('· $zeroSourceNotice'));
+      expect(policy.style?.fontWeight, FontWeight.w700);
       await tester.tap(find.byKey(const ValueKey('release-details-next')));
       await tester.pumpAndSettle();
       expect(find.text('2/${currentReleaseSections.length}'), findsOneWidget);
-      expect(find.text('界面与操作调整'), findsOneWidget);
+      expect(find.text('应用更名与入口调整'), findsOneWidget);
       await captureReview(tester, capture, 'release-details-ui-moves');
       await tester.tap(find.byKey(const ValueKey('release-details-previous')));
       await tester.pumpAndSettle();

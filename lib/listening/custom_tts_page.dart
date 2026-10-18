@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import '../app_interactions.dart';
 import '../app_ui.dart';
+import '../app_branding.dart';
 import 'controller.dart';
 import 'custom_tts.dart';
 import 'models.dart';
@@ -101,7 +102,7 @@ class _CustomSpeechPageState extends State<CustomSpeechPage> {
       await cancel.wait(widget.controller.pause());
       final bytes = await cancel.wait(
         (widget.client ?? CustomSpeechClient()).synthesize(
-          '你好，欢迎来到轻小说文库。让故事陪伴每一次阅读。',
+          '你好，欢迎来到$appName。让故事陪伴每一次阅读。',
           draft,
           cancel,
         ),

@@ -1,10 +1,12 @@
 import 'dart:async';
+import '../app_branding.dart';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../app_interactions.dart';
 import '../app_ui.dart';
+import '../responsible_use.dart';
 import 'app_updates.dart';
 import 'release_highlights.dart';
 
@@ -330,7 +332,7 @@ class _AppUpdatePromptRoute extends PopupRoute<bool> {
                                 ),
                                 const SizedBox(height: 6),
                                 AppText(
-                                  '轻小说文库 ${release.version.name}',
+                                  '$appName ${release.version.name}',
                                   style: TextStyle(
                                     color: Theme.of(
                                       context,
@@ -440,7 +442,7 @@ class AppUpdatePage extends StatelessWidget {
               onPressed: () => Navigator.pop(context),
             ),
             title: const ArchiveRouteTitle(
-              title: '关于轻小说文库',
+              title: '关于$appName',
               code: 'SYSTEM / ABOUT',
             ),
           ),
@@ -453,7 +455,7 @@ class AppUpdatePage extends StatelessWidget {
               padding.bottom + 32,
             ),
             children: [
-              const ArchiveSection(title: '轻小说文库', code: 'WENKU8 / FLUTTER'),
+              const ArchiveSection(title: appName, code: appArchiveCode),
               const SizedBox(height: 12),
               AppText(
                 '当前版本 $version · 构建 $build',
@@ -642,6 +644,30 @@ class AppUpdatePage extends StatelessWidget {
               ],
               CurrentReleaseCard(updates: service),
               const SizedBox(height: 28),
+              const ArchiveSection(title: '使用与风险', code: 'RESPONSIBLE USE'),
+              const SizedBox(height: 14),
+              ContentPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const AppText(
+                      '不内置内容书源，不推荐或分发侵权来源。请尊重作品授权，仅导入可信且有权使用的规则与内容。',
+                      style: TextStyle(fontSize: 14, height: 1.7),
+                    ),
+                    const SizedBox(height: 8),
+                    GlassTextButton(
+                      key: const ValueKey('about-responsible-use'),
+                      onPressed: () => pushNovelPage<void>(
+                        context,
+                        const ResponsibleUsePage(),
+                        reduceMotion: MediaQuery.disableAnimationsOf(context),
+                      ),
+                      child: const AppText('使用与风险声明'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 28),
               const ArchiveSection(title: '项目与许可', code: 'SOURCE / LICENSES'),
               const SizedBox(height: 14),
               ContentPanel(
@@ -649,7 +675,7 @@ class AppUpdatePage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const AppText(
-                      '基于 MewX 与原项目贡献者的轻小说文库 Android 客户端重构。原项目 GPL v2 或后续版本许可保留；本 Flutter 组合版本按 GPL v3 分发。',
+                      '纸间文库是支持自定义书源与本地阅读的独立阅读器。项目源自 MewX 与原项目贡献者的轻小说文库 Android 客户端；保留原项目 GPL v2 或后续版本许可，本 Flutter 组合版本按 GPL v3 分发。',
                       style: TextStyle(height: 1.6),
                     ),
                     const SizedBox(height: 12),
@@ -659,14 +685,14 @@ class AppUpdatePage extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     const AppText(
-                      '内置字体：Adobe 思源宋体 CN，SIL OFL 1.1。在线语音协议适配：rany2/edge-tts，LGPL v3。接口运行库 libcpp.so 原样保留，其授权独立于本项目源码。',
+                      '书源规则解析：LegadoTeam/legado，GPL v3。在线语音协议适配：rany2/edge-tts，LGPL v3。',
                       style: TextStyle(height: 1.6),
                     ),
                     GlassTextButton(
                       key: const ValueKey('app-open-source-licenses'),
                       onPressed: () => showLicensePage(
                         context: context,
-                        applicationName: '轻小说文库',
+                        applicationName: appName,
                         applicationVersion: currentAppVersion,
                         applicationLegalese:
                             'Copyright © MewX and contributors\nFlutter modifications © 2026 Wenku8 Flutter contributors',

@@ -153,7 +153,7 @@ void main({
         final pages = <(String, Widget)>[
           ('备份与恢复', LibraryBackupPage(state: library)),
           ('低性能设备模式', LowPerformancePage(state: library)),
-          ('关于轻小说文库', const AppUpdatePage()),
+          ('关于纸间文库', const AppUpdatePage()),
           ('导入旧版记录', LegacyImportPage(state: library)),
           (
             '阅读历史',

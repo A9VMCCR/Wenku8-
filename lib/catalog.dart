@@ -15,6 +15,11 @@ class Novel {
     this.coverUrl,
     this.lastUpdate,
     this.chapterCount = 0,
+    this.sourceId,
+    this.bookUrl,
+    this.tocUrl,
+    this.authorUrl,
+    this.tagUrls = const {},
   });
 
   final int id;
@@ -28,6 +33,14 @@ class Novel {
   final String? coverUrl;
   final String? lastUpdate;
   final int chapterCount;
+
+  /// Absent on pre-0.4 snapshots and on imported local books. Never infer a
+  /// provider from a numeric book ID: different sources may reuse that ID.
+  final String? sourceId;
+  final String? bookUrl;
+  final String? tocUrl;
+  final String? authorUrl;
+  final Map<String, String> tagUrls;
 
   List<String> get tags => List.unmodifiable(
     genre
@@ -51,6 +64,11 @@ class Novel {
     coverUrl: coverUrl,
     lastUpdate: lastUpdate,
     chapterCount: chapterCount,
+    sourceId: sourceId,
+    bookUrl: bookUrl,
+    tocUrl: tocUrl,
+    authorUrl: authorUrl,
+    tagUrls: tagUrls,
   );
 
   Novel withChapters(List<NovelChapter> items) => Novel(
@@ -65,6 +83,11 @@ class Novel {
     coverUrl: coverUrl,
     lastUpdate: lastUpdate,
     chapterCount: items.length,
+    sourceId: sourceId,
+    bookUrl: bookUrl,
+    tocUrl: tocUrl,
+    authorUrl: authorUrl,
+    tagUrls: tagUrls,
   );
 
   Map<String, Object?> toSnapshot() => {
@@ -78,6 +101,11 @@ class Novel {
     'coverUrl': coverUrl,
     'lastUpdate': lastUpdate,
     'chapterCount': chapters.isNotEmpty ? chapters.length : chapterCount,
+    if (sourceId != null) 'sourceId': sourceId,
+    if (bookUrl != null) 'bookUrl': bookUrl,
+    if (tocUrl != null) 'tocUrl': tocUrl,
+    if (authorUrl != null) 'authorUrl': authorUrl,
+    if (tagUrls.isNotEmpty) 'tagUrls': tagUrls,
   };
 
   factory Novel.fromSnapshot(Map<String, dynamic> value) {
@@ -103,6 +131,16 @@ class Novel {
       chapterCount: value['chapterCount'] is int
           ? (value['chapterCount'] as int).clamp(0, 100000)
           : 0,
+      sourceId: value['sourceId'] is String ? value['sourceId'] : null,
+      bookUrl: value['bookUrl'] is String ? value['bookUrl'] : null,
+      tocUrl: value['tocUrl'] is String ? value['tocUrl'] : null,
+      authorUrl: value['authorUrl'] is String ? value['authorUrl'] : null,
+      tagUrls: Map.unmodifiable({
+        if (value['tagUrls'] is Map)
+          for (final entry in (value['tagUrls'] as Map).entries)
+            if (entry.key is String && entry.value is String)
+              entry.key as String: entry.value as String,
+      }),
     );
   }
 }
@@ -114,6 +152,7 @@ class NovelChapter {
     this.id = 0,
     this.volumeId = 0,
     this.volumeTitle = '',
+    this.url,
   });
 
   final String title;
@@ -121,6 +160,7 @@ class NovelChapter {
   final int id;
   final int volumeId;
   final String volumeTitle;
+  final String? url;
 }
 
 /// Contiguous volume ranges keep the original, flat chapter indices stable.

@@ -187,6 +187,7 @@ class OfflineCacheStore extends ChangeNotifier {
             volumeTitle: value['volumeTitle'] is String
                 ? value['volumeTitle'] as String
                 : '',
+            url: value['url'] is String ? value['url'] as String : null,
           ),
         );
       }
@@ -251,6 +252,7 @@ class OfflineCacheStore extends ChangeNotifier {
               if (chapter.volumeId != 0) 'volumeId': chapter.volumeId,
               if (chapter.volumeTitle.isNotEmpty)
                 'volumeTitle': chapter.volumeTitle,
+              if (chapter.url != null) 'url': chapter.url,
             },
         ],
       };

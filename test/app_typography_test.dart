@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,20 +15,51 @@ import 'package:wenku8_flutter/main.dart';
 import 'package:wenku8_flutter/reader_tools.dart';
 import 'package:wenku8_flutter/reader_content.dart';
 import 'package:wenku8_flutter/pages.dart';
+import 'package:wenku8_flutter/user_fonts.dart';
+import 'support/font_fixture.dart';
+import 'cloud_library_ui_test.dart' show ioSettle;
+
+Future<void> selectAppFont(
+  WidgetTester tester,
+  LibraryState state,
+  String id,
+) async {
+  var complete = false;
+  Object? failure;
+  state
+      .setAppFont(id)
+      .then(
+        (_) => complete = true,
+        onError: (Object error) {
+          failure = error;
+          complete = true;
+        },
+      );
+  // Reader position writes can already be queued in the fake frame zone.
+  // Pump them while real file/font work completes instead of blocking that zone.
+  await ioSettle(tester, until: () => complete);
+  expect(failure, isNull);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(loadFontFixture);
   setUp(() => SharedPreferences.setMockInitialValues({}));
   test(
-    'typeface persists, validates in backups and identifies reading layout',
+    'removed built-in face migrates to system while old backups and anchors survive',
     () async {
+      SharedPreferences.setMockInitialValues({
+        'appTypeface': 'sourceHanSerif',
+        'readerTypeface': 'sourceHanSerif',
+      });
       final state = await LibraryState.load();
       addTearDown(state.dispose);
       expect(state.appTypeface, AppTypeface.system);
-      await state.setAppTypeface(AppTypeface.sourceHanSerif);
       final reloaded = await LibraryState.load();
       addTearDown(reloaded.dispose);
-      expect(reloaded.appTypeface, AppTypeface.sourceHanSerif);
+      expect(reloaded.appTypeface, AppTypeface.system);
+      expect(reloaded.readerTypeface, 'system');
+      expect(reloaded.readerFontFamily, isNull);
       await state.savePosition(
         novel: demoNovels.first,
         chapter: 0,
@@ -36,22 +68,27 @@ void main() {
         width: 390,
       );
       final position = state.positionFor(demoNovels.first.id)!;
-      expect(position.typeface, 'sourceHanSerif');
-      expect(
-        ReadingPosition.fromJson(position.toJson()).typeface,
-        'sourceHanSerif',
-      );
+      expect(position.typeface, 'system');
+      expect(ReadingPosition.fromJson(position.toJson()).typeface, 'system');
       final legacy = position.toJson()..remove('typeface');
       expect(ReadingPosition.fromJson(legacy).typeface, 'system');
       final records = <String, Object>{
         'appTypeface': 'sourceHanSerif',
-        'reading_position_1': jsonEncode(position.toJson()),
+        'readerTypeface': 'sourceHanSerif',
+        'reading_position_1': jsonEncode({
+          ...position.toJson(),
+          'typeface': 'sourceHanSerif',
+        }),
       };
       final backup = await LibraryBackup.fromRecords(records);
       expect(
         (await LibraryBackup.parse(await backup.encode())).records,
         records,
       );
+      await reloaded.restoreBackup(backup, importPreferences: true);
+      expect(reloaded.appFontId, 'system');
+      expect(reloaded.readerTypeface, 'system');
+      expect(reloaded.positionFor(1)?.typeface, 'sourceHanSerif');
       await expectLater(
         LibraryBackup.fromRecords({'appTypeface': 'unknown'}),
         throwsFormatException,
@@ -84,30 +121,38 @@ void main() {
       await expectLater(store.saveVoice(voice), throwsA(isA<SpeechFailure>()));
     },
   );
-  test('bundled font and license assets are readable', () async {
-    for (final weight in ['Regular', 'Bold']) {
-      final bytes = await rootBundle.load(
-        'assets/fonts/SourceHanSerifCN-$weight.otf',
+  test(
+    'text fonts are not bundled and remaining license assets are readable',
+    () async {
+      final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+      expect(
+        manifest.listAssets().where((p) => p.startsWith('assets/fonts/')),
+        isEmpty,
       );
-      expect(ascii.decode(bytes.buffer.asUint8List(0, 4)), 'OTTO');
-    }
-    expect(
-      await rootBundle.loadString('assets/fonts/OFL-SourceHanSerif.txt'),
-      contains('SIL OPEN FONT LICENSE'),
-    );
-    expect(
-      await rootBundle.loadString('assets/licenses/edge-tts.txt'),
-      contains('LESSER GENERAL PUBLIC LICENSE'),
-    );
-  });
+      expect(
+        await rootBundle.loadString('assets/licenses/edge-tts.txt'),
+        contains('LESSER GENERAL PUBLIC LICENSE'),
+      );
+    },
+  );
   testWidgets(
     'switching the global typeface preserves the measured reader paragraph',
     (tester) async {
-      await (FontLoader('SourceHanSerifCN')..addFont(
-            rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
-          ))
-          .load();
-      final state = await LibraryState.load();
+      final root = await tester.runAsync(
+        () => Directory.systemTemp.createTemp('typeface-switch-'),
+      );
+      addTearDown(() => root!.delete(recursive: true));
+      final state = LibraryState(
+        await SharedPreferences.getInstance(),
+        fonts: UserFontStore(
+          directory: Directory('${root!.path}/fonts'),
+          loader: (_, _) async {},
+        ),
+      );
+      final font = await tester.runAsync(() async {
+        final file = await createFontFixture(root);
+        return state.fonts.importFile('测试字体.otf', file.path);
+      });
       final book = demoNovels.first.withChapters([
         NovelChapter(
           '字体测试',
@@ -147,12 +192,12 @@ void main() {
           .registry
           .capture(scroll.position.pixels + FrostedHeader.toolbarHeight + 12)!;
       final before = anchor();
-      await state.setAppTypeface(AppTypeface.sourceHanSerif);
+      await selectAppFont(tester, state, font!.id);
       await tester.pumpAndSettle();
       expect(anchor().index, before.index);
       expect(anchor().fraction, closeTo(before.fraction, .02));
-      expect(state.positionFor(book.id)!.typeface, 'sourceHanSerif');
-      await state.setAppTypeface(AppTypeface.system);
+      expect(state.positionFor(book.id)!.typeface, font.id);
+      await selectAppFont(tester, state, 'system');
       await tester.pumpAndSettle();
       expect(anchor().index, before.index);
       expect(anchor().fraction, closeTo(before.fraction, .02));
@@ -163,7 +208,21 @@ void main() {
   testWidgets(
     'global font follows persisted switch and returns to the system',
     (tester) async {
-      final state = await LibraryState.load();
+      final root = await tester.runAsync(
+        () => Directory.systemTemp.createTemp('global-font-'),
+      );
+      addTearDown(() => root!.delete(recursive: true));
+      final state = LibraryState(
+        await SharedPreferences.getInstance(),
+        fonts: UserFontStore(
+          directory: Directory('${root!.path}/fonts'),
+          loader: (_, _) async {},
+        ),
+      );
+      final font = await tester.runAsync(() async {
+        final file = await createFontFixture(root);
+        return state.fonts.importFile('测试字体.otf', file.path);
+      });
       await tester.pumpWidget(
         NovelApp(state: state, repository: const DemoNovelRepository()),
       );
@@ -171,15 +230,15 @@ void main() {
       final before = Theme.of(
         tester.element(find.text('发现').first),
       ).textTheme.bodyMedium!.fontFamily;
-      await state.setAppTypeface(AppTypeface.sourceHanSerif);
+      await selectAppFont(tester, state, font!.id);
       await tester.pumpAndSettle();
       expect(
         Theme.of(
           tester.element(find.text('发现').first),
         ).textTheme.bodyMedium!.fontFamily,
-        'SourceHanSerifCN',
+        font.family,
       );
-      await state.setAppTypeface(AppTypeface.system);
+      await selectAppFont(tester, state, 'system');
       await tester.pumpAndSettle();
       expect(
         Theme.of(

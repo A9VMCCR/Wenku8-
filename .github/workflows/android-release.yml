@@ -73,8 +73,8 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       - run: python3 -m unittest discover -s tools -p 'test_*.py'
-      - name: Update gateway tests
-        run: node --test tools/update-mirror/worker.test.mjs tools/content-gateway/worker.test.mjs
+      - name: Update mirror tests
+        run: node --test tools/update-mirror/worker.test.mjs
       - name: Build all supported Android architectures
         env:
           UPDATE_REPOSITORY: ${{ github.repository }}
@@ -85,10 +85,23 @@ jobs:
           mkdir -p build/release-assets
           for entry in 'android-arm armeabi-v7a' 'android-arm64 arm64-v8a' 'android-x64 x86_64'; do
             read -r target abi <<< "$entry"
-            flutter build apk --release --target-platform "$target" --dart-define="UPDATE_REPOSITORY=$UPDATE_REPOSITORY"
+            flutter build apk --release --target-platform "$target" \
+              --split-debug-info="build/symbols/$VERSION/$abi" \
+              --dart-define="UPDATE_REPOSITORY=$UPDATE_REPOSITORY"
             python3 tools/verify_apk_runtime.py build/app/outputs/flutter-apk/app-release.apk --abi "$abi"
+            python3 tools/analyze_apk_size.py build/app/outputs/flutter-apk/app-release.apk \
+              --output "build/apk-size-$abi.json"
             cp build/app/outputs/flutter-apk/app-release.apk "build/release-assets/wenku8-$VERSION-$abi.apk"
           done
+      - name: Retain matching crash symbols and package size reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: wenku8-${{ steps.release.outputs.version }}-symbols-and-size
+          path: |
+            build/symbols/**
+            build/apk-size-*.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Native tests
         run: cd android && ./gradlew :app:testReleaseUnitTest
       - name: Collect APKs and corresponding project source
@@ -115,7 +128,7 @@ jobs:
             python3 -c 'import json; assert json.load(open("build/existing-release.json"))["isDraft"], "Published assets must not be replaced; publish a new version instead."'
             gh release upload "$RELEASE_TAG" build/release-assets/* --clobber
           else
-            gh release create "$RELEASE_TAG" build/release-assets/* --verify-tag --draft --title "轻小说文库 $RELEASE_TAG" --notes-file build/release-notes.md
+            gh release create "$RELEASE_TAG" build/release-assets/* --verify-tag --draft --title "纸间文库 $RELEASE_TAG" --notes-file build/release-notes.md
           fi
       - name: Remove runner signing material
         if: always()

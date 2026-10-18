@@ -1,5 +1,5 @@
 name: wenku8_flutter
-description: "轻小说文库 Flutter 迁移版（Android 优先）。"
+description: "纸间文库 · 自定义书源与本地阅读（Android 优先）。"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.3.7+63
+version: 0.4.0+87
 
 environment:
   sdk: ^3.11.3
@@ -78,7 +78,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/app-icon.png
-    - assets/fonts/OFL-SourceHanSerif.txt
     - assets/licenses/GPL-3.0.txt
     - assets/licenses/edge-tts.txt
     - assets/licenses/libmobi.txt
@@ -89,14 +88,15 @@ flutter:
     - assets/licenses/bouncycastle.txt
     - assets/licenses/desugar-jdk.txt
     - assets/licenses/opencc.txt
+    - assets/licenses/rhino.txt
+    - assets/licenses/htmlunit-core-js.txt
+    - assets/licenses/cryptojs.txt
+    - assets/licenses/jsonpath.txt
+    - assets/licenses/gson.txt
+    - assets/licenses/hutool.txt
+    - assets/licenses/source-runtime.txt
+    - assets/licenses/source-host.txt
     - assets/opencc/
-  fonts:
-    - family: SourceHanSerifCN
-      fonts:
-        - asset: assets/fonts/SourceHanSerifCN-Regular.otf
-          weight: 400
-        - asset: assets/fonts/SourceHanSerifCN-Bold.otf
-          weight: 700
   shaders:
     - shaders/continuous_blur.frag
     - shaders/analytic_glass.frag

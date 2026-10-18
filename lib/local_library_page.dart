@@ -16,6 +16,7 @@ import 'cloud_sources.dart';
 import 'library_state.dart';
 import 'library_toolbar.dart';
 import 'library_reflow.dart';
+import 'ui_notifiers.dart';
 import 'local_books.dart';
 import 'local_book_importer.dart';
 import 'local_library_preferences.dart';
@@ -86,6 +87,7 @@ class LocalLibraryPage extends StatefulWidget {
     this.documents,
     this.cloudSettings,
     this.onSearch,
+    this.scrollController,
   });
   final LocalBookStore books;
   final LibraryState state;
@@ -96,6 +98,7 @@ class LocalLibraryPage extends StatefulWidget {
   final BookDocuments? documents;
   final CloudSourceSettings? cloudSettings;
   final VoidCallback? onSearch;
+  final ScrollController? scrollController;
   Widget buildHeader(BuildContext context) =>
       _localLibraryHeader(context, controller, back: showHeader);
 
@@ -483,14 +486,14 @@ class _LocalLibraryPageState extends State<LocalLibraryPage>
     final body = GlassHeaderLayout(
       showHeader: widget.showHeader,
       header: _header(context),
-      body: AnimatedBuilder(
-        animation: Listenable.merge([
+      body: ActiveListenableBuilder(
+        listenable: Listenable.merge([
           widget.books,
           widget.state.historyChanges,
           widget.state.shelfViewChanges,
           ?organization,
         ]),
-        builder: (context, _) {
+        builder: (context) {
           final books =
               organization
                   ?.filter(
@@ -528,6 +531,7 @@ class _LocalLibraryPageState extends State<LocalLibraryPage>
             ),
             child: CustomScrollView(
               key: const PageStorageKey('local-library'),
+              controller: widget.scrollController,
               clipBehavior: LibraryReflowScope.clipOf(context),
               cacheExtent: BookCollectionLayout.cacheExtentFor(
                 MediaQuery.sizeOf(context).width - 48,

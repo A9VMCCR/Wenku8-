@@ -71,6 +71,8 @@ class ReaderPreferences {
     this.edgeBrightness = false,
     this.pageEffect = ReaderPageEffect.staggered,
     this.hideSystemStatus = false,
+    this.backgroundImage,
+    this.backgroundOpacity = .25,
   });
   final ReaderPaper paper;
   final double margin, paragraphGap, autoScrollSpeed;
@@ -87,6 +89,12 @@ class ReaderPreferences {
   final bool edgeBrightness;
   final ReaderPageEffect pageEffect;
   final bool hideSystemStatus;
+
+  /// An owned file ID, never a user's gallery path or a remote URL.
+  final String? backgroundImage;
+  final double backgroundOpacity;
+  static bool validBackgroundId(Object? value) =>
+      value is String && RegExp(r'^bg_[a-z0-9-]{1,80}$').hasMatch(value);
   String get layoutKey =>
       leftMargin == 26 &&
           rightMargin == 26 &&
@@ -129,6 +137,8 @@ class ReaderPreferences {
     'edgeBrightness': edgeBrightness,
     'pageEffect': pageEffect.name,
     'hideSystemStatus': hideSystemStatus,
+    if (backgroundImage != null) 'backgroundImage': backgroundImage,
+    'backgroundOpacity': backgroundOpacity,
   };
   factory ReaderPreferences.fromJson(Map<String, dynamic> json) {
     double number(String key, double min, double max, double fallback) {
@@ -152,7 +162,13 @@ class ReaderPreferences {
         throw const FormatException('阅读偏好格式有误');
       }
     }
+    if (json['backgroundImage'] != null &&
+        !validBackgroundId(json['backgroundImage'])) {
+      throw const FormatException('阅读背景记录格式有误');
+    }
     return ReaderPreferences(
+      backgroundImage: json['backgroundImage'] as String?,
+      backgroundOpacity: number('backgroundOpacity', .05, 1, .25),
       paper: ReaderPaper.values.firstWhere(
         (p) => p.name == (json['paper'] ?? 'system'),
       ),
@@ -211,6 +227,9 @@ class ReaderPreferences {
     bool? edgeBrightness,
     ReaderPageEffect? pageEffect,
     bool? hideSystemStatus,
+    String? backgroundImage,
+    bool clearBackground = false,
+    double? backgroundOpacity,
   }) => ReaderPreferences(
     paper: paper ?? this.paper,
     margin: margin ?? this.margin,
@@ -230,5 +249,9 @@ class ReaderPreferences {
     edgeBrightness: edgeBrightness ?? this.edgeBrightness,
     pageEffect: pageEffect ?? this.pageEffect,
     hideSystemStatus: hideSystemStatus ?? this.hideSystemStatus,
+    backgroundImage: clearBackground
+        ? null
+        : backgroundImage ?? this.backgroundImage,
+    backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
   );
 }

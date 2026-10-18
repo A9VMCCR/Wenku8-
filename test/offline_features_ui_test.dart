@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/catalog.dart';
 import 'package:wenku8_flutter/library_state.dart';
+import 'package:wenku8_flutter/legacy_transport.dart';
 import 'package:wenku8_flutter/offline_cache.dart';
 import 'package:wenku8_flutter/offline_repository.dart';
 import 'package:wenku8_flutter/offline_widgets.dart';
@@ -125,6 +126,17 @@ void main({
   testWidgets(
     'old image slots repair after text appears and keep text on failure',
     (tester) async {
+      // A successful repair must return a decodable image. The inline reader
+      // now deliberately removes unavailable images instead of an error card.
+      final image = await tester.runAsync(
+        () => File('test/fixtures/source-captcha.png').readAsBytes(),
+      );
+      ReaderIllustrationCache.shared.useResolver((_) async => image!);
+      addTearDown(
+        () => ReaderIllustrationCache.shared.useResolver(
+          LegacyTransport.illustration,
+        ),
+      );
       const old = '前文。\n\n[插图]\n\n后文。';
       const fresh =
           '前文。\n\n<!--image-->https://pic.777743.xyz/1/a.jpg<!--image-->\n\n后文。';
@@ -151,7 +163,7 @@ void main({
         (w) => w is LoadingSkeleton && w.label == '正在补全插图',
       );
       expect(slot, findsOneWidget);
-      final height = tester.getSize(slot).height;
+      expect(tester.getSize(slot).height, greaterThan(0));
       held.completeError(StateError('fixture offline'));
       await _settleIo(tester);
       expect(find.text('前文。'), findsOneWidget);
@@ -179,9 +191,16 @@ void main({
       );
       expect(await tester.runAsync(() => cache.readChapter(71, 71001)), fresh);
       expect(find.byType(ReaderIllustration), findsOneWidget);
+      final shown = tester.getSize(find.byType(ReaderIllustration));
+      final illustration = tester.widget<ReaderIllustration>(
+        find.byType(ReaderIllustration),
+      );
       expect(
-        tester.getSize(find.byType(ReaderIllustration)).height,
-        closeTo(height, .01),
+        shown.aspectRatio,
+        closeTo(
+          ReaderIllustrationCache.shared.sizeOf(illustration.url)!.aspectRatio,
+          .01,
+        ),
       );
       expect(find.text('暂未取得本章插图地址'), findsNothing);
       expect(tester.takeException(), isNull);
