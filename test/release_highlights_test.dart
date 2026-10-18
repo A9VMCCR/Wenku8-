@@ -34,13 +34,26 @@ class _Platform implements UpdatePlatform {
 class _Source implements UpdateSource {
   int downloads = 0;
   @override
-  Future<AppRelease?> latest() async => AppRelease(
-    tag: 'v0.3.6',
-    version: const ReleaseVersion(0, 3, 6, 60),
-    notes: 'next release',
-    page: Uri.https('github.com', '/example/reader/releases/tag/v0.3.6'),
-    assets: const [],
-  );
+  Future<AppRelease?> latest() async {
+    final installed = ReleaseVersion.parse(currentAppVersion)!;
+    final next = ReleaseVersion(
+      installed.major,
+      installed.minor,
+      installed.patch + 1,
+      currentAppBuild + 1,
+    );
+    return AppRelease(
+      tag: 'v${next.name}',
+      version: next,
+      notes: 'next release',
+      page: Uri.https(
+        'github.com',
+        '/example/reader/releases/tag/v${next.name}',
+      ),
+      assets: const [],
+    );
+  }
+
   @override
   Future<void> download(
     UpdateAsset asset,

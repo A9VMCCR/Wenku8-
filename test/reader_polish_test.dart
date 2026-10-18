@@ -104,7 +104,9 @@ void main({
         );
         expect(
           pageRect.bottom,
-          lessThan(tester.getRect(key('reader-chrome-dock')).top),
+          lessThanOrEqualTo(tester.getRect(key('reader-chrome-dock')).top),
+          reason:
+              'The page may meet the dock boundary but must never overlap it.',
         );
         if (capture != null) {
           await capture(tester, boundary, '${mode.name}-chrome');
