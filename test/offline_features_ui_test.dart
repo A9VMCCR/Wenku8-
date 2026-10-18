@@ -173,7 +173,10 @@ void main({
         until: () =>
             remote.calls.where((call) => call == 'text:71:71001').length == 2,
       );
-      await _settleIo(tester);
+      await _settleIo(
+        tester,
+        until: () => find.byType(ReaderIllustration).evaluate().isNotEmpty,
+      );
       expect(await tester.runAsync(() => cache.readChapter(71, 71001)), fresh);
       expect(find.byType(ReaderIllustration), findsOneWidget);
       expect(
