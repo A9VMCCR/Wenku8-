@@ -59,19 +59,21 @@ class ArchiveMasthead extends StatelessWidget {
       children: [
         if (brand) ...[
           ExcludeSemantics(
-            child: Container(
+            child: SizedBox(
               width: 30,
               height: 34,
-              alignment: Alignment.center,
-              color: Theme.of(context).colorScheme.onSurface,
-              child: AppText(
-                'W8',
-                textScaler: TextScaler.noScaling,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.surface,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                  letterSpacing: -.7,
+              child: Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Image.asset(
+                    'assets/branding/app-icon.png',
+                    width: 30,
+                    height: 30,
+                    cacheWidth: (30 * MediaQuery.devicePixelRatioOf(context))
+                        .ceil(),
+                    cacheHeight: (30 * MediaQuery.devicePixelRatioOf(context))
+                        .ceil(),
+                  ),
                 ),
               ),
             ),
