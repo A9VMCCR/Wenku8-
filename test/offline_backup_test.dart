@@ -42,10 +42,6 @@ void main() {
             {
               ('file', 'wenku8-offline-v1'),
               ('file', 'wenku8-illustrations-v1'),
-              ('file', 'book-source-images-v1'),
-              ('file', 'custom-sources-v1'),
-              ('root', 'app_webview_book_sources'),
-              ('sharedpref', 'book_source_sessions.xml'),
               ('sharedpref', 'wenku_account_session.xml'),
               ('sharedpref', 'wenku_web_session.xml'),
               ('sharedpref', 'book_scan_folders.xml'),

@@ -6,13 +6,9 @@ import 'package:flutter/services.dart';
 /// stable cached futures. Eviction leaves the native disk cache untouched.
 abstract final class LegacyCover {
   static const _channel = MethodChannel('org.mewx.wenku8/legacy_api');
-  static var _cache = LegacyCoverCache(
+  static final _cache = LegacyCoverCache(
     request: (aid) => _channel.invokeMethod<Uint8List>('cover', {'aid': aid}),
   );
-  static void useResolver(Future<Uint8List> Function(int) request) {
-    _cache = LegacyCoverCache(request: request);
-  }
-
   static Uint8List? peek(int aid) => _cache.peek(aid);
   static Future<Uint8List> bytes(int aid) => _cache.load(aid);
 

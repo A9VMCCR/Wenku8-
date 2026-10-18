@@ -89,18 +89,15 @@ class BookCollectionView extends StatelessWidget {
     this.trailingCount = 0,
     this.padding = EdgeInsets.zero,
     this.physics,
-    this.controller,
   }) : assert(itemCount >= leadingCount + trailingCount);
   final int itemCount, leadingCount, trailingCount;
   final IndexedWidgetBuilder itemBuilder;
   final EdgeInsets padding;
   final ScrollPhysics? physics;
-  final ScrollController? controller;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) => CustomScrollView(
-      controller: controller,
       physics: physics,
       clipBehavior: LibraryReflowScope.clipOf(context),
       cacheExtent: BookCollectionLayout.cacheExtentFor(

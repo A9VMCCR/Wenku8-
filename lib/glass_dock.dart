@@ -39,7 +39,6 @@ class GlassDock extends StatefulWidget {
     super.key,
     required this.selectedIndex,
     required this.onSelected,
-    this.onReselected,
     this.reduceMotion = false,
     this.items = const [
       GlassDockItem(CupertinoIcons.house, '发现'),
@@ -50,9 +49,6 @@ class GlassDock extends StatefulWidget {
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
-
-  /// Re-tapping a current destination is distinct from settling a dock drag.
-  final ValueChanged<int>? onReselected;
   final bool reduceMotion;
   final List<GlassDockItem> items;
 
@@ -293,13 +289,7 @@ class _GlassDockState extends State<GlassDock> with TickerProviderStateMixin {
     _dragging = false;
     _release();
     _settlePosition(index, velocity: velocity);
-    if (!fromDrag &&
-        index == widget.selectedIndex &&
-        widget.onReselected != null) {
-      widget.onReselected!(index);
-    } else {
-      widget.onSelected(index);
-    }
+    widget.onSelected(index);
   }
 
   void _dragEnd(DragEndDetails details) {

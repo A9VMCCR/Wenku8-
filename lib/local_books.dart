@@ -1,8 +1,6 @@
 import 'dart:convert';
-import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:isolate';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
@@ -20,7 +18,6 @@ import 'local_book_media.dart';
 import 'local_book_series.dart';
 import 'epub_image_styles.dart';
 import 'local_text_import.dart';
-import 'local_import_options.dart';
 import 'reader_content.dart' show readerIllustrationUrl;
 
 export 'book_identity.dart' show localBookIdStart, isLocalBook;
@@ -69,10 +66,7 @@ String _metadataText(String value) {
   return value.substring(0, end);
 }
 
-ImportedBook parseLocalBook(
-  LocalBookInput input, {
-  LocalImportOptions options = const LocalImportOptions(),
-}) {
+ImportedBook parseLocalBook(LocalBookInput input) {
   _validateInput(input.name, input.bytes.length);
   // Content identity makes re-import and cross-device sync address the same
   // book. The complete digest also detects the rare truncated-ID collision.
@@ -81,9 +75,7 @@ ImportedBook parseLocalBook(
       localBookIdStart |
       (int.parse(digest.substring(0, 8), radix: 16) & 0x1fffffff);
   final name = input.name.replaceAll('\\', '/').split('/').last;
-  if (name.toLowerCase().endsWith('.epub')) {
-    return _epub(input, id, digest, options: options);
-  }
+  if (name.toLowerCase().endsWith('.epub')) return _epub(input, id, digest);
   if (!name.toLowerCase().endsWith('.txt')) {
     throw const FormatException('目前支持 TXT 与 EPUB 格式');
   }
@@ -91,15 +83,71 @@ ImportedBook parseLocalBook(
     '\uFEFF',
     '',
   );
+  final lines = text.replaceAll(RegExp(r'\r\n?'), '\n').split('\n');
+  final chapters = <NovelChapter>[];
   final bodies = <String>[];
-  final builder = LocalTextChapterBuilder(
-    (_, body) => bodies.add(body),
-    options: options,
+  final buffer = <String>[];
+  var title = name.substring(0, name.length - 4);
+  var volume = '';
+  var volumeId = 0;
+  final chapterPattern = RegExp(
+    r'^(第[零〇一二三四五六七八九十百千万两0-9０-９]+[章节回幕话話]|chapter\s+\d+|序章|序言|楔子|尾声|尾聲|后记|後記|番外)',
+    caseSensitive: false,
   );
-  for (final line in text.replaceAll(RegExp(r'\r\n?'), '\n').split('\n')) {
-    builder.add(line);
+  final volumePattern = RegExp(
+    r'^(第[零〇一二三四五六七八九十百千万两0-9０-９]+[卷部]|volume\s+\d+)',
+    caseSensitive: false,
+  );
+  void flush() {
+    if (buffer.isEmpty) return;
+    // Bound unstructured TXT chapters as well as memory and lazy text layout.
+    final paragraphs = <String>[];
+    for (final line in buffer) {
+      paragraphs.addAll(_boundedParagraphs(line));
+    }
+    var part = 0;
+    for (var start = 0; start < paragraphs.length;) {
+      final chunk = <String>[];
+      var length = 0;
+      while (start < paragraphs.length && length < 100000) {
+        final p = paragraphs[start++];
+        length += p.length;
+        chunk.add(p);
+      }
+      final section = chunk.length == paragraphs.length
+          ? title
+          : '$title · 片段 ${++part}';
+      chapters.add(
+        NovelChapter(
+          section,
+          '',
+          id: chapters.length + 1,
+          volumeId: volumeId,
+          volumeTitle: volume,
+        ),
+      );
+      bodies.add(chunk.join('\n\n'));
+    }
+    buffer.clear();
   }
-  final chapters = builder.finish();
+
+  for (final raw in lines) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    if (line.length <= 90 && volumePattern.hasMatch(line)) {
+      flush();
+      volume = line;
+      volumeId++;
+      title = line;
+    } else if (line.length <= 90 && chapterPattern.hasMatch(line)) {
+      flush();
+      title = line;
+    } else {
+      buffer.add(line);
+    }
+  }
+  flush();
+  if (chapters.isEmpty) throw const FormatException('文件中没有可阅读的正文');
   return ImportedBook(
     _novel(id, name.substring(0, name.length - 4), '', chapters),
     digest,
@@ -198,9 +246,7 @@ ImportedBook _epub(
   Archive? archive,
   void Function(String name, ArchiveFile file)? saveImage,
   void Function(int index, String body)? saveBody,
-  LocalImportOptions options = const LocalImportOptions(),
 }) {
-  final directoryPattern = options.compile();
   final zip = archive ?? boundedZip(input.bytes, maxSize: 1024 * 1024 * 1024);
   final files = {
     for (final f in zip)
@@ -404,8 +450,7 @@ ImportedBook _epub(
   var currentVolume = '';
   var volumeId = 0;
   for (final item in elements.where((e) => e.name.local == 'itemref')) {
-    // Auxiliary spine items can contain notes/illustration-adjacent prose.
-    // Keep them in source order instead of silently losing their text.
+    if (item.getAttribute('linear') == 'no') continue;
     final file = manifest[item.getAttribute('idref')];
     if (file == null ||
         !['application/xhtml+xml', 'text/html'].contains(file.type)) {
@@ -431,85 +476,52 @@ ImportedBook _epub(
         if (e.key.path == file.path && e.key.fragment.isNotEmpty)
           e.key.fragment: e.value,
     };
-    final output = <({String text, bool heading})>[];
+    final heading = document.querySelector('h1, h2, h3')?.text.trim();
+    final output = <String>[];
     final text = StringBuffer();
-    var headingDepth = 0;
     void flush() {
       final value = text
           .toString()
           .replaceAll(RegExp(r'[ \t\r\n]+'), ' ')
           .trim();
-      if (value.isNotEmpty) {
-        output.addAll(
-          _boundedParagraphs(value).map(
-            (part) =>
-                (text: part, heading: headingDepth > 0 && value.length <= 90),
-          ),
-        );
-      }
+      if (value.isNotEmpty) output.addAll(_boundedParagraphs(value));
       text.clear();
     }
 
     void finishChapter() {
       flush();
-      if (output.isEmpty) return;
-      final sections =
-          <({String? title, List<({String text, bool heading})> rows})>[];
-      var rows = <({String text, bool heading})>[];
-      String? customTitle;
-      for (final row in output) {
-        if (directoryPattern != null &&
-            matchesLocalHeading(row.text, directoryPattern, custom: true)) {
-          if (rows.isNotEmpty) sections.add((title: customTitle, rows: rows));
-          customTitle = row.text;
-          rows = [];
-        } else {
-          rows.add(row);
-        }
+      final title = label?.title.isNotEmpty == true
+          ? label!.title
+          : heading?.isNotEmpty == true
+          ? heading!
+          : '第 ${chapters.length + 1} 章';
+      if (output.isNotEmpty && output.first == title && output.length > 1) {
+        output.removeAt(0);
       }
-      if (rows.isNotEmpty) sections.add((title: customTitle, rows: rows));
+      final body = output.join('\n\n');
       output.clear();
-      for (final section in sections) {
-        final heading = section.rows
-            .where((row) => row.heading)
-            .firstOrNull
-            ?.text;
-        final title =
-            section.title ??
-            (label?.title.isNotEmpty == true ? label!.title : heading) ??
-            options.missingTitle(chapters.length + 1);
-        final content = section.rows.toList();
-        // Only an actual short heading can be omitted as a duplicate header.
-        // A plain prose paragraph equal to the nav label is still prose.
-        if (content.length > 1 &&
-            content.first.heading &&
-            content.first.text == title) {
-          content.removeAt(0);
-        }
-        final body = content.map((row) => row.text).join('\n\n');
-        if (body.isEmpty) continue;
-        if (utf8.encode(body).length > 8 * 1024 * 1024) {
-          throw const FormatException('EPUB 单章超过 8 MB');
-        }
-        final nextVolume = label?.volume ?? currentVolume;
-        if (nextVolume != currentVolume) {
-          currentVolume = nextVolume;
-          volumeId++;
-        }
-        chapters.add(
-          NovelChapter(
-            _metadataText(title),
-            '',
-            id: chapters.length + 1,
-            volumeTitle: currentVolume,
-            volumeId: volumeId,
-          ),
-        );
-        if (saveBody == null) {
-          bodies.add(body);
-        } else {
-          saveBody(chapters.length, body);
-        }
+      if (body.isEmpty) return;
+      if (utf8.encode(body).length > 8 * 1024 * 1024) {
+        throw const FormatException('EPUB 单章超过 8 MB');
+      }
+      final nextVolume = label?.volume ?? currentVolume;
+      if (nextVolume != currentVolume) {
+        currentVolume = nextVolume;
+        volumeId++;
+      }
+      chapters.add(
+        NovelChapter(
+          _metadataText(title),
+          '',
+          id: chapters.length + 1,
+          volumeTitle: currentVolume,
+          volumeId: volumeId,
+        ),
+      );
+      if (saveBody == null) {
+        bodies.add(body);
+      } else {
+        saveBody(chapters.length, body);
       }
     }
 
@@ -539,11 +551,9 @@ ImportedBook _epub(
           try {
             final url = addImage(resolve(file.path, src));
             if (url != null) {
-              output.add((
-                text:
-                    '<!--image-->$url<!--image-->${imageLayouts[node]?.suffix ?? ''}',
-                heading: false,
-              ));
+              output.add(
+                '<!--image-->$url<!--image-->${imageLayouts[node]?.suffix ?? ''}',
+              );
             }
           } on FormatException {
             /* External images are not fetched during import. */
@@ -565,13 +575,10 @@ ImportedBook _epub(
       };
       final block = blocks.contains(tag);
       if (block) flush();
-      final isHeading = RegExp(r'^h[1-6]$').hasMatch(tag ?? '');
-      if (isHeading) headingDepth++;
       for (final child in node.nodes) {
         visit(child);
       }
       if (block) flush();
-      if (isHeading) headingDepth--;
     }
 
     visit(document.body!);
@@ -633,15 +640,11 @@ class _ImportJob {
     this.path,
     this.text,
     this.decodedPath,
-    this.options = const LocalImportOptions(),
-    required this.stagingName,
   });
   final String root, name;
   final Map<int, String> known;
   final LocalBookInput? input;
   final String? path, text, decodedPath;
-  final LocalImportOptions options;
-  final String stagingName;
 }
 
 class _ImportedFile {
@@ -649,38 +652,6 @@ class _ImportedFile {
   final int id;
   final Novel? novel;
   final Map<String, dynamic>? source;
-}
-
-void _customImportWorker((SendPort, _ImportJob) input) async {
-  try {
-    input.$1.send((await _importOriginal(input.$2), null, null));
-  } catch (error, stack) {
-    input.$1.send((null, error, stack.toString()));
-  }
-}
-
-Future<_ImportedFile> _guardedImport(_ImportJob job) async {
-  final port = ReceivePort();
-  Isolate? worker;
-  try {
-    worker = await Isolate.spawn(_customImportWorker, (
-      port.sendPort,
-      job,
-    ), onError: port.sendPort);
-    final result = await port.first.timeout(const Duration(minutes: 5));
-    if (result is (_ImportedFile?, Object?, String?)) {
-      if (result.$1 != null) return result.$1!;
-      Error.throwWithStackTrace(result.$2!, StackTrace.fromString(result.$3!));
-    }
-    throw const FormatException('目录识别未完成，请检查正则后重试');
-  } on TimeoutException {
-    throw const FormatException('自定义目录识别超时，请简化正则后重试');
-  } finally {
-    worker?.kill(priority: Isolate.immediate);
-    port.close();
-    final staging = Directory('${job.root}/${job.stagingName}');
-    if (await staging.exists()) await staging.delete(recursive: true);
-  }
 }
 
 /// File-backed imports keep compressed bytes and extracted illustrations off
@@ -701,7 +672,7 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
     }
     return _ImportedFile(id);
   }
-  final staging = Directory('${job.root}/${job.stagingName}');
+  final staging = Directory('${job.root}/.$id-import');
   if (await staging.exists()) await staging.delete(recursive: true);
   await staging.create(recursive: true);
   InputFileStream? stream;
@@ -713,7 +684,6 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
         LocalBookInput(job.name, Uint8List(0)),
         id,
         digest,
-        options: job.options,
         archive: _boundedZipStream(stream, maxSize: 1024 * 1024 * 1024),
         saveBody: (index, body) =>
             File('${staging.path}/c$index.txt').writeAsStringSync(body),
@@ -734,7 +704,6 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
         job.name,
         (index, body) =>
             File('${staging.path}/c$index.txt').writeAsStringSync(body),
-        options: job.options,
       );
       parsed = ImportedBook(
         _novel(
@@ -755,7 +724,6 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
       parsed = parseLocalBook(
         job.input ??
             LocalBookInput(job.name, await file!.readAsBytes(), text: job.text),
-        options: job.options,
       );
     }
     final text = job.input?.text ?? job.text;
@@ -765,7 +733,6 @@ Future<_ImportedFile> _importOriginal(_ImportJob job) async {
       'encoding': text == null && job.decodedPath == null ? 'utf8' : 'decoded',
       'parser': 2,
       'imageSizing': 1,
-      'importOptions': job.options.toJson(),
       'importedAt': DateTime.now().millisecondsSinceEpoch,
       if (parsed.seriesHint != null) 'seriesHint': parsed.seriesHint!.toJson(),
     };
@@ -1024,24 +991,15 @@ class LocalBookStore extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  Future<Novel> import(
-    LocalBookInput input, {
-    LocalImportOptions options = const LocalImportOptions(),
-  }) => _import(input.name, input: input, options: options);
+  Future<Novel> import(LocalBookInput input) =>
+      _import(input.name, input: input);
 
   Future<Novel> importFile(
     String name,
     String path, {
     String? text,
     String? decodedPath,
-    LocalImportOptions options = const LocalImportOptions(),
-  }) => _import(
-    name,
-    path: path,
-    text: text,
-    decodedPath: decodedPath,
-    options: options,
-  );
+  }) => _import(name, path: path, text: text, decodedPath: decodedPath);
 
   Future<Novel> _import(
     String name, {
@@ -1049,28 +1007,25 @@ class LocalBookStore extends ChangeNotifier {
     String? path,
     String? text,
     String? decodedPath,
-    LocalImportOptions options = const LocalImportOptions(),
   }) async {
     late Novel result;
     final work = _writes.catchError((Object _) {}).then((_) async {
-      options.compile();
-      final job = _ImportJob(
-        root: directory.path,
-        name: name,
-        input: input,
-        path: path,
-        text: text,
-        decodedPath: decodedPath,
-        options: options,
-        stagingName: '.import-$pid-${DateTime.now().microsecondsSinceEpoch}',
-        known: {
-          for (final e in _sources.entries) e.key: e.value['digest'] as String,
-          for (final id in _series.keys) id: 'reserved-series',
-        },
+      final imported = await compute(
+        _importOriginal,
+        _ImportJob(
+          root: directory.path,
+          name: name,
+          input: input,
+          path: path,
+          text: text,
+          decodedPath: decodedPath,
+          known: {
+            for (final e in _sources.entries)
+              e.key: e.value['digest'] as String,
+            for (final id in _series.keys) id: 'reserved-series',
+          },
+        ),
       );
-      final imported = options.customDirectory
-          ? await _guardedImport(job)
-          : await compute(_importOriginal, job);
       if (imported.novel != null) {
         _books[imported.id] = imported.novel!;
         _sources[imported.id] = imported.source!;

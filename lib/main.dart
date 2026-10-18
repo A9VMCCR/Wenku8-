@@ -7,9 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_ui.dart';
-import 'app_branding.dart';
 import 'app_licenses.dart';
 import 'catalog.dart';
+import 'legacy_wenku_repository.dart';
 import 'library_state.dart';
 import 'local_books.dart';
 import 'local_series_actions.dart';
@@ -28,12 +28,9 @@ import 'performance_preferences.dart';
 import 'touch_sampling.dart';
 import 'updates/app_updates.dart';
 import 'updates/update_page.dart';
+import 'wenku_account.dart';
 import 'wenku_features.dart';
-import 'legacy_cover.dart';
-import 'reader_illustrations.dart';
-import 'sources/source_store.dart';
-import 'sources/source_repository.dart';
-import 'sources/source_host_bridge.dart';
+import 'wenku_shelf_sync.dart';
 
 Future<void> main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
@@ -59,24 +56,44 @@ Future<void> main() async {
       WidgetsBinding.instance.platformDispatcher.platformBrightness,
   };
   SystemChrome.setSystemUIOverlayStyle(novelSystemUiStyle(brightness));
-  final sources = await SourceStore.forApp();
-  await sources.load();
-  sources.reserveBooks(state.knownNovels);
-  final remote = SourceNovelRepository(
-    store: sources,
-    legacyBook: state.cachedNovel,
+  final account = defaultTargetPlatform == TargetPlatform.android
+      ? WenkuAccount()
+      : null;
+  final remote = LegacyWenkuRepository(
+    publicationRequest: account?.readPublication,
+    publicationSessionKey: account == null
+        ? null
+        : () => (
+            account.sessionRevision,
+            account.publicationRevision,
+            account.authenticated,
+          ),
   );
-  final repository = OfflineNovelRepository(
-    remote: remote,
-    cache: await OfflineCacheStore.forApp(),
-    local: await LocalBookStore.forApp(),
-    network: network,
-  );
-  LegacyCover.useResolver(remote.cover);
-  ReaderIllustrationCache.shared.useResolver(remote.illustration);
-  if (repository.local != null) {
+  final repository = defaultTargetPlatform == TargetPlatform.android
+      ? OfflineNovelRepository(
+          remote: remote,
+          cache: await OfflineCacheStore.forApp(),
+          local: await LocalBookStore.forApp(),
+          network: network,
+        )
+      : const DemoNovelRepository();
+  if (repository is OfflineNovelRepository && repository.local != null) {
     await reconcileLocalSeries(repository.local!, state);
   }
+  final features = account != null
+      ? WenkuFeatures(
+          account: account,
+          // The authenticated novellist response already contains book metadata.
+          // Reuse its adapter, pagination and the existing account session.
+          publications: remote,
+          shelfSync: WenkuShelfSync(
+            account: account,
+            library: state,
+            preferences: await SharedPreferences.getInstance(),
+            network: network,
+          )..start(),
+        )
+      : null;
   final customSpeech = defaultTargetPlatform == TargetPlatform.android
       ? CustomSpeechSettings()
       : null;
@@ -97,6 +114,7 @@ Future<void> main() async {
     NovelApp(
       state: state,
       repository: repository,
+      features: features,
       listening: listening,
       network: network,
       updates: defaultTargetPlatform == TargetPlatform.android
@@ -109,6 +127,7 @@ Future<void> main() async {
     // frame. A service-created engine also gets a handler, with no auto-play.
     unawaited(prepareListeningService(listening).catchError((Object _) {}));
   }
+  if (features != null) unawaited(features.account.initialize());
 }
 
 class NovelApp extends StatefulWidget {
@@ -139,10 +158,6 @@ class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
   ListeningController? get listening => widget.listening;
   AppUpdates? get updates => widget.updates;
   final _updateNavigation = AppUpdateNavigation();
-  late final _sourceHost = SourceHostBridge(
-    state,
-    repository: sourceRepositoryOf(repository),
-  );
   late String _lastTypeface = state.appFontId;
   Locale _systemLocale = chineseLocale(
     WidgetsBinding.instance.platformDispatcher.locale,
@@ -151,7 +166,6 @@ class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _sourceHost.attach();
   }
 
   @override
@@ -181,7 +195,6 @@ class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     features?.shelfSync?.dispose();
     _updateNavigation.dispose();
-    _sourceHost.dispose();
     super.dispose();
   }
 
@@ -193,7 +206,7 @@ class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
         final typefaceChanged = _lastTypeface != state.appFontId;
         _lastTypeface = state.appFontId;
         return MaterialApp(
-          title: appName,
+          title: '轻小说文库',
           locale: state.language.locale ?? _systemLocale,
           supportedLocales: const [
             Locale('zh', 'CN'),
@@ -203,8 +216,7 @@ class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
           localizationsDelegates: GlobalMaterialLocalizations.delegates,
           localeResolutionCallback: (locale, _) =>
               chineseLocale(state.language.locale ?? locale),
-          navigatorObservers: [_updateNavigation, _sourceHost],
-          navigatorKey: _sourceHost.navigatorKey,
+          navigatorObservers: [_updateNavigation],
           debugShowCheckedModeBanner: false,
           scrollBehavior: const NovelScrollBehavior(),
           theme: _theme(Brightness.light),

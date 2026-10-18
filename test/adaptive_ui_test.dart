@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/reader_panels.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -121,6 +122,10 @@ void main({AdaptiveCapture? capture, bool native = false}) {
   if (!native) {
     setUpAll(() async {
       await loadReviewFonts();
+      await (FontLoader('SourceHanSerifCN')..addFont(
+            rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
+          ))
+          .load();
     });
   }
   for (final profile in _profiles) {
@@ -146,7 +151,7 @@ void main({AdaptiveCapture? capture, bool native = false}) {
         'readerChromeVisible': true,
         'readerChromeHintSeen': true,
         'reduceMotion': true,
-        'appTypeface': AppTypeface.system.name,
+        'appTypeface': AppTypeface.sourceHanSerif.name,
       });
       final library = await LibraryState.load();
       final output = FakeListeningOutput();

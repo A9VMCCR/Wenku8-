@@ -128,74 +128,9 @@ void main() {
     }
     await tester.pumpAndSettle();
     expect(scroll.position.pixels, closeTo(offset, .01));
-    expect(find.text('纸间文库'), findsOneWidget);
+    expect(find.text('轻小说文库'), findsOneWidget);
     expect(find.text('书架还空着'), findsNothing);
     expect(tester.takeException(), isNull);
-  });
-
-  testWidgets(
-    'retapping discovery smoothly returns to top without resetting content',
-    (tester) async {
-      final state = await mountApp(tester);
-      addTearDown(state.dispose);
-      final list = find.byKey(const PageStorageKey('discover'));
-      await tester.drag(list, const Offset(0, -520));
-      await tester.pumpAndSettle();
-      final scroll = tester.state<ScrollableState>(
-        find.descendant(of: list, matching: find.byType(Scrollable)).first,
-      );
-      final offset = scroll.position.pixels;
-      final element = tester.element(list);
-      expect(offset, greaterThan(100));
-      await tester.tap(find.byKey(const ValueKey('dock-tab-0')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(scroll.position.pixels, lessThan(offset));
-      expect(scroll.position.pixels, greaterThan(0));
-      await tester.pumpAndSettle();
-      expect(scroll.position.pixels, closeTo(0, .01));
-      expect(tester.element(list), same(element));
-      await tester.drag(list, const Offset(0, -350));
-      await tester.pumpAndSettle();
-      await state.setReduceMotion(true);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('dock-tab-0')));
-      await tester.pump();
-      expect(scroll.position.pixels, closeTo(0, .01));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    },
-  );
-
-  testWidgets('dock drag settling is not a destination retap', (tester) async {
-    var selected = 0, reselected = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: GlassDock(
-              selectedIndex: 0,
-              onSelected: (_) => selected++,
-              onReselected: (_) => reselected++,
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    final tab = find.byKey(const ValueKey('dock-tab-0'));
-    await tester.tap(tab);
-    await tester.pumpAndSettle();
-    expect(reselected, 1);
-    final gesture = await tester.startGesture(tester.getCenter(tab));
-    await gesture.moveBy(const Offset(22, 0));
-    await tester.pump(const Duration(milliseconds: 100));
-    await gesture.up();
-    await tester.pumpAndSettle();
-    expect(reselected, 1);
-    expect(selected, 1);
-    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets(
@@ -305,7 +240,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 65));
       final rightTouch = tester.widget<LiquidGlass>(lens).touchPosition;
       expect(rightTouch, greaterThan(.8));
-      expect(find.text('纸间文库'), findsOneWidget);
+      expect(find.text('轻小说文库'), findsOneWidget);
       expect(find.byKey(const ValueKey('my-settings')), findsNothing);
       await gesture.moveTo(
         middle,
@@ -341,7 +276,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getRect(lens).left, closeTo(rest.left, .01));
     expect(tester.getRect(lens).size, rest.size);
-    expect(find.text('纸间文库'), findsOneWidget);
+    expect(find.text('轻小说文库'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -428,7 +363,7 @@ void main() {
     }
     expect(tester.getRect(surface).center.dx, lessThan(rest.center.dx));
     expect(tester.widget<LiquidGlass>(surface).touchPosition, lessThan(.23));
-    expect(find.text('纸间文库'), findsOneWidget);
+    expect(find.text('轻小说文库'), findsOneWidget);
     await gesture.up(timeStamp: const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
     expect(tester.getRect(surface), rest);
@@ -451,7 +386,7 @@ void main() {
       await tester.dragFrom(const Offset(3, 350), const Offset(650, 0));
       await tester.pumpAndSettle();
       expect(find.byType(DetailLoaderPage), findsNothing);
-      expect(find.text('纸间文库'), findsOneWidget);
+      expect(find.text('轻小说文库'), findsOneWidget);
     },
   );
 

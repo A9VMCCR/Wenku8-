@@ -72,6 +72,10 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
     await loadReviewFonts();
+    await (FontLoader('SourceHanSerifCN')..addFont(
+          rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
+        ))
+        .load();
   });
   setUp(() => SharedPreferences.setMockInitialValues({'reduceMotion': true}));
   void phone(WidgetTester tester, {double scale = 1}) {

@@ -202,7 +202,11 @@ class _BookmarkLibraryPageState extends State<BookmarkLibraryPage> {
                             mark.quote,
                             maxLines: 5,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 15, height: 1.75),
+                            style: const TextStyle(
+                              fontFamily: 'SourceHanSerifCN',
+                              fontSize: 15,
+                              height: 1.75,
+                            ),
                           ),
                           const SizedBox(height: 20),
                         ],

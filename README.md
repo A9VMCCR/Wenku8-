@@ -1,119 +1,109 @@
 <p align="center">
-  <img src="assets/branding/app-icon.png" width="88" alt="纸间文库图标" />
+  <img src="assets/branding/app-icon.png" width="96" alt="轻小说文库" />
 </p>
 
-<h1 align="center">纸间文库</h1>
-<p align="center">自己的书源，自己的阅读空间。</p>
+<h1 align="center">轻小说文库</h1>
+
+<p align="center">基于 Flutter 的 Android 轻小说阅读客户端</p>
 
 <p align="center">
-  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases/latest"><img src="https://img.shields.io/github/v/release/mikufoxxx/Wenku8_Flutter?style=flat-square&color=555555" alt="最新版本" /></a>
-  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml"><img src="https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml/badge.svg?branch=master" alt="构建状态" /></a>
-  <img src="https://img.shields.io/badge/Android-7.0%2B-555555?style=flat-square" alt="Android 7.0 及以上" />
+  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases"><img src="https://img.shields.io/github/v/release/mikufoxxx/Wenku8_Flutter?style=flat-square&color=555555" alt="Release" /></a>
+  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml"><img src="https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml/badge.svg?branch=master" alt="Build" /></a>
+  <img src="https://img.shields.io/badge/Platform-Android-555555?style=flat-square" alt="Android" />
   <a href="assets/licenses/GPL-3.0.txt"><img src="https://img.shields.io/badge/License-GPL--3.0-555555?style=flat-square" alt="GPL 3.0" /></a>
 </p>
 
 <p align="center">
-  <a href="https://git.3952039.xyz/#releases">下载应用</a> ·
+  <a href="https://git.3952039.xyz/#releases">下载</a> ·
   <a href="CHANGELOG.md">更新日志</a> ·
-  <a href="docs/CUSTOM_SOURCES.md">书源使用指南</a> ·
-  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/issues">问题反馈</a>
+  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/issues">问题反馈</a> ·
+  <a href="docs/RELEASING.md">构建指南</a>
 </p>
 
-> [!IMPORTANT]
-> **自 0.4.0 起，纸间文库为「零内置书源」版本。**
->
-> **不附带任何书源、书源合集或推荐订阅。在线阅读需自行导入可信、合法且有权使用的书源；本地阅读可直接使用。**
->
-> **即日起，官方渠道不再提供 0.4.0 之前任何版本的安装包，包括历史正式版、测试版及预览版，不再提供旧版下载或补发。历史源码归档继续保留。**
+## 简介
 
-## 为每一页，留一个舒服的位置
+轻小说文库是面向 Android 手机与平板的轻小说阅读客户端，集成书籍发现、书架管理、本地书库、离线阅读与在线听书。奶白玻璃材质、档案式排版与立体书架贯穿界面，阅读器支持滚动、横排翻页、竖排翻页和大屏对页。
 
-纸间文库是一款面向 Android 手机与平板的阅读应用。奶白玻璃、档案式排版和立体书架贯穿界面；从自己的书源发现作品，也可以把本地图书整理成随身书库。
+## 界面预览
 
-### 按自己的习惯阅读
+<p align="center">
+  <img src="docs/images/discovery.png" width="30%" alt="发现" />
+  &nbsp;
+  <img src="docs/images/reader.png" width="30%" alt="阅读器" />
+  &nbsp;
+  <img src="docs/images/settings.png" width="30%" alt="设置" />
+</p>
 
-- **三种阅读方式**：上下滚动、横排翻页、竖排翻页；平板与折叠屏支持展开双页。
-- **细致的排版调整**：字号、行距、四边页边距、段落间距、首行缩进和两端对齐，调整时直接预览正文。
-- **熟悉而连贯的动效**：逐段接续、平移、覆盖、纸页翻动或无动画，自由选择。
-- **自己的阅读外观**：阅读配色、背景图和自定义字体；App 与阅读器字体可分别设置。
-- **随手留下书签**：长按选择句子、复制或收藏，回到原文时定位高亮，也可将摘录保存为带图标水印的图片。
-- **完整的阅读工具**：分卷目录、章内查找、进度拖动、音量键翻页、自动滚动、跨章衔接，以及封面与插图缩放、查看和保存。
+## 功能特性
 
-### 把自己的书整理好
-
-- **立体书架与列表**：支持惯性浏览、吸附和触觉反馈，也可切换为纯列表。
-- **统一整理**：自定义分类，按阅读状态与书籍来源筛选；本地书库可独立显示，也可与书架合并。
-- **多格式导入**：TXT、EPUB、MOBI／AZW／AZW3／PRC、FB2、PDF、DOCX、RTF、HTML、Markdown 与 ZIP。
-- **扫描后自己选择**：扫描可访问的共享存储或指定文件夹，先筛选、勾选，再确认导入。
-- **同系列分卷合并**：多选导入、统一确认合并，保留目录、插图和阅读记录；支持批量整理与删除。
-- **本地与网盘**：支持 OpenList／WebDAV、夸克网盘导入，以及通过兼容的系统云文档入口手动合并同步原书和阅读记录。详见[网盘导入指南](docs/CLOUD_IMPORT.md)。
-
-### 书源与听书，由你选择
-
-- **兼容阅读 App 3.0 小说书源**：支持常见 JSON 与脚本型小说书源，覆盖搜索、发现分类、书籍详情、分卷目录、正文和插图，以及书源提供的登录与网页验证流程。
-- **书源管理**：文件、链接或粘贴导入，预览后选择；支持分组、编辑、排序、启停、检查与导出。
-- **跨源搜索**：可指定书源或同时搜索全部启用书源，支持简繁及港／台常见字形匹配。
-- **账号状态可见**：登录信息按书源分别管理；明确支持的书源可验证登录、合并云书架或手动签到。
-- **在线听书**：中文音色、自定义语音接口、0.5～3 倍速、段落跟随、睡眠定时和后台控制。
-
-目前仅适配**小说书源**，不包含漫画、音频、视频及文件型书源。具体可用功能取决于书源与对应网站；兼容格式不代表内容已获授权或服务持续可用。
+- **书籍发现**：分类、排行、出版文库；按书名、作者或标签筛选搜索，点击详情页作者或标签查看相应书单。
+- **书架管理**：立体书架支持循环轮播、惯性滚动、吸附与触觉反馈，可切换为纯列表；与本地书库共用自定义分类，分类可与阅读状态、书籍来源叠加筛选。
+- **阅读排版**：上下滚动、横排翻页与竖排翻页，大屏对页；可选逐段接续、平移、覆盖、纸页翻动或无动画。配色、字号、行距、页边距、段落间距、缩进与对齐支持实时预览；支持导入 TTF／OTF，App 与阅读器可分别设置字体。
+- **阅读工具**：可展开的分卷目录、书签定位与高亮、章内查找、封面与插图大图查看、双指缩放与原图保存、分区点按与音量键翻页、自动滚动与跨章衔接；可选择点书直接续读，在阅读器打开书籍详情。
+- **离线阅读**：App 内章节缓存、缓存管理、阅读历史、进度续读与本地备份。
+- **本地书库**：多选导入 TXT、EPUB、Kindle、FB2、PDF、DOCX、RTF、HTML、Markdown 与 ZIP；支持扫描共享存储或指定文件夹，勾选后导入。同系列分卷可合并，保留目录、插图与阅读记录；支持分类整理、书籍信息编辑与分卷顺序调整，可单独管理或与缓存书籍合并展示，并按来源筛选。
+- **网盘与同步**：OpenList／WebDAV、夸克网盘导入（实验性），通过 OneDrive、Google Drive 等系统云文档入口手动合并同步原书与阅读记录。
+- **在线听书**：中文音色、自定义 Microsoft SSML 接口、0.5～3 倍速、段落跟随、睡眠定时、后台与锁屏控制。
+- **账号与社区**：文库账号、云书架、书评与回复。
+- **中文支持**：简体中文、香港繁体与台湾繁体，可跟随系统或手动选择。
+- **性能设置**：帧率偏好与低性能设备模式，可独立调整玻璃折射、模糊、动效与立体书架。
+- **使用方式**：离线时隐藏发现、保留可离线阅读的书；阅读器模式保留本地或合并书架与「我的」，随书库展示方式联动。
 
 ## 下载与更新
 
-**当前版本：0.4.0。官方不再提供 0.4.0 之前版本的安装包，旧版只保留 GitHub 自动生成的 Source code（ZIP／TAR.GZ），不再保留手动上传的 `source.zip`。**
+当前正式版为 **[0.3.7 · build 63](https://github.com/mikufoxxx/Wenku8_Flutter/releases/tag/v0.3.7%2B63)**。新增五种翻页效果、独立四边页边距、多格式导入与扫描，统一阅读工具与书库入口；小说保留 App 内离线缓存，版本检测与 APK 下载自动优先镜像。详见[完整更新说明](CHANGELOG.md)。
 
-[下载页面](https://git.3952039.xyz/#releases) · [GitHub 官方发布页](https://github.com/mikufoxxx/Wenku8_Flutter/releases/latest) · [本版完整说明](CHANGELOG.md)
+> [!IMPORTANT]
+> **0.4.0 已撤回，当前正式版恢复为「轻小说文库 0.3.7」。** 历史正式版安装包与对应源码包已恢复提供，原有标签和版本记录保留。
+>
+> **已经安装 0.4.0 的用户请先备份数据，不要直接卸载。** Android 不允许以普通安装方式将 build 87 降级覆盖为 build 63；本次恢复下载不会自动降级手机里的应用。
 
-| 设备 | 选择的安装包 |
+常见 Android 手机与平板请选择 **ARM64**：
+
+| 设备 | 安装包 |
 | --- | --- |
-| 常见 Android 手机、平板 | **ARM64 / arm64-v8a** |
-| 32 位 ARM 设备 | ARMv7 / armeabi-v7a |
-| x86_64 设备或模拟器 | x86_64 |
+| 常见手机、平板（推荐） | [ARM64 · arm64-v8a](https://git.3952039.xyz/#releases) |
+| 旧款 32 位 ARM 设备 | [ARMv7 · armeabi-v7a](https://git.3952039.xyz/#releases) |
+| x86_64 设备或模拟器 | [x86_64](https://git.3952039.xyz/#releases) |
 
-应用内可在 **我的 → 关于 → 检查更新** 获取后续版本。
+从 0.3.7 之前的正式版升级时，可在 **我的 → 关于 → 检查更新** 获取 0.3.7。0.3.2 及以上正式版开启自动检查后，可收到新版本弹窗；选择稍后提醒，同一版本 24 小时内不再弹出。正式版沿用同一签名，可覆盖升级；不支持普通覆盖降级。
 
-### 从旧版升级
+源码与其他版本见 [GitHub Releases](https://github.com/mikufoxxx/Wenku8_Flutter/releases)。
 
-1. **先备份阅读记录，不要先卸载旧版。** 正式版沿用原安装标识与签名，可覆盖升级。
-2. 原有书架、本地图书、分类、缓存、阅读进度和书签继续保留；已缓存内容仍可离线阅读。
-3. 原内置来源不再提供在线内容。需要继续阅读未缓存章节时，先导入对应书源，再从旧书详情页选择 **关联书源**。
+阅读与自定义语音见 [阅读器与本地书库](docs/READER.md)，网盘连接见 [网盘导入指南](docs/CLOUD_IMPORT.md)，标签与关键词用法见 [搜索指南](docs/SEARCH.md)。
 
-## 开始使用
+## 构建
 
-**在线阅读**：打开 **我的 → 书源管理**，导入有权使用的书源，确认启用后到发现页浏览或搜索。
+开发环境：**Flutter 3.41.5 / Dart 3.11.3、JDK 17、Android SDK**。
 
-**本地阅读**：打开本地页面右上角 **＋**，选择文件、扫描文件夹或从网盘导入；开启合并书架后，导入入口位于书架右上角。
+```sh
+git clone https://github.com/mikufoxxx/Wenku8_Flutter.git
+cd Wenku8_Flutter
+flutter pub get
+flutter build apk --release --target-platform android-arm64
+```
 
-**专注阅读**：在设置中开启阅读器模式，或使用离线适配；支持简体中文、香港繁体和台湾繁体。
+### GitHub Actions
 
-[阅读器与本地书库](docs/READER.md) · [自定义书源](docs/CUSTOM_SOURCES.md) · [搜索指南](docs/SEARCH.md)
+- [Flutter Android](https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml)：代码检查、自动测试与 ARM64 APK 构建。
+- [Build Android APKs](https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/android-release.yml)：三架构签名 APK、源码归档与版本发布候选，支持版本标签触发和手动运行。
 
-## 使用声明与风险
+签名配置与发布流程见 [构建发布指南](docs/RELEASING.md)。
 
-**本项目明确反对并不支持任何侵权行为。** 纸间文库是通用阅读工具，不内置、托管或分发小说资源，不提供书源推荐、合集或订阅分发服务，也不提供绕过付费、账号权限、数字版权保护或其他访问限制的服务。
+## 友情链接
 
-- 仅使用已获授权、属于公共领域或你依法有权使用的作品与服务。能够导入规则或拥有文件，不代表获得作品的复制、分享或传播授权。
-- 第三方书源可能访问外部服务，搜索内容及填写的登录资料可能发送至其指定的网站。不要向不可信书源提供账号或个人信息。
-- 妥善保存原始文件并定期备份；分享书源、备份或反馈问题前，请移除敏感信息。
+[LINUX DO 社区](https://linux.do/)
 
-完整说明见[使用与风险声明](docs/RESPONSIBLE_USE.md)，App 内也可从 **我的 → 关于** 查看。权利反馈请通过 [Issues](https://github.com/mikufoxxx/Wenku8_Flutter/issues) 提供具体信息，维护者将核查处理。
+## 贡献
 
-> **再次提醒：0.4.0 起为零内置书源版本；官方渠道停止提供 0.4.0 之前版本的安装包，历史源码归档保留。**
-
-## 开发与贡献
-
-欢迎反馈问题、提出建议或提交 Pull Request。请提供应用版本、Android 版本和复现步骤，不要公开上传账号、登录信息或未经授权的整本作品。
-
-本项目使用 Flutter，优先支持 Android。[构建与签名](docs/RELEASING.md)包含本地构建和 GitHub Actions 使用方法；[书源兼容说明](docs/CUSTOM_SOURCES.md)列出当前支持范围。
+欢迎通过 [Issues](https://github.com/mikufoxxx/Wenku8_Flutter/issues) 反馈问题或提出建议，通过 Pull Request 参与开发。提交问题时请提供应用版本、Android 版本和复现步骤。
 
 ## 致谢与许可
 
-项目源自 [MewX/light-novel-library_Wenku8_Android](https://github.com/MewX/light-novel-library_Wenku8_Android)，感谢 MewX、Baby Pepper（SeraphRoy）、Jack Liu（aaassseee）及原项目贡献者。纸间文库由本项目维护者独立维护，不代表原平台或上游作者。
+本项目基于 [MewX/light-novel-library_Wenku8_Android](https://github.com/MewX/light-novel-library_Wenku8_Android) 重构。感谢 MewX、Baby Pepper（SeraphRoy）、Jack Liu（aaassseee）及原项目贡献者。
 
-原项目 [GPL v2 或后续版本声明](LICENSE)保留，本 Flutter 组合版本按 [GPL v3](assets/licenses/GPL-3.0.txt) 分发。感谢 LegadoTeam / gedoor 及贡献者、Liquid Glass Easy、edge-tts 和其他开源项目。
+- 应用源码：保留原项目 [GPL v2 或后续版本声明](LICENSE)，本 Flutter 组合版本按 [GPL v3](assets/licenses/GPL-3.0.txt) 分发。
+- 内置字体：[Adobe Source Han Serif CN](https://github.com/adobe-fonts/source-han-serif)，[SIL OFL 1.1](assets/fonts/OFL-SourceHanSerif.txt)。
+- 在线语音协议适配：[rany2/edge-tts](https://github.com/rany2/edge-tts)，[LGPL v3](assets/licenses/edge-tts.txt)。
 
-完整来源、修改说明与第三方许可见 [NOTICE](NOTICE) 和 [第三方组件许可](docs/THIRD_PARTY.md)。应用代码的开源许可不授予第三方作品或服务的使用权。
-
----
-
-[LINUX DO 社区](https://linux.do/)
+完整版权声明与接口运行库分发条件见 [NOTICE](NOTICE) 和 [第三方组件许可](docs/THIRD_PARTY.md)。

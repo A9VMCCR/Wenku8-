@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/catalog.dart';
@@ -27,6 +28,10 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
     await loadReviewFonts();
+    await (FontLoader('SourceHanSerifCN')..addFont(
+          rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
+        ))
+        .load();
   });
   late LibraryState state;
   setUp(() async {

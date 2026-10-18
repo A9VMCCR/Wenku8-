@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Theme;
 import 'package:flutter/services.dart';
 
 import 'app_interactions.dart';
@@ -26,19 +25,11 @@ class QuoteCardData {
 /// Long excerpts paginate into complete cards; neither text nor attribution is
 /// silently cropped to fit an arbitrary phone viewport.
 class QuoteCardLayout {
-  QuoteCardLayout._(
-    this.data,
-    this.style,
-    this.body,
-    this.title,
-    this.source,
-    this.fontFamily,
-  );
+  QuoteCardLayout._(this.data, this.style, this.body, this.title, this.source);
   static const width = 480.0;
   final QuoteCardData data;
   final QuoteCardStyle style;
   final TextPainter body, title, source;
-  final String? fontFamily;
   double get height =>
       math.max(530, 160 + body.height + 72 + title.height + source.height + 80);
   Color get background => style == QuoteCardStyle.paper
@@ -53,9 +44,8 @@ class QuoteCardLayout {
 
   static List<QuoteCardLayout> prepare(
     QuoteCardData data,
-    QuoteCardStyle style, {
-    String? fontFamily,
-  }) {
+    QuoteCardStyle style,
+  ) {
     final ink = style == QuoteCardStyle.paper
         ? const Color(0xff303630)
         : const Color(0xfff1eee6);
@@ -72,7 +62,7 @@ class QuoteCardLayout {
       text: TextSpan(
         text: value,
         style: TextStyle(
-          fontFamily: fontFamily,
+          fontFamily: 'SourceHanSerifCN',
           fontSize: size,
           height: height,
           color: color,
@@ -124,7 +114,6 @@ class QuoteCardLayout {
             11.5,
             muted,
           ),
-          fontFamily,
         ),
       );
     }
@@ -167,7 +156,7 @@ class QuoteCardLayout {
       text: TextSpan(
         text: '“',
         style: TextStyle(
-          fontFamily: fontFamily,
+          fontFamily: 'SourceHanSerifCN',
           fontSize: 72,
           height: 1,
           color: muted.withValues(alpha: .32),
@@ -264,8 +253,10 @@ class QuoteCardPage extends StatefulWidget {
 
 class _QuoteCardPageState extends State<QuoteCardPage> {
   QuoteCardStyle _style = QuoteCardStyle.paper;
-  List<QuoteCardLayout> _cards = [];
-  String? _fontFamily;
+  late List<QuoteCardLayout> _cards = QuoteCardLayout.prepare(
+    widget.data,
+    _style,
+  );
   int _page = 0;
   bool _watermark = true, _busy = false;
   ui.Image? _icon;
@@ -274,19 +265,6 @@ class _QuoteCardPageState extends State<QuoteCardPage> {
   void initState() {
     super.initState();
     _loadIcon();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final family = Theme.of(context).textTheme.bodyMedium?.fontFamily;
-    if (_cards.isNotEmpty && family == _fontFamily) return;
-    for (final card in _cards) {
-      card.dispose();
-    }
-    _fontFamily = family;
-    _cards = QuoteCardLayout.prepare(widget.data, _style, fontFamily: family);
-    _page = _page.clamp(0, math.max(0, _cards.length - 1));
   }
 
   Future<void> _loadIcon() async {
@@ -315,12 +293,7 @@ class _QuoteCardPageState extends State<QuoteCardPage> {
     }
     setState(() {
       _style = value;
-      _cards = QuoteCardLayout.prepare(
-        widget.data,
-        _style,
-        fontFamily: _fontFamily,
-      );
-      _page = _page.clamp(0, math.max(0, _cards.length - 1));
+      _cards = QuoteCardLayout.prepare(widget.data, _style);
     });
   }
 

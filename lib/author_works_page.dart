@@ -9,8 +9,6 @@ import 'library_state.dart';
 import 'novel_feed_controller.dart';
 import 'offline_repository.dart';
 import 'tag_catalogue.dart';
-import 'sources/source_repository.dart';
-import 'local_books.dart' show isLocalBook;
 import 'pages.dart' show NovelRow, FeedRefresh, FeedFooter, openDetail;
 
 class AuthorWorksRepository extends NovelRepository {
@@ -20,14 +18,12 @@ class AuthorWorksRepository extends NovelRepository {
     this.localOnly = false,
     this.tagSearch = false,
     this.current,
-    this.collection,
   });
   final NovelRepository source;
   final String author;
   final bool localOnly;
   final bool tagSearch;
   final bool Function()? current;
-  final SourceRelatedCollection? collection;
   @override
   Future<NovelPage> browse({
     NovelSort sort = NovelSort.lastUpdate,
@@ -39,26 +35,9 @@ class AuthorWorksRepository extends NovelRepository {
           ? (source as OfflineNovelRepository).local?.books ?? const <Novel>[]
           : const <Novel>[];
       return NovelPage.fromItems(
-        local
-            .where(
-              (b) => tagSearch
-                  ? BookSearch(author, field: BookSearchField.tags).matches(
-                      title: b.title,
-                      author: b.author,
-                      tags: b.genre,
-                      summary: b.summary,
-                      id: '${b.id}',
-                    )
-                  : sameNovelAuthor(b.author, author),
-            )
-            .toList(),
+        local.where((b) => sameNovelAuthor(b.author, author)).toList(),
         page,
       );
-    }
-    if (collection != null &&
-        !(source is OfflineNovelRepository &&
-            (source as OfflineNovelRepository).offline)) {
-      return collection!.page(page: page, refresh: refresh, current: current);
     }
     if (tagSearch && source is ProgressiveTagCatalogue) {
       return (source as ProgressiveTagCatalogue).tagPage(
@@ -101,30 +80,17 @@ class AuthorWorksPage extends StatefulWidget {
     required this.state,
     this.localOnly = false,
     this.tagSearch = false,
-    this.origin,
   });
   final String author;
   final NovelRepository repository;
   final LibraryState state;
   final bool localOnly;
   final bool tagSearch;
-  final Novel? origin;
   @override
   State<AuthorWorksPage> createState() => _AuthorWorksPageState();
 }
 
 class _AuthorWorksPageState extends State<AuthorWorksPage> {
-  late final SourceRelatedCollection? _collection =
-      widget.origin?.sourceId != null &&
-          !widget.localOnly &&
-          sourceRepositoryOf(widget.repository) != null
-      ? SourceRelatedCollection(
-          sourceRepositoryOf(widget.repository)!,
-          origin: widget.origin!,
-          label: widget.author,
-          tag: widget.tagSearch,
-        )
-      : null;
   late final _feed = NovelFeedController(
     AuthorWorksRepository(
       widget.repository,
@@ -132,7 +98,6 @@ class _AuthorWorksPageState extends State<AuthorWorksPage> {
       localOnly: widget.localOnly,
       tagSearch: widget.tagSearch,
       current: () => mounted,
-      collection: _collection,
     ),
     initialItems: 20,
   );
@@ -144,7 +109,6 @@ class _AuthorWorksPageState extends State<AuthorWorksPage> {
 
   @override
   void dispose() {
-    _collection?.dispose();
     _feed.dispose();
     super.dispose();
   }
@@ -164,9 +128,7 @@ class _AuthorWorksPageState extends State<AuthorWorksPage> {
           return ContentNotice(
             icon: CupertinoIcons.wifi_exclamationmark,
             title: '作品加载失败',
-            message: _collection == null
-                ? '请检查网络后重试'
-                : sourceErrorMessage(_feed.error!),
+            message: '请检查网络后重试',
             onRetry: _feed.retry,
           );
         }
@@ -192,7 +154,7 @@ class _AuthorWorksPageState extends State<AuthorWorksPage> {
               feed: _feed,
               child: CustomScrollView(
                 key: PageStorageKey(
-                  'related-works-${widget.origin?.sourceId}-${widget.author}-${widget.localOnly}-${widget.tagSearch}',
+                  'related-works-${widget.author}-${widget.localOnly}-${widget.tagSearch}',
                 ),
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
@@ -278,19 +240,15 @@ class TagWorksPage extends StatelessWidget {
     required this.tag,
     required this.repository,
     required this.state,
-    this.origin,
   });
   final String tag;
   final NovelRepository repository;
   final LibraryState state;
-  final Novel? origin;
   @override
   Widget build(BuildContext context) => AuthorWorksPage(
     author: tag,
     repository: repository,
     state: state,
     tagSearch: true,
-    localOnly: origin != null && isLocalBook(origin!.id),
-    origin: origin,
   );
 }

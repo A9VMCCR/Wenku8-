@@ -8,11 +8,9 @@ import 'package:flutter/services.dart';
 import 'app_ui.dart';
 import 'app_interactions.dart';
 import 'catalog.dart';
-import 'book_documents.dart';
 import 'library_state.dart';
 import 'local_platform.dart';
 import 'reader_preferences.dart';
-import 'reader_background.dart';
 import 'font_settings_page.dart';
 import 'glass_choices.dart';
 import 'setting_menu.dart';
@@ -161,8 +159,6 @@ class ReaderTools extends StatefulWidget {
     this.onIllustrations,
     this.listeningBuilder,
     this.initialTab,
-    this.backgrounds,
-    this.documents,
   });
   final Novel novel;
   final LibraryState state;
@@ -175,8 +171,6 @@ class ReaderTools extends StatefulWidget {
   final bool initialBookmarks;
   final WidgetBuilder? listeningBuilder;
   final String? initialTab;
-  final ReaderBackgroundStore? backgrounds;
-  final BookDocuments? documents;
   final ValueChanged<double>? onFontPreview, onLineHeightPreview;
   final ValueChanged<bool>? onPreviewChanged;
   final void Function(ReaderPreferences, bool persist)? onPreferencesChanged;
@@ -189,73 +183,6 @@ class _ReaderToolsState extends State<ReaderTools> {
   late String _tab =
       widget.initialTab ?? (widget.initialBookmarks ? 'bookmarks' : 'layout');
   bool _adding = false;
-  bool _backgroundBusy = false;
-  ReaderBackgroundStore get _backgrounds =>
-      widget.backgrounds ?? ReaderBackgroundStore.shared;
-
-  Future<void> _chooseBackground() async {
-    if (_backgroundBusy) return;
-    setState(() => _backgroundBusy = true);
-    final documents = widget.documents ?? BookDocuments();
-    BookDocumentSelection? selection;
-    String? imported;
-    var committed = false;
-    try {
-      selection = await documents.pickReaderBackground();
-      if (!mounted || selection?.path == null) return;
-      imported = await _backgrounds.importFile(selection!.path!);
-      if (!mounted) return;
-      final previous = widget.state.readerPreferences.backgroundImage;
-      await widget.state.setReaderPreferences(
-        widget.state.readerPreferences.copyWith(backgroundImage: imported),
-      );
-      committed = true;
-      if (previous != null) await _backgrounds.remove(previous);
-    } catch (error) {
-      if (mounted) {
-        showNovelFeedback(
-          context,
-          committed
-              ? '背景已更换，旧背景文件清理失败'
-              : error is FormatException
-              ? error.message
-              : error is PlatformException
-              ? error.message ?? '无法导入这张图片，请重试'
-              : '背景图片保存失败，请重试',
-        );
-      }
-    } finally {
-      if (!committed && imported != null) {
-        try {
-          await _backgrounds.remove(imported);
-        } catch (_) {}
-      }
-      if (selection?.path != null) {
-        try {
-          await documents.releaseBooks([selection!]);
-        } catch (_) {}
-      }
-      if (mounted) setState(() => _backgroundBusy = false);
-    }
-  }
-
-  Future<void> _clearBackground() async {
-    if (_backgroundBusy) return;
-    final id = widget.state.readerPreferences.backgroundImage;
-    if (id == null) return;
-    setState(() => _backgroundBusy = true);
-    try {
-      await widget.state.setReaderPreferences(
-        widget.state.readerPreferences.copyWith(clearBackground: true),
-      );
-      await _backgrounds.remove(id);
-    } catch (_) {
-      if (mounted) showNovelFeedback(context, '背景设置或文件清理失败，请重试');
-    } finally {
-      if (mounted) setState(() => _backgroundBusy = false);
-    }
-  }
-
   bool _added = false;
   String? _addedId;
   String? _storageError;
@@ -493,70 +420,6 @@ class _ReaderToolsState extends State<ReaderTools> {
                   ),
                 ),
               ],
-            ),
-          ),
-          _adjustment(
-            Row(
-              children: [
-                Expanded(
-                  child: GlassTextButton(
-                    key: const ValueKey('reader-background-image'),
-                    onPressed: _backgroundBusy ? null : _chooseBackground,
-                    child: Row(
-                      children: [
-                        const Icon(CupertinoIcons.photo, size: 18),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: AppText(
-                            _backgroundBusy
-                                ? '正在处理图片…'
-                                : widget
-                                          .state
-                                          .readerPreferences
-                                          .backgroundImage ==
-                                      null
-                                ? '选择背景图'
-                                : '更换背景图',
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (widget.state.readerPreferences.backgroundImage != null) ...[
-                  const SizedBox(width: 8),
-                  GlassTextButton(
-                    key: const ValueKey('reader-background-remove'),
-                    onPressed: _backgroundBusy ? null : _clearBackground,
-                    child: const AppText('移除', style: TextStyle(fontSize: 13)),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          AnimatedOptionSection(
-            expanded: widget.state.readerPreferences.backgroundImage != null,
-            child: _adjustment(
-              ReaderValueSlider(
-                sliderKey: const ValueKey('reader-background-opacity'),
-                label: '背景图片浓度',
-                value: widget.state.readerPreferences.backgroundOpacity,
-                min: .05,
-                max: 1,
-                divisions: 19,
-                format: (v) => '${(v * 100).round()}%',
-                onPreview: (v) => _preferences(
-                  widget.state.readerPreferences.copyWith(backgroundOpacity: v),
-                  persist: false,
-                ),
-                onCommitted: (v) => _preferences(
-                  widget.state.readerPreferences.copyWith(backgroundOpacity: v),
-                ),
-                onInteractionChanged: (v) =>
-                    _preview(const ValueKey('reader-background-opacity'), v),
-              ),
-              const ValueKey('reader-background-opacity'),
             ),
           ),
           _adjustment(

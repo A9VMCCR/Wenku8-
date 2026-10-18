@@ -40,7 +40,6 @@ class ReaderControlsPlugin : FlutterPlugin, ActivityAware {
     }
     private fun hideStatusBar(hidden: Boolean) {
         activity?.window?.let { window ->
-            ReaderWindowLayout.apply(window)
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             if (hidden) controller.hide(WindowInsetsCompat.Type.statusBars())

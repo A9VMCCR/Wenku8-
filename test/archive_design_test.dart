@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wenku8_flutter/app_ui.dart';
-import 'package:wenku8_flutter/app_branding.dart';
 import 'package:wenku8_flutter/archive_carousel.dart';
 import 'package:wenku8_flutter/catalog.dart';
 import 'package:wenku8_flutter/library_state.dart';
@@ -18,7 +17,7 @@ double contrast(Color a, Color b) {
   return (math.max(x, y) + .05) / (math.min(x, y) + .05);
 }
 
-void main({Future<void> Function(WidgetTester, GlobalKey, String)? capture}) {
+void main() {
   test('archive foreground and metadata remain readable in both themes', () {
     for (final brightness in Brightness.values) {
       final scheme = novelTheme(brightness).colorScheme;
@@ -40,56 +39,52 @@ void main({Future<void> Function(WidgetTester, GlobalKey, String)? capture}) {
       addTearDown(tester.view.reset);
       for (final size in [const Size(320, 640), const Size(780, 260)]) {
         tester.view.physicalSize = size;
-        final captureKey = GlobalKey();
         await tester.pumpWidget(
-          RepaintBoundary(
-            key: captureKey,
-            child: MaterialApp(
-              theme: novelTheme(brightness),
-              builder: (context, child) => MediaQuery(
-                data: MediaQuery.of(
-                  context,
-                ).copyWith(textScaler: TextScaler.linear(3)),
-                child: child!,
-              ),
-              home: Scaffold(
-                body: Atmosphere(
-                  child: GlassHeaderLayout(
-                    header: Row(
-                      children: [
-                        const Expanded(
-                          child: ArchiveMasthead(
-                            title: '纸间文库',
-                            code: 'ZHIJIAN / READING ARCHIVE',
-                            brand: true,
-                          ),
+          MaterialApp(
+            theme: novelTheme(brightness),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(3)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Atmosphere(
+                child: GlassHeaderLayout(
+                  header: Row(
+                    children: [
+                      const Expanded(
+                        child: ArchiveMasthead(
+                          title: '轻小说文库',
+                          code: 'WENKU8 / READING ARCHIVE',
+                          brand: true,
                         ),
-                        GlassIconButton(
-                          icon: CupertinoIcons.search,
-                          label: '搜索',
-                          onPressed: () {},
+                      ),
+                      GlassIconButton(
+                        icon: CupertinoIcons.search,
+                        label: '搜索',
+                        onPressed: () {},
+                      ),
+                    ],
+                  ),
+                  body: ListView(
+                    padding: const EdgeInsets.fromLTRB(24, 90, 24, 24),
+                    children: const [
+                      ArchiveSection(
+                        title: '简介',
+                        code: '01 / SYNOPSIS',
+                        subtitle: '清晰的阅读与档案信息',
+                      ),
+                      SizedBox(height: 16),
+                      ContentPanel(child: Text('内容保持清晰，纹样只在页边。')),
+                      SizedBox(
+                        height: 56,
+                        child: ArchiveRouteTitle(
+                          title: '很长的图书名称也保留返回和设置按钮',
+                          code: 'WK-00042',
                         ),
-                      ],
-                    ),
-                    body: ListView(
-                      padding: const EdgeInsets.fromLTRB(24, 90, 24, 24),
-                      children: const [
-                        ArchiveSection(
-                          title: '简介',
-                          code: '01 / SYNOPSIS',
-                          subtitle: '清晰的阅读与档案信息',
-                        ),
-                        SizedBox(height: 16),
-                        ContentPanel(child: Text('内容保持清晰，纹样只在页边。')),
-                        SizedBox(
-                          height: 56,
-                          child: ArchiveRouteTitle(
-                            title: '很长的图书名称也保留返回和设置按钮',
-                            code: 'WK-00042',
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -112,21 +107,6 @@ void main({Future<void> Function(WidgetTester, GlobalKey, String)? capture}) {
           lessThanOrEqualTo(240),
         );
         expect(find.byTooltip('搜索'), findsOneWidget);
-        expect(find.text('W8'), findsNothing);
-        final icon = find.byKey(const ValueKey('archive-brand-icon'));
-        expect(tester.getSize(icon), const Size(30, 30));
-        final provider = tester.widget<Image>(icon).image as ResizeImage;
-        expect(
-          (provider.imageProvider as AssetImage).assetName,
-          'assets/branding/app-icon.png',
-        );
-        if (capture != null) {
-          await capture(
-            tester,
-            captureKey,
-            'brand-${brightness.name}-${size.width.toInt()}',
-          );
-        }
       }
     });
 
@@ -221,7 +201,7 @@ void main({Future<void> Function(WidgetTester, GlobalKey, String)? capture}) {
       find.text('01 / ${demoNovels.take(5).length.toString().padLeft(2, '0')}'),
       findsOneWidget,
     );
-    expect(find.text(appArchiveCode), findsOneWidget);
+    expect(find.text('WENKU8 / READING ARCHIVE'), findsOneWidget);
     expect(find.byType(ArchiveBackdrop), findsOneWidget);
     await tester.tapAt(
       tester.getCenter(find.byKey(const ValueKey('dock-tab-1'))),
@@ -238,7 +218,7 @@ void main({Future<void> Function(WidgetTester, GlobalKey, String)? capture}) {
     expect(find.byKey(const ValueKey('expanded-search-input')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('inline-search-close')));
     await tester.pumpAndSettle();
-    expect(find.text(appArchiveCode), findsOneWidget);
+    expect(find.text('WENKU8 / READING ARCHIVE'), findsOneWidget);
     expect(tester.takeException(), isNull);
     expect(tester.binding.transientCallbackCount, 0);
     await tester.pumpWidget(const SizedBox.shrink());

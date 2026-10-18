@@ -15,7 +15,6 @@ import 'local_library_preferences.dart';
 import 'local_series_actions.dart';
 import 'local_scan_page.dart';
 import 'local_scan_selection.dart';
-import 'local_import_settings_page.dart';
 
 /// Shared by the two library entry points, including series review and cleanup.
 class LocalBookImporter extends ChangeNotifier {
@@ -102,14 +101,9 @@ class LocalBookImporter extends ChangeNotifier {
             label: '扫描本地文件夹',
             onPressed: () => Navigator.pop(menu, 'scan'),
           ),
-          GlassMenuItem(
-            order: 3,
-            label: '导入选项',
-            onPressed: () => Navigator.pop(menu, 'options'),
-          ),
           if (management)
             GlassMenuItem(
-              order: 4,
+              order: 3,
               label: '本地分类与同步',
               onPressed: () => Navigator.pop(menu, 'manage'),
             ),
@@ -117,14 +111,6 @@ class LocalBookImporter extends ChangeNotifier {
       ),
     );
     if (!context.mounted || action == null || _disposed) return;
-    if (action == 'options') {
-      await pushNovelPage<void>(
-        context,
-        const LocalImportSettingsPage(),
-        reduceMotion: library.reduceMotion,
-      );
-      return;
-    }
     if (action == 'manage') {
       onManage?.call();
       return;
@@ -186,7 +172,6 @@ class LocalBookImporter extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       organization = library.organization;
       final encoding = prefs.getString('localTxtEncoding') ?? 'auto';
-      final options = await loadLocalImportOptions(prefs);
       final fresh = <int>{};
       Future<Novel> importFile(String name, String path) async {
         String? decoded;
@@ -195,12 +180,7 @@ class LocalBookImporter extends ChangeNotifier {
           if (name.toLowerCase().endsWith('.txt')) {
             decoded = await documents.decodeTextFile(path, encoding: encoding);
           }
-          imported = await books.importFile(
-            name,
-            path,
-            decodedPath: decoded,
-            options: options,
-          );
+          imported = await books.importFile(name, path, decodedPath: decoded);
         } finally {
           if (decoded != null) {
             await documents.releaseBooks([

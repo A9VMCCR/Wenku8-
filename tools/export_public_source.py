@@ -10,15 +10,12 @@ FILES = (
     "analysis_options.yaml", ".github/workflows/flutter-ci.yml", ".github/workflows/android-release.yml",
     "tools/export_public_source.py", "tools/test_public_source_export.py", "tools/generate_app_icons.dart",
     "docs/RELEASING.md", "docs/THIRD_PARTY.md", "docs/READER.md", "docs/CLOUD_IMPORT.md", "docs/SEARCH.md",
-    "docs/CUSTOM_SOURCES.md", "docs/RESPONSIBLE_USE.md",
     "CHANGELOG.md", "tools/prepare_release.py", "tools/test_prepare_release.py",
     "tools/check_public_source.py", "tools/test_public_source_policy.py",
     "tools/verify_apk_runtime.py", "tools/test_verify_apk_runtime.py",
-    "tools/analyze_apk_size.py", "tools/test_analyze_apk_size.py",
-    "third_party/DESUGAR_JDK_LIBS.md",
     "tools/create_update_fixtures.py",
 )
-DIRECTORIES = ("lib", "assets", "shaders", "test", "integration_test", "android", "ios", "third_party/liquid_glass_easy", "third_party/libmobi", "third_party/legado", "third_party/maven", "third_party/htmlunit-core-js", "third_party/source-host", "third_party/desugar-jdk", "tools/update-mirror")
+DIRECTORIES = ("lib", "assets", "shaders", "test", "integration_test", "android", "ios", "docs/images", "third_party/liquid_glass_easy", "third_party/libmobi", "tools/update-mirror", "tools/content-gateway")
 PRIVATE_NAMES = {
     "local.properties", "key.properties", "GeneratedPluginRegistrant.java",
     "Generated.xcconfig", "flutter_export_environment.sh", ".DS_Store",
@@ -38,7 +35,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="New, empty output folder")
     parser.add_argument("--source-only", action="store_true",
-                        help="Compatibility option: 0.4 exports always omit the retired embedded content runtime")
+                        help="Omit the embedded libcpp.so runtime (the resulting app cannot use its network API)")
     args = parser.parse_args()
     destination = args.output.resolve()
     if destination == ROOT or ROOT.is_relative_to(destination) or destination.is_relative_to(ROOT):
@@ -63,7 +60,7 @@ def main():
             return
         if relative.as_posix() in DEVELOPMENT_ENTRIES:
             return
-        if source.name == "libcpp.so":
+        if source.name == "libcpp.so" and args.source_only:
             return
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -76,7 +73,10 @@ def main():
         for source in sorted((ROOT / directory).rglob("*")):
             copy(source.relative_to(ROOT))
     print(f"Exported {copied} source files to {destination}")
-    print("Zero built-in content sources; retired content runtime and old promotional screenshots excluded. Review docs/RELEASING.md before publication.")
+    if args.source_only:
+        print("Network API runtime excluded. See docs/RELEASING.md before distributing a working network build.")
+    else:
+        print("Embedded network runtime retained unchanged under its separate redistribution conditions. See docs/THIRD_PARTY.md.")
 
 
 if __name__ == "__main__":

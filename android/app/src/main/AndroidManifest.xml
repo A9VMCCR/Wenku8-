@@ -10,7 +10,6 @@
     <application
         android:label="${wenkuAppLabel}"
         android:requestLegacyExternalStorage="true"
-        android:usesCleartextTraffic="true"
         android:name=".WenkuApplication"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -38,17 +37,6 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <service
-            android:name=".SourceWebService"
-            android:process=":book_sources"
-            android:exported="false" />
-        <activity
-            android:name=".SourceLoginActivity"
-            android:process=":book_sources"
-            android:exported="false"
-            android:theme="@style/NormalTheme"
-            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|uiMode"
-            android:windowSoftInputMode="adjustResize" />
         <service
             android:name="com.ryanheise.audioservice.AudioService"
             android:foregroundServiceType="mediaPlayback"

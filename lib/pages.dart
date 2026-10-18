@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'app_branding.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
@@ -57,7 +56,6 @@ import 'frame_rate_settings.dart';
 import 'reader_catalogue.dart';
 import 'reader_chrome.dart';
 import 'reader_appearance.dart';
-import 'reader_background.dart';
 import 'reader_content.dart';
 import 'reader_scroll_sliver.dart';
 import 'discovery_filters.dart';
@@ -84,9 +82,6 @@ import 'feature_pages.dart';
 import 'wenku_features.dart';
 import 'legacy_import_page.dart';
 import 'legacy_transport.dart';
-import 'sources/source_repository.dart';
-import 'sources/source_pages.dart';
-import 'sources/source_link_page.dart';
 import 'review_pages.dart';
 
 export 'app_ui.dart' show sectionHeader;
@@ -150,9 +145,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     _ => _searchFeed,
   };
   final _localLibrary = LocalLibraryController();
-  final _discoveryScroll = ScrollController();
-  final _shelfScroll = ScrollController();
-  final _localScroll = ScrollController();
   List<Widget> _pageWidgets = const [];
   List<WidgetBuilder> _headers = const [];
   int _tab = 0;
@@ -201,7 +193,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     _navigation.addListener(_navigationChanged);
     _searchText.addListener(_searchEdited);
     _searchFeed.addListener(_searchSucceeded);
-    sourceRepositoryOf(widget.repository)?.addListener(_sourcesChanged);
     if (widget.repository case final OfflineNovelRepository offline) {
       unawaited(offline.loadCache().catchError((Object _) {}));
     }
@@ -212,7 +203,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       repository: widget.repository,
       showHeader: false,
       onSearch: _openSearch,
-      scrollController: _discoveryScroll,
     );
     final shelf = ShelfPage(
       books: const [],
@@ -221,7 +211,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       showHeader: false,
       onSearch: _openSearch,
       navigation: _navigation,
-      scrollController: _shelfScroll,
     );
     final settings = MyPage(
       state: widget.state,
@@ -237,7 +226,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
             books: local,
             state: widget.state,
             controller: _localLibrary,
-            scrollController: _localScroll,
             showHeader: false,
             onSearch: _openSearch,
             onOpen: (page, book) =>
@@ -267,13 +255,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
             .map((page) => RepaintBoundary(child: Atmosphere(child: page)))
             .toList(growable: false);
     _ensureCatalog();
-  }
-
-  void _sourcesChanged() {
-    if (!mounted) return;
-    if (_catalogStarted) unawaited(_catalog.refresh());
-    if (_searchOpen && _searchScope == 0) unawaited(_searchFeed.refresh());
-    setState(() {});
   }
 
   void _ensureCatalog() {
@@ -327,7 +308,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-    sourceRepositoryOf(widget.repository)?.removeListener(_sourcesChanged);
     _navigation.removeListener(_navigationChanged);
     _navigation.dispose();
     _pageTransition.dispose();
@@ -339,9 +319,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     _shelfSearch.dispose();
     _localSearch.dispose();
     _localLibrary.dispose();
-    _discoveryScroll.dispose();
-    _shelfScroll.dispose();
-    _localScroll.dispose();
     super.dispose();
   }
 
@@ -398,9 +375,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     _dismissSearchKeyboard();
     _searchFocus.canRequestFocus = false;
     _activeSearch.cancelScheduledSearch();
-    if (_searchScope == 0) {
-      unawaited(sourceRepositoryOf(widget.repository)?.cancelSearch());
-    }
     setState(() {
       _searchOpen = false;
       _searchCovered = false;
@@ -446,30 +420,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     );
     _searchFeed.searchFor(query);
     _dismissSearchKeyboard();
-  }
-
-  void _reselectTab(int index) {
-    if (_searchMounted) return;
-    final scroll = switch (index) {
-      0 => _discoveryScroll,
-      1 => _shelfScroll,
-      2 => _localScroll,
-      _ => null,
-    };
-    if (scroll == null || !scroll.hasClients) return;
-    final top = scroll.position.minScrollExtent;
-    if ((scroll.offset - top).abs() < .5) return;
-    if (_reduceMotion) {
-      scroll.jumpTo(top);
-    } else {
-      unawaited(
-        scroll.animateTo(
-          top,
-          duration: NovelMotion.enter,
-          curve: NovelMotion.ease,
-        ),
-      );
-    }
   }
 
   void _selectTab(int index, {bool feedback = true}) {
@@ -698,8 +648,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                         selectedIndex: _visibleTabs.indexOf(_tab),
                         reduceMotion: widget.state.reduceMotion,
                         onSelected: (slot) => _selectTab(_visibleTabs[slot]),
-                        onReselected: (slot) =>
-                            _reselectTab(_visibleTabs[slot]),
                         items: [
                           for (final page in _visibleTabs) _dockItems[page],
                         ],
@@ -747,12 +695,12 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                     title: switch (_searchScope) {
                       1 => '书架',
                       2 => '本地',
-                      _ => appName,
+                      _ => '轻小说文库',
                     },
                     code: switch (_searchScope) {
                       1 => '02 / PERSONAL ARCHIVE',
                       2 => '03 / LOCAL ARCHIVE',
-                      _ => appArchiveCode,
+                      _ => 'WENKU8 / READING ARCHIVE',
                     },
                     brand: _searchScope == 0,
                   ),
@@ -854,10 +802,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
 
   Future<void> _chooseSearchField(BuildContext context) async {
     _dismissSearchKeyboard();
-    final sources = _searchScope == 0
-        ? sourceRepositoryOf(widget.repository)
-        : null;
-    final field = await showGlassMenu<Object>(
+    final field = await showGlassMenu<BookSearchField>(
       context: context,
       reduceMotion: _reduceMotion,
       builder: (menu) => Column(
@@ -870,31 +815,10 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
               selected: _activeSearch.searchField == field,
               onPressed: () => Navigator.pop(menu, field),
             ),
-          if (sources != null) ...[
-            const Divider(height: 18),
-            GlassMenuItem(
-              order: 6,
-              label: '全部启用的书源',
-              selected: sources.searchSource == null,
-              onPressed: () => Navigator.pop(menu, ('source', null)),
-            ),
-            for (final (index, source) in sources.enabled.indexed)
-              GlassMenuItem(
-                order: index + 7,
-                label: source.name,
-                selected: sources.searchSource == source.key,
-                onPressed: () => Navigator.pop(menu, ('source', source.key)),
-              ),
-          ],
         ],
       ),
     );
     if (field == null || !mounted) return;
-    if (field case ('source', final String? key)) {
-      await sources?.selectSearchSource(key);
-      return;
-    }
-    if (field is! BookSearchField) return;
     final pending = _activeSearch.selectSearchField(field);
     setState(() {});
     await pending;
@@ -912,7 +836,6 @@ class DiscoverPage extends StatelessWidget {
     this.feed,
     this.categoryTitle,
     this.onChooseCategory,
-    this.scrollController,
   });
   final List<Novel> books;
   final LibraryState state;
@@ -922,14 +845,13 @@ class DiscoverPage extends StatelessWidget {
   final NovelFeedController? feed;
   final String? categoryTitle;
   final void Function(BuildContext context)? onChooseCategory;
-  final ScrollController? scrollController;
 
   Widget buildHeader(BuildContext context) => Row(
     children: [
       Expanded(
         child: const ArchiveMasthead(
-          title: appName,
-          code: appArchiveCode,
+          title: '轻小说文库',
+          code: 'WENKU8 / READING ARCHIVE',
           brand: true,
         ),
       ),
@@ -945,17 +867,6 @@ class DiscoverPage extends StatelessWidget {
               repository: repository,
               state: state,
             ),
-            reduceMotion: state.reduceMotion,
-          ),
-        ),
-      if (sourceRepositoryOf(repository) case final sources?)
-        GlassIconButton(
-          icon: CupertinoIcons.square_stack,
-          label: '书源管理',
-          onPressed: () => openSourceManager(
-            context,
-            sources,
-            library: state,
             reduceMotion: state.reduceMotion,
           ),
         ),
@@ -983,56 +894,14 @@ class DiscoverPage extends StatelessWidget {
 
   Widget _buildContent(BuildContext context, List<Novel> books) {
     final featuredCount = books.length.clamp(0, 10);
-    final sources = sourceRepositoryOf(repository);
     Widget body;
-    if (books.isEmpty && sources != null && sources.enabled.isEmpty) {
-      body = Padding(
-        padding: EdgeInsets.fromLTRB(
-          32,
-          MediaQuery.paddingOf(context).top + FrostedHeader.toolbarHeight + 70,
-          32,
-          100,
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(CupertinoIcons.square_stack, size: 40),
-              const SizedBox(height: 20),
-              const AppText(
-                '从自己的书源开始',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 12),
-              const AppText(
-                '导入阅读 3 书源，即可搜索和发现作品。\n本地书籍、旧书架与缓存仍在原处。',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, height: 1.8),
-              ),
-              const SizedBox(height: 24),
-              GlassTextButton(
-                key: const ValueKey('discover-import-sources'),
-                onPressed: () => openSourceManager(
-                  context,
-                  sources,
-                  library: state,
-                  reduceMotion: state.reduceMotion,
-                ),
-                child: const AppText('导入书源'),
-              ),
-            ],
-          ),
-        ),
-      );
-    } else if (books.isEmpty && feed?.loading == true) {
+    if (books.isEmpty && feed?.loading == true) {
       body = LibrarySkeleton(header: _categoryHeader(context));
     } else if (books.isEmpty && feed?.error != null) {
       body = ContentNotice(
         icon: CupertinoIcons.wifi_exclamationmark,
         title: '书籍加载失败',
-        message: sources == null
-            ? '检查网络后再试，已保存的书架与阅读记录仍保留。'
-            : sourceErrorMessage(feed!.error!),
+        message: '检查网络后再试，已保存的书架与阅读记录仍保留。',
         onRetry: feed!.retry,
       );
     } else {
@@ -1055,7 +924,6 @@ class DiscoverPage extends StatelessWidget {
           key: ValueKey((feed?.sort, feed?.tags.join('|'))),
           child: CustomScrollView(
             key: const PageStorageKey('discover'),
-            controller: scrollController,
             clipBehavior: LibraryReflowScope.clipOf(context),
             physics: const AlwaysScrollableScrollPhysics(),
             cacheExtent: BookCollectionLayout.cacheExtentFor(
@@ -1078,19 +946,9 @@ class DiscoverPage extends StatelessWidget {
                       _categoryHeader(context),
                       const SizedBox(height: 14),
                       if (books.isEmpty)
-                        Padding(
+                        const Padding(
                           padding: EdgeInsets.symmetric(vertical: 90),
-                          child: Center(
-                            child: AppText(
-                              sources == null
-                                  ? '暂无书籍'
-                                  : sources.exploreChoices.any(
-                                      (e) => !e.isHeading,
-                                    )
-                                  ? '当前分类未返回书目，可尝试其他分类或重新加载。'
-                                  : '此书源暂未提供发现书目，可使用右上角搜索。',
-                            ),
-                          ),
+                          child: Center(child: AppText('暂无书籍')),
                         )
                       else ...[
                         ArchiveFileCarousel(
@@ -1139,7 +997,6 @@ class DiscoverPage extends StatelessWidget {
                       placeholder: const BookRowSkeleton(),
                       child: NovelRow(
                         novel: book,
-                        sourceLabel: sources?.store.source(book.sourceId)?.name,
                         coverHeroTag: CoverHeroTag(context, book.id),
                         onTap: () => openDetail(
                           context,
@@ -1184,7 +1041,6 @@ class DiscoverPage extends StatelessWidget {
         child: sectionHeader(
           context,
           categoryTitle ??
-              sourceRepositoryOf(repository)?.discoveryTitle ??
               (feed?.tags.isNotEmpty == true
                   ? feed!.tags.join(' · ')
                   : feed?.sort.label) ??
@@ -1208,14 +1064,6 @@ class DiscoverPage extends StatelessWidget {
   );
 
   Future<void> _chooseSort(BuildContext context) async {
-    if (sourceRepositoryOf(repository) case final sources?) {
-      await chooseSourceDiscovery(
-        context,
-        sources,
-        reduceMotion: state.reduceMotion,
-      );
-      return;
-    }
     final selected = await showJellySheet<DiscoverySelection>(
       context: context,
       reduceMotion: state.reduceMotion,
@@ -1455,54 +1303,50 @@ class _ReaderLoaderPageState extends State<ReaderLoaderPage> {
         child: Scaffold(
           body: Atmosphere(
             archiveBackdrop: false,
-            child: ReaderBackground(
-              state: widget.state,
-              child: GlassHeaderLayout(
-                showHeader: chromeVisible || snapshot.hasError,
-                header: ArchiveHeaderBar(
-                  leading: GlassIconButton(
-                    icon: CupertinoIcons.back,
-                    label: '返回',
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                  title: ArchiveRouteTitle(
-                    title: widget.novel.title,
-                    code: 'READ / OPEN',
-                  ),
+            child: GlassHeaderLayout(
+              showHeader: chromeVisible || snapshot.hasError,
+              header: ArchiveHeaderBar(
+                leading: GlassIconButton(
+                  icon: CupertinoIcons.back,
+                  label: '返回',
+                  onPressed: () => Navigator.pop(context),
                 ),
-                body: snapshot.hasError
-                    ? ContentNotice(
-                        icon: CupertinoIcons.exclamationmark_triangle,
-                        title: '暂时无法打开本书',
-                        message: snapshot.error is FormatException
-                            ? (snapshot.error as FormatException).message
-                            : '请检查网络或本机缓存后重试',
-                        onRetry: () => setState(() => _book = _load()),
-                      )
-                    : SafeArea(
-                        top:
-                            !(preferences.hideSystemStatus &&
-                                preferences.mode == ReaderMode.scroll),
-                        child: Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            preferences.leftMargin,
-                            preferences.marginTop +
-                                (chromeVisible
-                                    ? FrostedHeader.toolbarHeight + 16
-                                    : 16),
-                            preferences.rightMargin,
-                            preferences.marginBottom + 24,
-                          ),
-                          child: ReaderSkeleton(
-                            vertical:
-                                widget.state.readerPreferences.mode ==
-                                ReaderMode.vertical,
-                            expand:
-                                widget.state.readerPreferences.mode.paginated,
-                          ),
+                title: ArchiveRouteTitle(
+                  title: widget.novel.title,
+                  code: 'READ / OPEN',
+                ),
+              ),
+              body: snapshot.hasError
+                  ? ContentNotice(
+                      icon: CupertinoIcons.exclamationmark_triangle,
+                      title: '暂时无法打开本书',
+                      message: snapshot.error is FormatException
+                          ? (snapshot.error as FormatException).message
+                          : '请检查网络或本机缓存后重试',
+                      onRetry: () => setState(() => _book = _load()),
+                    )
+                  : SafeArea(
+                      top:
+                          !(preferences.hideSystemStatus &&
+                              preferences.mode == ReaderMode.scroll),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          preferences.leftMargin,
+                          preferences.marginTop +
+                              (chromeVisible
+                                  ? FrostedHeader.toolbarHeight + 16
+                                  : 16),
+                          preferences.rightMargin,
+                          preferences.marginBottom + 24,
+                        ),
+                        child: ReaderSkeleton(
+                          vertical:
+                              widget.state.readerPreferences.mode ==
+                              ReaderMode.vertical,
+                          expand: widget.state.readerPreferences.mode.paginated,
                         ),
                       ),
-              ),
+                    ),
             ),
           ),
         ),
@@ -1632,7 +1476,6 @@ class ShelfPage extends StatefulWidget {
     this.showHeader = true,
     this.onSearch,
     this.navigation,
-    this.scrollController,
   });
   final List<Novel> books;
   final LibraryState state;
@@ -1640,7 +1483,6 @@ class ShelfPage extends StatefulWidget {
   final bool showHeader;
   final VoidCallback? onSearch;
   final HomeNavigation? navigation;
-  final ScrollController? scrollController;
 
   Widget buildHeader(BuildContext context, {VoidCallback? search}) =>
       AnimatedBuilder(
@@ -2014,7 +1856,6 @@ class _ShelfPageState extends State<ShelfPage>
               )
             : BookCollectionView.builder(
                 key: const PageStorageKey('shelf'),
-                controller: widget.scrollController,
                 leadingCount: saved.isEmpty ? 2 : 1 + previewRows,
                 padding: EdgeInsets.fromLTRB(
                   24,
@@ -2889,12 +2730,7 @@ class SettingsPage extends StatelessWidget {
             return;
           }
           try {
-            final sources = sourceRepositoryOf(repository);
-            if (sources != null) {
-              await sources.platform.clearImages();
-            } else {
-              await LegacyTransport.clearIllustrations();
-            }
+            await LegacyTransport.clearIllustrations();
             ReaderIllustrationCache.shared.clearMemory();
             if (context.mounted) showNovelFeedback(context, '插图缓存已清理');
           } catch (_) {
@@ -3065,29 +2901,18 @@ class InlineSearchResults extends StatelessWidget {
       return const SearchSkeleton();
     }
     if (books.isEmpty && feed.error != null) {
-      final customSources = sourceRepositoryOf(repository) != null;
       return ContentNotice(
         icon: CupertinoIcons.wifi_exclamationmark,
-        title: customSources ? '搜索未完成' : '搜索失败，请稍后重试',
-        message: customSources ? sourceErrorMessage(feed.error!) : null,
+        title: '搜索失败，请稍后重试',
         onRetry: feed.retry,
       );
     }
     if (books.isEmpty) {
-      final empty = const ContentNotice(
+      return const ContentNotice(
         icon: CupertinoIcons.search,
         title: '没有找到相关故事',
         message: '试试更短的书名或作者名',
       );
-      if (feed.hasMore) {
-        return Column(
-          children: [
-            Expanded(child: empty),
-            FeedFooter(feed: feed),
-          ],
-        );
-      }
-      return empty;
     }
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
@@ -3161,9 +2986,7 @@ class InlineSearchResults extends StatelessWidget {
                             ? repository as OfflineNovelRepository
                             : null,
                       )
-                    : sourceRepositoryOf(
-                        repository,
-                      )?.store.source(book.sourceId)?.name,
+                    : null,
                 coverHeroTag: CoverHeroTag(context, book.id),
                 onTap: () {
                   onOpenBook();
@@ -3205,7 +3028,6 @@ class DetailLoaderPage extends StatefulWidget {
 class _DetailLoaderPageState extends State<DetailLoaderPage> {
   late Future<Novel> _loaded = _load();
   Novel? _cached;
-  Novel? _metadata;
 
   @override
   void initState() {
@@ -3231,8 +3053,7 @@ class _DetailLoaderPageState extends State<DetailLoaderPage> {
   }
 
   Future<Novel> _load() async {
-    final detail = _metadata ?? await widget.repository.detail(widget.novel);
-    _metadata = detail;
+    final detail = await widget.repository.detail(widget.novel);
     final chapters = await widget.repository.chapters(widget.novel.id);
     final loaded = detail.withChapters(chapters);
     await widget.state.rememberNovel(loaded);
@@ -3245,7 +3066,7 @@ class _DetailLoaderPageState extends State<DetailLoaderPage> {
     // Keep the destination cover's element and layout alive from the first
     // route frame through loading, errors and completion of its Hero flight.
     builder: (context, snapshot) => DetailPage(
-      novel: snapshot.data ?? _cached ?? _metadata ?? widget.novel,
+      novel: snapshot.data ?? _cached ?? widget.novel,
       transitionNovel: widget.novel,
       coverHeroTag: widget.coverHeroTag,
       state: widget.state,
@@ -3253,24 +3074,8 @@ class _DetailLoaderPageState extends State<DetailLoaderPage> {
       isLoading:
           !snapshot.hasData &&
           _cached == null &&
-          _metadata == null &&
           snapshot.connectionState != ConnectionState.done,
-      directoryLoading:
-          _cached == null &&
-          _metadata != null &&
-          snapshot.connectionState != ConnectionState.done,
-      loadError:
-          _cached == null &&
-              _metadata == null &&
-              snapshot.connectionState == ConnectionState.done
-          ? snapshot.error
-          : null,
-      directoryError:
-          _cached == null &&
-              _metadata != null &&
-              snapshot.connectionState == ConnectionState.done
-          ? snapshot.error
-          : null,
+      loadError: _cached == null ? snapshot.error : null,
       fromCache:
           (_cached != null && !snapshot.hasData) ||
           (widget.repository is OfflineNovelRepository &&
@@ -3294,8 +3099,6 @@ class DetailPage extends StatefulWidget {
     this.transitionNovel,
     this.isLoading = false,
     this.loadError,
-    this.directoryError,
-    this.directoryLoading = false,
     this.onRetry,
     this.fromCache = false,
     this.onRead,
@@ -3307,8 +3110,6 @@ class DetailPage extends StatefulWidget {
   final Novel? transitionNovel;
   final bool isLoading;
   final Object? loadError;
-  final Object? directoryError;
-  final bool directoryLoading;
   final VoidCallback? onRetry;
   final bool fromCache;
   final ValueChanged<int>? onRead;
@@ -3326,14 +3127,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
     vsync: this,
     duration: NovelMotion.reveal,
   );
-  late final AnimationController _directoryIntro = AnimationController(
-    vsync: this,
-    duration: NovelMotion.reveal,
-    value: 1,
-  );
-  bool _directoryRetried = false;
-  Animation<double> get _directoryAnimation =>
-      _directoryRetried ? _directoryIntro : _contentIntro;
   Animation<double>? _routeAnimation;
   bool _introStarted = false;
   bool _contentStarted = false;
@@ -3348,7 +3141,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
   List<({NovelVolume? volume, int? chapter})> _directory() {
     // Provisional cached chapters can predate volume metadata. Wait for the
     // displayed directory before choosing its initially expanded volume.
-    if (_directoryLoading || _directoryUnavailable) return const [];
+    if (isLoading || loadError != null) return const [];
     final volumes = NovelVolume.of(novel.chapters);
     if (_directoryBook != novel.id) {
       _expandedVolumes.clear();
@@ -3392,9 +3185,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
       transitionNovel != null && transitionNovel!.author != novel.author;
   bool get isLoading => widget.isLoading;
   Object? get loadError => widget.loadError;
-  bool get _directoryUnavailable =>
-      loadError != null || widget.directoryError != null;
-  bool get _directoryLoading => isLoading || widget.directoryLoading;
   VoidCallback? get onRetry => widget.onRetry;
   bool get _reduceMotion =>
       state.reduceMotion || MediaQuery.disableAnimationsOf(context);
@@ -3452,16 +3242,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(DetailPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.directoryLoading && !oldWidget.directoryLoading) {
-      _directoryRetried = true;
-      _directoryIntro.value = 0;
-    } else if (!widget.directoryLoading && oldWidget.directoryLoading) {
-      if (_reduceMotion) {
-        _directoryIntro.value = 1;
-      } else {
-        _directoryIntro.forward();
-      }
-    }
     if (isLoading && !oldWidget.isLoading) {
       _contentStarted = false;
       _contentIntro.value = 0;
@@ -3480,7 +3260,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
     _routeAnimation?.removeStatusListener(_routeChanged);
     _intro.dispose();
     _contentIntro.dispose();
-    _directoryIntro.dispose();
     super.dispose();
   }
 
@@ -3492,9 +3271,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
         ? state.chapterForNovel(novel)
         : null;
     final directory = _directory();
-    final sourceWarnings =
-        sourceRepositoryOf(repository)?.detailWarnings(novel.id) ??
-        const <String>[];
     return Scaffold(
       body: Atmosphere(
         child: GlassHeaderLayout(
@@ -3620,7 +3396,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                           : () => pushNovelPage<void>(
                                                               context,
                                                               AuthorWorksPage(
-                                                                origin: novel,
                                                                 author: novel
                                                                     .author,
                                                                 repository:
@@ -3635,7 +3410,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                                   _reduceMotion,
                                                               explorationKey: (
                                                                 'author',
-                                                                novel.sourceId,
                                                                 novel.author
                                                                     .trim(),
                                                                 isLocalBook(
@@ -3686,12 +3460,12 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                               'detail-meta-reveal',
                                             ),
                                             axis: ArchiveRevealAxis.horizontal,
-                                            animation: _directoryLoading
+                                            animation: isLoading
                                                 ? _intro
-                                                : _directoryAnimation,
+                                                : _contentIntro,
                                             start: .18,
                                             end: .64,
-                                            placeholder: !_directoryLoading
+                                            placeholder: !isLoading
                                                 ? const LoadingSkeleton(
                                                     layout:
                                                         SkeletonLayout.actions,
@@ -3701,7 +3475,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
                                               children: [
-                                                if (_directoryLoading)
+                                                if (isLoading)
                                                   const InlineSkeleton(
                                                     key: ValueKey(
                                                       'detail-meta-skeleton',
@@ -3710,7 +3484,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                   )
                                                 else
                                                   AppText(
-                                                    _directoryUnavailable
+                                                    loadError != null
                                                         ? '目录暂未载入'
                                                         : '${novel.isComplete ? '已完结' : '连载中'}  ·  ${novel.chapters.length} 章',
                                                     style: TextStyle(
@@ -3734,7 +3508,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                               case final OfflineNovelRepository
                                                   offline) ...[
                                             const SizedBox(height: 8),
-                                            if (_directoryLoading &&
+                                            if (isLoading &&
                                                 _cacheSkeletonShown)
                                               const InlineSkeleton(
                                                 key: ValueKey(
@@ -3742,9 +3516,9 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                 ),
                                                 label: '正在加载缓存信息',
                                               )
-                                            else if (_directoryLoading)
+                                            else if (isLoading)
                                               const SizedBox(height: 18)
-                                            else if (!_directoryUnavailable &&
+                                            else if (loadError == null &&
                                                 !isLocalBook(novel.id))
                                               RevealFromTop(
                                                 key: const ValueKey(
@@ -3753,7 +3527,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                 axis: ArchiveRevealAxis
                                                     .horizontal,
                                                 animation: _cacheSkeletonShown
-                                                    ? _directoryAnimation
+                                                    ? _contentIntro
                                                     : _intro,
                                                 start: .24,
                                                 end: .72,
@@ -3784,21 +3558,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                 const DetailSkeleton(),
                               ] else if (loadError != null) ...[
                                 const Center(child: AppText('书籍详情加载失败')),
-                                if (sourceRepositoryOf(repository) != null)
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                      vertical: 12,
-                                    ),
-                                    child: AppText(
-                                      sourceErrorMessage(loadError!),
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        height: 1.5,
-                                      ),
-                                    ),
-                                  ),
                                 Center(
                                   child: GlassTextButton(
                                     onPressed: onRetry,
@@ -3818,25 +3577,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      if (sourceWarnings.isNotEmpty)
-                                        Padding(
-                                          key: const ValueKey(
-                                            'detail-source-warnings',
-                                          ),
-                                          padding: const EdgeInsets.only(
-                                            bottom: 16,
-                                          ),
-                                          child: AppText(
-                                            sourceWarnings.join('\n'),
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              height: 1.5,
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.onSurfaceVariant,
-                                            ),
-                                          ),
-                                        ),
                                       if (novel.tags.isNotEmpty) ...[
                                         Wrap(
                                           key: const ValueKey(
@@ -3854,7 +3594,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                     pushNovelPage<void>(
                                                       context,
                                                       TagWorksPage(
-                                                        origin: novel,
                                                         tag: tag,
                                                         repository:
                                                             widget.repository,
@@ -3865,7 +3604,6 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                                           .reduceMotion,
                                                       explorationKey: (
                                                         'tag',
-                                                        novel.sourceId,
                                                         tag,
                                                       ),
                                                     ),
@@ -3945,7 +3683,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                   key: const ValueKey(
                                     'detail-directory-reveal',
                                   ),
-                                  animation: _directoryAnimation,
+                                  animation: _contentIntro,
                                   start: .43,
                                   placeholder: const LoadingSkeleton(
                                     layout: SkeletonLayout.actions,
@@ -3956,27 +3694,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                                     children: [
                                       sectionHeader(context, '目录', ''),
                                       const SizedBox(height: 7),
-                                      if (widget.directoryLoading)
-                                        const SizedBox(
-                                          height: 104,
-                                          child: LoadingSkeleton(
-                                            layout: SkeletonLayout.actions,
-                                          ),
-                                        )
-                                      else if (widget.directoryError !=
-                                          null) ...[
-                                        const AppText('目录加载失败'),
-                                        const SizedBox(height: 8),
-                                        AppText(
-                                          sourceErrorMessage(
-                                            widget.directoryError!,
-                                          ),
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            height: 1.5,
-                                          ),
-                                        ),
-                                      ] else if (novel.chapters.isEmpty)
+                                      if (novel.chapters.isEmpty)
                                         const AppText('暂无章节'),
                                     ],
                                   ),
@@ -3987,7 +3705,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                         ),
                       ),
                     ),
-                    if (!_directoryLoading && !_directoryUnavailable)
+                    if (!isLoading && loadError == null)
                       SliverPadding(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
                         // Keep the directory out of a single tall Column: only
@@ -3996,7 +3714,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                           itemCount: directory.length,
                           itemBuilder: (context, index) => RevealFromTop(
                             key: ValueKey('detail-chapter-$index'),
-                            animation: _directoryAnimation,
+                            animation: _contentIntro,
                             start: .48 + index.clamp(0, 8) * .025,
                             placeholder: const LoadingSkeleton(
                               layout: SkeletonLayout.inline,
@@ -4040,17 +3758,17 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                     start: .52,
                     child: ArchiveMotionScope(
                       animation: _contentIntro,
-                      enabled: !_reduceMotion && !_directoryUnavailable,
+                      enabled: !_reduceMotion && loadError == null,
                       child: AnimatedBuilder(
                         animation: state,
                         builder: (context, _) => GlassPillButton(
                           key: const ValueKey('detail-read-button'),
                           icon: CupertinoIcons.book,
-                          loading: _directoryLoading,
+                          loading: isLoading,
                           label: _readLabel,
-                          onPressed: _directoryLoading
+                          onPressed: isLoading
                               ? null
-                              : _directoryUnavailable
+                              : loadError != null
                               ? onRetry
                               : novel.chapters.isEmpty
                               ? null
@@ -4072,8 +3790,8 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
   }
 
   String get _readLabel {
-    if (_directoryLoading) return '正在加载目录';
-    if (_directoryUnavailable) return '重试加载目录';
+    if (isLoading) return '正在加载目录';
+    if (loadError != null) return '重试加载目录';
     if (novel.chapters.isEmpty) return '暂无可读章节';
     final action = state.hasRead(novel.id) ? '继续阅读' : '开始阅读';
     return '$action · 第${state.chapterForNovel(novel) + 1}章';
@@ -4182,47 +3900,8 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
       code: ArchiveDesign.fileCode(novel.id),
     ),
     actions: [
-      if (!isLocalBook(novel.id) &&
-          novel.sourceId == null &&
-          sourceRepositoryOf(repository) != null)
-        GlassIconButton(
-          icon: CupertinoIcons.link,
-          label: '关联书源',
-          onPressed: () async {
-            final sources = sourceRepositoryOf(repository)!;
-            if (sources.enabled.isEmpty) {
-              await openSourceManager(
-                context,
-                sources,
-                library: state,
-                reduceMotion: _reduceMotion,
-              );
-              return;
-            }
-            final offline = repository is OfflineNovelRepository
-                ? repository as OfflineNovelRepository
-                : null;
-            final saved = await offline?.cachedBook(novel.id);
-            if (!context.mounted) return;
-            final bound = await pushNovelPage<Novel>(
-              context,
-              SourceLinkPage(
-                oldBook: saved ?? novel,
-                repository: sources,
-                reduceMotion: _reduceMotion,
-              ),
-              reduceMotion: _reduceMotion,
-            );
-            if (bound == null) return;
-            await state.rememberNovel(bound);
-            await offline?.rememberDirectory(bound);
-            if (mounted) onRetry?.call();
-          },
-        ),
       if (!isLocalBook(novel.id) && repository is OfflineNovelRepository)
-        if (_directoryLoading ||
-            _directoryUnavailable ||
-            novel.chapters.isEmpty)
+        if (isLoading || loadError != null || novel.chapters.isEmpty)
           const GlassIconButton(
             icon: CupertinoIcons.cloud_download,
             label: '离线缓存',
@@ -4383,9 +4062,6 @@ class _ReaderPageState extends State<ReaderPage>
   DateTime? _exitRequestedAt;
   bool _allowExit = false;
   final _preparedContent = <int, ReaderContent>{};
-  final _unavailableIllustrations = <String>{};
-  final _illustrationNoticeChapters = <int>{};
-  (ReaderContent, int, ReaderContent)? _visibleIllustrations;
   final _automaticContent = <int, (ReaderContent, ReaderContent)>{};
   final _contentLoads = <int, Future<ReaderContent>>{};
   bool _boundaryQueued = false, _scrollGesture = false;
@@ -5460,59 +5136,6 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
-  ReaderContent _visibleReaderContent(ReaderContent source) {
-    final cached = _visibleIllustrations;
-    if (cached != null &&
-        identical(cached.$1, source) &&
-        cached.$2 == _unavailableIllustrations.length) {
-      return cached.$3;
-    }
-    final visible = source.withoutUnavailableIllustrations(
-      _unavailableIllustrations,
-    );
-    _visibleIllustrations = (source, _unavailableIllustrations.length, visible);
-    return visible;
-  }
-
-  void _omitUnavailableIllustration(String url, int generation) {
-    final source = _currentContent;
-    if (!mounted ||
-        generation != _contentGeneration ||
-        source == null ||
-        !source.illustrations.contains(url) ||
-        _unavailableIllustrations.contains(url)) {
-      return;
-    }
-    var position = _currentPosition() ?? _restorePending;
-    _unavailableIllustrations.add(url);
-    final visible = _visibleReaderContent(source);
-    final at = position?.paragraphIndex;
-    if (position != null && at != null && !visible.order.contains(at)) {
-      final text = visible.order
-          .where((index) => source.paragraphs[index].trim().isNotEmpty)
-          .toList();
-      final next =
-          text.where((index) => index > at).firstOrNull ?? text.lastOrNull;
-      if (next != null) {
-        position = ReadingPosition.fromJson({
-          ...position.toJson(),
-          'paragraphIndex': next,
-          'paragraphFraction': 0,
-          'textOffset': 0,
-        });
-      }
-    }
-    final empty = !visible.order.any(
-      (index) => source.paragraphs[index].trim().isNotEmpty,
-    );
-    if (!empty && position != null) _prepareRestore(position);
-    setState(() {});
-    if (_illustrationNoticeChapters.add(_chapter)) {
-      showNovelFeedback(context, '插图暂不可用，已跳过');
-    }
-    if (empty) _continueChapter(1);
-  }
-
   Widget _paragraphContent(
     List<String> paragraphs,
     int index,
@@ -5522,10 +5145,8 @@ class _ReaderPageState extends State<ReaderPage>
   }) {
     final url = readerIllustrationUrl(paragraphs[index]);
     if (url != null) {
-      final generation = _contentGeneration;
       final image = ReaderIllustration(
         url: url,
-        onUnavailable: (url) => _omitUnavailableIllustration(url, generation),
         fitPage: fullPage,
         localLayout: LocalImageLayout.fromParagraph(paragraphs[index]),
         fontSize: MediaQuery.textScalerOf(context).scale(style.fontSize ?? 19),
@@ -6618,8 +6239,8 @@ class _ReaderPageState extends State<ReaderPage>
               inherit: false,
               child: RepaintBoundary(
                 key: const ValueKey('reader-article-boundary'),
-                child: ReaderBackground(
-                  state: widget.state,
+                child: ColoredBox(
+                  color: Theme.of(context).colorScheme.surface,
                   child: CallbackShortcuts(
                     bindings: {
                       const SingleActivator(LogicalKeyboardKey.pageDown): () =>
@@ -6874,10 +6495,7 @@ class _ReaderPageState extends State<ReaderPage>
         // Scroll offsets are relative to the inset, clipped viewport, not the
         // status bar. Keep that band clear even after all glass is hidden.
         _readingInset = _scrollReadingInset(prefs);
-        final sourceContent = _currentContent;
-        final content = sourceContent == null
-            ? null
-            : _visibleReaderContent(sourceContent);
+        final content = _currentContent;
         final ready = content != null;
         final failed =
             snapshot.connectionState == ConnectionState.done &&
@@ -6937,7 +6555,7 @@ class _ReaderPageState extends State<ReaderPage>
             ThemeData.estimateBrightnessForColor(prefs.background(dark)),
           ),
           child: ColoredBox(
-            color: Colors.transparent,
+            color: prefs.background(dark),
             child: DefaultTextStyle.merge(
               style: TextStyle(color: prefs.foreground(dark)),
               child: _paginated && !ready && !failed

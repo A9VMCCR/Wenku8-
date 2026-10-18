@@ -18,11 +18,7 @@ const _readKey = ValueKey('detail-read-button');
 
 Widget _app(Widget page, {GlobalKey? capture}) => RepaintBoundary(
   key: capture,
-  child: MaterialApp(
-    debugShowCheckedModeBanner: false,
-    theme: novelTheme(Brightness.light, fontFamily: 'Roboto'),
-    home: page,
-  ),
+  child: MaterialApp(theme: novelTheme(Brightness.light), home: page),
 );
 
 double _phase(WidgetTester tester, String key) => tester
@@ -43,24 +39,6 @@ class _PendingDetail extends DemoNovelRepository {
   Future<Novel> detail(Novel novel) => detailData.future;
   @override
   Future<List<NovelChapter>> chapters(int id) => directory.future;
-}
-
-class _RetryDirectory extends DemoNovelRepository {
-  _RetryDirectory(this.novel);
-  final Novel novel;
-  int details = 0, directories = 0;
-  final retry = Completer<List<NovelChapter>>();
-  @override
-  Future<Novel> detail(Novel brief) async {
-    details++;
-    return novel.withChapters(const []);
-  }
-
-  @override
-  Future<List<NovelChapter>> chapters(int id) async {
-    if (++directories == 1) throw const FormatException('自编目录请求失败');
-    return retry.future;
-  }
 }
 
 void main({
@@ -142,56 +120,6 @@ void main({
       );
       await tester.pumpAndSettle();
       expect(find.text(novel.author), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    },
-  );
-
-  testWidgets(
-    'directory failure retains ready metadata and retries only the directory',
-    (tester) async {
-      phoneViewport(tester);
-      final pending = _RetryDirectory(novel);
-      final key = GlobalKey();
-      await tester.pumpWidget(
-        _app(
-          DetailLoaderPage(
-            novel: novel.withChapters(const []),
-            state: state,
-            repository: pending,
-          ),
-          capture: key,
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text(novel.title), findsWidgets);
-      expect(find.text(novel.summary), findsOneWidget);
-      expect(find.text('目录加载失败'), findsOneWidget);
-      expect(find.text('书籍详情加载失败'), findsNothing);
-      expect(find.text('重试加载目录'), findsOneWidget);
-      expect(pending.details, 1);
-      if (capture != null) await capture(tester, key, 'detail-directory-error');
-      await tester.tap(find.byKey(_readKey));
-      await tester.pump();
-      expect(find.text(novel.summary), findsOneWidget);
-      expect(find.byType(DetailSkeleton), findsNothing);
-      pending.retry.complete(novel.chapters);
-      final deadline = DateTime.now().add(const Duration(seconds: 5));
-      while (tester
-              .widget<DetailPage>(find.byType(DetailPage))
-              .directoryLoading &&
-          DateTime.now().isBefore(deadline)) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
-        );
-        await tester.pump();
-      }
-      await tester.pumpAndSettle();
-      expect(pending.details, 1);
-      expect(pending.directories, 2);
-      expect(find.text('目录加载失败'), findsNothing);
-      expect(find.text('开始阅读 · 第1章'), findsOneWidget);
-      expect(find.text(novel.summary), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },

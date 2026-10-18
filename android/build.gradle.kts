@@ -1,15 +1,7 @@
 allprojects {
     repositories {
-        maven {
-            url = uri(rootProject.file("../third_party/maven"))
-            content { includeModule("org.htmlunit", "htmlunit-core-js") }
-        }
         google()
         mavenCentral()
-        maven {
-            url = uri("https://jitpack.io")
-            content { includeGroup("com.github.liuyueyi.quick-chinese-transfer") }
-        }
     }
 }
 

@@ -27,13 +27,6 @@ class PublicSourceExportTest(unittest.TestCase):
                      "third_party/liquid_glass_easy/lib/liquid_glass_easy.dart",
                      "flutter_screenshots/private.png", "LISTENING.md", "README.md", "docs/READER.md",
                      "docs/CLOUD_IMPORT.md", "docs/SEARCH.md",
-                     "docs/CUSTOM_SOURCES.md", "docs/RESPONSIBLE_USE.md",
-                     "docs/images/discovery.png", "third_party/legado/README.md", "third_party/legado/LICENSE",
-                     "third_party/maven/org/htmlunit/htmlunit-core-js/5.3.0-legado.4/runtime.jar",
-                     "third_party/htmlunit-core-js/sources/rhino.tar.gz",
-                     "third_party/source-host/README.md", "third_party/DESUGAR_JDK_LIBS.md",
-                     "third_party/desugar-jdk/source-2.1.5.tar.gz",
-                     "tools/analyze_apk_size.py", "tools/test_analyze_apk_size.py",
                      "tools/update-mirror/index.mjs", "tools/update-mirror/worker.mjs",
                      "tools/update-mirror/build-site.mjs", "tools/update-mirror/wrangler.jsonc",
                      "tools/update-mirror/.wrangler/state/private.txt",
@@ -51,23 +44,19 @@ class PublicSourceExportTest(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             export_source.main()
 
-    def test_zero_source_candidate_keeps_parser_not_retired_provider_or_old_promotion(self):
+    def test_complete_candidate_keeps_the_embedded_dependency_without_local_data(self):
         output = self.base / "complete"
         self.export(output)
         files = {p.relative_to(output).as_posix() for p in output.rglob("*") if p.is_file()}
         self.assertEqual(files, {"README.md", "docs/READER.md", "docs/CLOUD_IMPORT.md", "docs/SEARCH.md", "lib/main.dart",
-            "docs/CUSTOM_SOURCES.md", "docs/RESPONSIBLE_USE.md", "third_party/legado/README.md", "third_party/legado/LICENSE",
-            "third_party/maven/org/htmlunit/htmlunit-core-js/5.3.0-legado.4/runtime.jar",
-            "third_party/htmlunit-core-js/sources/rhino.tar.gz",
-            "third_party/source-host/README.md", "third_party/DESUGAR_JDK_LIBS.md",
-            "third_party/desugar-jdk/source-2.1.5.tar.gz",
-            "tools/analyze_apk_size.py", "tools/test_analyze_apk_size.py",
             "third_party/liquid_glass_easy/pubspec.yaml",
             "third_party/liquid_glass_easy/LICENSE",
             "third_party/liquid_glass_easy/lib/liquid_glass_easy.dart",
             "android/gradle/wrapper/gradle-wrapper.jar",
+            "android/app/src/main/jniLibs/arm64-v8a/libcpp.so",
             "tools/update-mirror/index.mjs", "tools/update-mirror/worker.mjs",
-            "tools/update-mirror/build-site.mjs", "tools/update-mirror/wrangler.jsonc"})
+            "tools/update-mirror/build-site.mjs", "tools/update-mirror/wrangler.jsonc",
+            "tools/content-gateway/index.mjs", "tools/content-gateway/worker.mjs"})
 
     def test_source_only_is_explicit_and_leaves_runtime_out(self):
         output = self.base / "source-only"

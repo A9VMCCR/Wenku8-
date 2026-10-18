@@ -4,73 +4,8 @@ import 'package:flutter/widgets.dart';
 import 'local_book_media.dart';
 import 'local_image_layout.dart';
 import 'app_language.dart';
-import 'sources/source_image_locator.dart';
 
-final _markdownWrappedImage = RegExp(
-  r'''!\[[^\]\n]{0,128}\]\(\s*(<!--image-->[^\n]*?<!--image-->)(?:\s*(?:"[^"\n]{0,256}"|'[^'\n]{0,256}')?\s*\))?''',
-);
-final _legacyMarkdownImageQuery = RegExp(
-  r'''!\[[^\]\n]{0,128}\]\(\s*(<!--image-->([^\n]*?)<!--image-->)\s*(\?[^\s<>"']{1,4096})\)(?=[ \t]*(?:\r?\n|$))''',
-);
-
-String? _restoreImageQuery(String locator, String query) {
-  if (readerIllustrationUrl('<!--image-->$locator<!--image-->') == null) {
-    return null;
-  }
-  final outer = Uri.tryParse(locator)!;
-  final remote = outer.scheme == 'source-image'
-      ? outer.queryParameters['url']!
-      : locator;
-  final uri = Uri.tryParse(remote);
-  // Only repair the unambiguous old extension-only conversion. Do not rewrite
-  // request-option locators, local files, or an already complete image URL.
-  if (uri == null ||
-      !['https', 'http'].contains(uri.scheme) ||
-      uri.host.isEmpty ||
-      uri.hasQuery ||
-      uri.hasFragment ||
-      remote.contains(RegExp(r'\s*,\s*\{'))) {
-    return null;
-  }
-  final restored = '$remote$query';
-  if (!validSourceImageLocator(restored)) return null;
-  return outer.scheme == 'source-image'
-      ? outer
-            .replace(
-              queryParameters: {...outer.queryParameters, 'url': restored},
-            )
-            .toString()
-      : restored;
-}
-
-String _imageReplacementKeepingLines(String raw, String image, String result) {
-  final start = raw.indexOf(image);
-  String newlines(String value) => value.replaceAll(RegExp(r'[^\n]'), '');
-  return '${newlines(raw.substring(0, start))}$result${newlines(raw.substring(start + image.length))}';
-}
-
-/// Repair old cached Markdown wrappers at the display boundary. Retain every
-/// newline so paragraph IDs and saved positions continue to name the same prose.
-String normalizeReaderImageBoundaries(String source) {
-  if (!source.contains('![') || !source.contains('<!--image-->')) return source;
-  final repaired = source.replaceAllMapped(_legacyMarkdownImageQuery, (match) {
-    final locator = _restoreImageQuery(match[2]!, match[3]!);
-    return locator == null
-        ? match[0]!
-        : _imageReplacementKeepingLines(
-            match[0]!,
-            match[1]!,
-            '<!--image-->$locator<!--image-->',
-          );
-  });
-  return repaired.replaceAllMapped(_markdownWrappedImage, (match) {
-    final image = match[1]!;
-    return _imageReplacementKeepingLines(match[0]!, image, image);
-  });
-}
-
-List<String> _splitParagraphs(String source) =>
-    normalizeReaderImageBoundaries(source).split('\n\n');
+List<String> _splitParagraphs(String source) => source.split('\n\n');
 
 class ReaderContent {
   const ReaderContent(
@@ -85,27 +20,6 @@ class ReaderContent {
   final Map<int, String> placementIds;
   Iterable<int> get order =>
       readingOrder ?? Iterable.generate(paragraphs.length);
-
-  /// Display-only exclusion. Keep the source paragraphs and their IDs so
-  /// bookmarks, speech and the volume gallery still refer to the original text.
-  ReaderContent withoutUnavailableIllustrations(Set<String> unavailable) {
-    if (unavailable.isEmpty) return this;
-    final before = order.toList();
-    final visible = before.where((index) {
-      final url = readerIllustrationUrl(paragraphs[index]);
-      return url == null ||
-          url.startsWith('wenku-local:') ||
-          !unavailable.contains(url);
-    }).toList();
-    if (visible.length == before.length) return this;
-    return ReaderContent(
-      paragraphs,
-      readingOrder: List.unmodifiable(visible),
-      inlineOwners: inlineOwners,
-      placementIds: placementIds,
-    );
-  }
-
   static final _imageLists = Expando<List<String>>('chapter-illustrations');
   List<String> get illustrations => _imageLists[this] ??= List.unmodifiable([
     for (final index in order) ?readerIllustrationUrl(paragraphs[index]),
@@ -157,16 +71,6 @@ String? readerIllustrationUrl(String paragraph) {
   final tail = text.substring(end + marker.length).trim();
   final raw = text.substring(marker.length, end).trim();
   final uri = Uri.tryParse(raw);
-  if (uri?.scheme == 'source-image') {
-    final remote = uri!.queryParameters['url'] ?? '';
-    return tail.isEmpty &&
-            uri.userInfo.isEmpty &&
-            !uri.hasPort &&
-            (int.tryParse(uri.host) ?? 0) > 0 &&
-            validSourceImageLocator(remote)
-        ? uri.toString()
-        : null;
-  }
   if (uri != null && LocalBookMedia.valid(uri)) {
     return LocalImageLayout.parseSuffix(tail) == null ? null : uri.toString();
   }

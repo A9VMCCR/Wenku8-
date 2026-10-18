@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'app_ui.dart';
 import 'library_state.dart';
 import 'reader_book_layout.dart';
-import 'reader_background.dart';
 import 'reader_content.dart';
 import 'reader_pagination.dart';
 import 'reader_preferences.dart';
@@ -260,7 +259,6 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
   bool _crossedBoundary = false;
   bool _layoutFailed = false;
   bool _layingOut = false;
-  bool _filteredContentReflow = false;
   final _pageBodies = <int, Widget>{};
   final _textLayout = ReaderTextLayoutCache();
   ReaderLeaf? get _leaf => _pagination?.pages[_page];
@@ -326,9 +324,6 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
       widget.controller._owner = this;
     }
     if (!identical(old.content, widget.content)) {
-      _filteredContentReflow =
-          identical(old.content.paragraphs, widget.content.paragraphs) &&
-          widget.content.order.length < old.content.order.length;
       _pendingAnchor = null;
       _pendingPosition = widget.position;
     } else if (!identical(old.position, widget.position) &&
@@ -472,9 +467,6 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
     final style = widget.style;
     final padding = widget.padding;
     final oldAnchor = _pendingAnchor ?? _firstVisibleAnchor;
-    final filteredStart = _filteredContentReflow
-        ? _anchorFor(_pendingPosition) ?? oldAnchor
-        : null;
     final preserveStart =
         _pagination != null &&
         _pagination!.size != size &&
@@ -503,7 +495,7 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
         preferences: preferences,
         scaler: scaler,
         current: () => mounted && ticket == _generation,
-        pageBreak: filteredStart ?? (preserveStart ? oldAnchor : null),
+        pageBreak: preserveStart ? oldAnchor : null,
         cache: _textLayout,
         localImageSizes: imageSizes,
       );
@@ -600,7 +592,6 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
       _publishedMode = preferences.mode;
       _initialArrival = firstLayout && animate;
       _layingOut = false;
-      _filteredContentReflow = false;
       _pageBodies.clear();
       _page = _target = page;
       _pager = PageController(initialPage: _spreadFor(page));
@@ -992,9 +983,7 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
                             paper: widget.preferences.background(
                               Theme.of(context).brightness == Brightness.dark,
                             ),
-                            child: _effect == ReaderPageEffect.cover
-                                ? ReaderBackgroundPanel(child: body)
-                                : body,
+                            child: body,
                           )
                         : body;
                     final anchored = _effect == ReaderPageEffect.slide
@@ -1076,7 +1065,12 @@ class _ReaderPagedViewState extends State<ReaderPagedView>
                         ArchivePlaneTransition(
                           key: const ValueKey('reader-book-incoming'),
                           animation: _arrival,
-                          child: ReaderBackgroundPanel(child: turning),
+                          child: ColoredBox(
+                            color: widget.preferences.background(
+                              Theme.of(context).brightness == Brightness.dark,
+                            ),
+                            child: turning,
+                          ),
                         ),
                       ],
                     )

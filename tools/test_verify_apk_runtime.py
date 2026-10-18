@@ -10,44 +10,27 @@ spec.loader.exec_module(runtime)
 
 
 class ApkRuntimeTest(unittest.TestCase):
-    def apk(self, root, extra=None):
-        apk = root / 'fixture.apk'
-        with ZipFile(apk, 'w') as z:
-            for name, data in {
-                'lib/arm64-v8a/libflutter.so': b'flutter',
-                'lib/arm64-v8a/libapp.so': b'app',
-                **(extra or {}),
-            }.items():
-                z.writestr(name, data)
-        return apk
-
-    def test_zero_provider_release_succeeds_but_retired_runtime_is_rejected(self):
+    def test_original_succeeds_and_stripped_runtime_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            runtime.verify(self.apk(root), 'arm64-v8a')
-            with self.assertRaises(ValueError):
-                runtime.verify(self.apk(root, {'lib/arm64-v8a/libcpp.so': b'old-provider'}), 'arm64-v8a')
+            original = root/'android/app/src/main/jniLibs/arm64-v8a/libcpp.so'
+            original.parent.mkdir(parents=True)
+            original.write_bytes(b'original-runtime-with-symbols')
+            for name, data, valid in [('original',original.read_bytes(),True),('stripped',b'original-runtime',False)]:
+                apk=root/f'{name}.apk'
+                with ZipFile(apk,'w') as z: z.writestr('lib/arm64-v8a/libcpp.so',data)
+                if valid: runtime.verify(apk,'arm64-v8a',root)
+                else:
+                    with self.assertRaises(ValueError): runtime.verify(apk,'arm64-v8a',root)
 
     def test_wrong_or_extra_architecture_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
-            with self.assertRaises(ValueError):
-                runtime.verify(self.apk(root, {'lib/x86_64/libapp.so': b'wrong-abi'}), 'arm64-v8a')
-            with self.assertRaises(ValueError):
-                runtime.verify(self.apk(root), 'x86_64')
-
-    def test_source_lists_and_probe_dex_are_rejected_but_normal_assets_are_allowed(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            runtime.verify(self.apk(root, {'assets/config.json': '{"theme":"paper"}'}), 'arm64-v8a')
-            runtime.verify(self.apk(root, {'legado/cryptojs.min.js': 'var CryptoJS = {};'}), 'arm64-v8a')
-            for extra in [
-                {'assets/sources.json': '[{"bookSourceName":"fixture","bookSourceUrl":"https://fixture.invalid"}]'},
-                {'classes.dex': b'fixture Lorg/mewx/wenku8_flutter/SourceFixtureProbe;'},
-                {'assets/source.js': 'var config={bookSourceName:"fixture",bookSourceUrl:"https://fixture.invalid"};'},
-            ]:
-                with self.assertRaises(ValueError):
-                    runtime.verify(self.apk(root, extra), 'arm64-v8a')
+            apk=root/'wrong.apk'
+            with ZipFile(apk,'w') as z:
+                z.writestr('lib/arm64-v8a/libcpp.so',b'x')
+                z.writestr('lib/x86_64/libcpp.so',b'x')
+            with self.assertRaises(ValueError): runtime.verify(apk,'arm64-v8a',root)
 
 
 if __name__ == '__main__': unittest.main()

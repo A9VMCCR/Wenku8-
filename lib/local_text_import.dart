@@ -1,7 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 import 'catalog.dart';
-import 'local_import_options.dart';
+
+final _textChapter = RegExp(
+  r'^(第[零〇一二三四五六七八九十百千万两0-9０-９]+[章节回幕话話]|chapter\s+\d+|序章|序言|楔子|尾声|尾聲|后记|後記|番外)',
+  caseSensitive: false,
+);
+final _textVolume = RegExp(
+  r'^(第[零〇一二三四五六七八九十百千万两0-9０-９]+[卷部]|volume\s+\d+)',
+  caseSensitive: false,
+);
 
 /// Even a book with no newline keeps only a bounded physical-line fragment.
 /// Decoder preserves UTF-8 sequences; fragment boundaries preserve surrogates.
@@ -43,91 +51,59 @@ Stream<({String text, bool heading})> _lines(File file) async* {
 Future<List<NovelChapter>> importTextChapters(
   File file,
   String name,
-  void Function(int index, String body) save, {
-  LocalImportOptions options = const LocalImportOptions(),
-}) async {
-  final builder = LocalTextChapterBuilder(save, options: options);
-  await for (final line in _lines(file)) {
-    builder.add(line.text, heading: line.heading);
-  }
-  return builder.finish();
-}
-
-/// Shared by byte-based and streaming TXT imports, so their boundaries, titles
-/// and bounded paragraphs cannot drift. Heading text remains in the chapter
-/// title; all non-heading text, including illustration placeholders, is kept.
-class LocalTextChapterBuilder {
-  LocalTextChapterBuilder(
-    this.save, {
-    this.options = const LocalImportOptions(),
-  }) : pattern = options.compile() ?? automaticTextChapter;
-  final void Function(int index, String body) save;
-  final LocalImportOptions options;
-  final RegExp pattern;
+  void Function(int index, String body) save,
+) async {
   final chapters = <NovelChapter>[];
-  final _paragraphs = <String>[];
-  int _length = 0, _volumeId = 0, _part = 0;
-  String _volume = '';
-  String? _title;
-  void _flush() {
-    if (_paragraphs.isEmpty) return;
+  final paragraphs = <String>[];
+  var length = 0, volume = '', volumeId = 0, part = 0;
+  var title = name
+      .replaceAll('\\', '/')
+      .split('/')
+      .last
+      .replaceFirst(RegExp(r'\.txt$', caseSensitive: false), '');
+  if (title.length > 2048) title = title.substring(0, 2048);
+  void flush() {
+    if (paragraphs.isEmpty) return;
     if (chapters.length >= 10000) {
       throw const FormatException('TXT 章节超过 10000 个，请拆分原书后导入');
     }
-    final title = _title == null
-        ? options.missingTitle(chapters.length + 1)
-        : _part == 0
-        ? _title!
-        : '$_title · 片段 ${_part + 1}';
     chapters.add(
       NovelChapter(
-        title,
+        part == 0 ? title : '$title · 片段 ${part + 1}',
         '',
         id: chapters.length + 1,
-        volumeTitle: _volume,
-        volumeId: _volumeId,
+        volumeTitle: volume,
+        volumeId: volumeId,
       ),
     );
-    save(chapters.length, _paragraphs.join('\n\n'));
-    _paragraphs.clear();
-    _length = 0;
-    _part++;
+    save(chapters.length, paragraphs.join('\n\n'));
+    part++;
+    length = 0;
+    paragraphs.clear();
   }
 
-  void add(String raw, {bool heading = true}) {
-    final value = raw.trim();
-    if (value.isEmpty) return;
-    if (heading && matchesLocalHeading(value, automaticTextVolume)) {
-      _flush();
-      _volume = value;
-      _volumeId++;
-      _title = null;
-      _part = 0;
-    } else if (heading &&
-        matchesLocalHeading(value, pattern, custom: options.customDirectory)) {
-      _flush();
-      _title = value;
-      _part = 0;
+  await for (final line in _lines(file)) {
+    final value = line.text.trim();
+    if (value.isEmpty) continue;
+    if (line.heading && value.length <= 90 && _textVolume.hasMatch(value)) {
+      flush();
+      volume = value;
+      volumeId++;
+      title = value;
+      part = 0;
+    } else if (line.heading &&
+        value.length <= 90 &&
+        _textChapter.hasMatch(value)) {
+      flush();
+      title = value;
+      part = 0;
     } else {
-      for (var start = 0; start < value.length;) {
-        var end = (start + 4000).clamp(0, value.length);
-        if (end < value.length &&
-            value.codeUnitAt(end - 1) >= 0xd800 &&
-            value.codeUnitAt(end - 1) <= 0xdbff) {
-          end--;
-        }
-        final part = value.substring(start, end);
-        _paragraphs.add(part);
-        _length += part.length + 2;
-        if (_length >= 100000) _flush();
-        start = end;
-      }
+      paragraphs.add(value);
+      length += value.length + 2;
+      if (length >= 100000) flush();
     }
   }
-
-  List<NovelChapter> finish() {
-    _flush();
-    if (chapters.isEmpty) throw const FormatException('文件中没有可阅读的正文');
-    return chapters;
-  }
+  flush();
+  if (chapters.isEmpty) throw const FormatException('文件中没有可阅读的正文');
+  return chapters;
 }

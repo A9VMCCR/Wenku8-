@@ -1,10 +1,11 @@
 enum AppTypeface {
-  system('系统字体', null);
+  system('系统字体', null),
+  sourceHanSerif('内置思源宋体', 'SourceHanSerifCN');
 
   const AppTypeface(this.label, this.family);
   final String label;
   final String? family;
-  // Older releases stored `sourceHanSerif`. Its font is no longer bundled;
-  // keep the stored reading anchors, but resolve that choice to the platform.
-  static AppTypeface fromRecord(Object? value) => AppTypeface.system;
+  static AppTypeface fromRecord(Object? value) => value == 'sourceHanSerif'
+      ? AppTypeface.sourceHanSerif
+      : AppTypeface.system;
 }

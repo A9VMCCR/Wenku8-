@@ -48,8 +48,6 @@ abstract final class ChineseText {
     const names = [
       'STCharacters',
       'STPhrases',
-      'TSCharacters',
-      'TSPhrases',
       'TWVariants',
       'HKVariants',
       'TWPhrasesIT',
@@ -64,49 +62,6 @@ abstract final class ChineseText {
     });
   }();
 
-  /// Search is independent of the display language. Keep the user's exact word
-  /// first, then query distinct character forms without rewriting stored books.
-  static Future<List<String>> searchVariants(String query) async {
-    await prepare();
-    final original = query.trim();
-    if (original.isEmpty) return const [];
-    final simplified = searchKey(original);
-    final traditional = _lexicons['standard']!.convert(simplified);
-    return {
-      original,
-      simplified,
-      traditional,
-      _lexicons['TW']!.convert(traditional),
-      _lexicons['HK']!.convert(traditional),
-    }.toList(growable: false);
-  }
-
-  /// Character/phrase normalization for matching only, never a display or
-  /// reader-text conversion (which would change selection offsets).
-  static String searchKey(String source) {
-    if (source.isEmpty || _lexicons.isEmpty) return source;
-    final key = ('search', false, source);
-    final hit = _cache.remove(key);
-    if (hit != null) {
-      _cache[key] = hit;
-      return hit;
-    }
-    return _remember(key, _lexicons['simplified']!.convert(source));
-  }
-
-  static String _remember((String, bool, String) key, String text) {
-    final source = key.$3;
-    if (source.length < 8192) {
-      _cache[key] = text;
-      _cacheUnits += source.length + text.length;
-      while (_cache.length > 2048 || _cacheUnits > 256 * 1024) {
-        final oldest = _cache.keys.first;
-        _cacheUnits -= oldest.$3.length + _cache.remove(oldest)!.length;
-      }
-    }
-    return text;
-  }
-
   static String convert(String source, Locale locale, {bool reader = false}) {
     final region = chineseLocale(locale).countryCode!;
     if (region == 'CN' || source.isEmpty || _lexicons.isEmpty) return source;
@@ -119,7 +74,15 @@ abstract final class ChineseText {
     var text = _lexicons['standard']!.convert(source, preserveOffsets: reader);
     if (region == 'TW' && !reader) text = _lexicons['phrases']!.convert(text);
     text = _lexicons[region]!.convert(text, preserveOffsets: reader);
-    return _remember(key, text);
+    if (source.length < 8192) {
+      _cache[key] = text;
+      _cacheUnits += source.length + text.length;
+      while (_cache.length > 2048 || _cacheUnits > 256 * 1024) {
+        final oldest = _cache.keys.first;
+        _cacheUnits -= oldest.$3.length + _cache.remove(oldest)!.length;
+      }
+    }
+    return text;
   }
 }
 
@@ -191,7 +154,6 @@ Map<String, _Lexicon> _readLexicons(Map<String, String> sources) {
 
   return {
     'standard': _Lexicon(read(['STPhrases', 'STCharacters'])),
-    'simplified': _Lexicon(read(['TSPhrases', 'TSCharacters'])),
     'TW': _Lexicon(read(['TWVariants'])),
     'HK': _Lexicon(read(['HKVariants'])),
     'phrases': _Lexicon(

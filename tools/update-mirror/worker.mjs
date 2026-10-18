@@ -6,14 +6,14 @@ const VERSION = /^v?(\d+\.\d+\.\d+)(?:\+\d+)?$/;
 const REDIRECT_HOSTS = new Set([
   'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com',
 ]);
-// Historical uploaded attachments are withdrawn; GitHub-generated source
-// archives and Git tags stay available from the repository.
-function retiredVersion(tag) {
-  const version = VERSION.exec(tag)?.[1];
-  if (!version) return false;
-  const [major, minor] = version.split('.').map(Number);
-  return major === 0 && minor < 4;
-}
+// New namespace prevents withdrawn 0.4.0 manifests or pre-restoration asset IDs
+// from surviving the rollback in either edge or Durable Object caches.
+const CACHE_NAMESPACE = 'restore-v037-20261019';
+const RESTORED_TAGS = new Set([
+  'v0.2.2', 'v0.2.3', 'v0.2.4', 'v0.3.1', 'v0.3.2', 'v0.3.3',
+  'v0.3.4', 'v0.3.7+63',
+]);
+const withdrawnVersion = tag => VERSION.exec(tag)?.[1] === '0.4.0';
 const BASE_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Expose-Headers': 'Content-Length, Content-Range, ETag, X-Wenku-Cache',
@@ -39,7 +39,7 @@ function output(response, method, state) {
 
 export async function release(suffix, origin, dependencies) {
   const { cache, fetcher, waitUntil } = dependencies;
-  const key = new Request(`${origin}/_release-cache-v2/${suffix}`);
+  const key = new Request(`${origin}/_release-cache-${CACHE_NAMESPACE}/${suffix}`);
   const hit = await cache.match(key);
   if (hit) return { response: hit, state: 'HIT' };
   const upstream = dependencies.registry ? await dependencies.registry(suffix, dependencies.allowStale === true) : await fetchHeaders(fetcher, `${API}${suffix}`, {
@@ -72,14 +72,10 @@ export async function release(suffix, origin, dependencies) {
   let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
   const metadata = JSON.parse(new TextDecoder().decode(bytes));
-  if (metadata.draft !== false || metadata.prerelease !== false || !VERSION.test(metadata.tag_name)) {
+  if (metadata.draft !== false || metadata.prerelease !== false || !VERSION.test(metadata.tag_name) || withdrawnVersion(metadata.tag_name)) {
     return { response: error('No stable release', 404), state: 'MISS' };
   }
-  if (retiredVersion(metadata.tag_name)) {
-    if (suffix === 'latest') return { response: error('Installers before 0.4.0 have been withdrawn', 404), state: 'MISS' };
-    metadata.assets = [];
-  }
-  const response = new Response(JSON.stringify(metadata), {
+  const response = new Response(bytes, {
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=0, s-maxage=${suffix === 'latest' ? 120 : 300}`, 'X-Wenku-Upstream': 'GitHub' },
   });
   const stale = upstream.headers.get('X-Wenku-Stale') === '1';
@@ -103,9 +99,9 @@ async function assetResponse(request, url, match, dependencies) {
     `wenku8-${version}-x86_64.apk`, `wenku8-${version}-universal.apk`,
     `wenku8-${version}-source.zip`,
   ]).has(name)) return error('Unknown release asset', 404);
-  // Must run before known-ID, Range, HEAD or metadata cache lookup. Old cached
-  // bytes must not remain a route around the installer withdrawal.
-  if (retiredVersion(tag)) return error('Uploaded attachments before 0.4.0 have been withdrawn; GitHub source code archives remain available', 410);
+  // Check before every cached or known-ID path: a withdrawn APK must not be
+  // downloadable from bytes cached while 0.4.0 was still public.
+  if (withdrawnVersion(tag)) return error('Release 0.4.0 has been withdrawn', 410);
   if ([...url.searchParams.keys()].some(key => key !== 'asset') ||
       url.searchParams.getAll('asset').length > 1 ||
       (url.searchParams.has('asset') && !/^\d+$/.test(url.searchParams.get('asset')))) {
@@ -242,17 +238,17 @@ export class ReleaseRegistry {
   async fetch(request) {
     const url = new URL(request.url), suffix = url.pathname.slice(1);
     if (suffix !== 'latest' && !/^tags\/v?\d+\.\d+\.\d+(?:\+\d+)?$/.test(suffix) || suffix.length > 80) return error('Unknown release', 404);
-    const now = Date.now(), key = `release:${suffix}`;
+    if (suffix.startsWith('tags/') && withdrawnVersion(suffix.slice(5))) return error('Release withdrawn', 410);
+    const now = Date.now(), key = `release:${CACHE_NAMESPACE}:${suffix}`;
     let saved = await this.storage.get(key);
-    // Never let arbitrary historical tag guesses consume the upstream API budget.
-    // Previously observed releases remain available for a day; older/unknown
-    // releases use GitHub directly through the app's normal fallback.
-    if (suffix !== 'latest') {
+    // Only the exact, previously public restored tags may populate a historical
+    // manifest on demand. Arbitrary tag guesses still spend no GitHub requests.
+    if (suffix !== 'latest' && !RESTORED_TAGS.has(suffix.slice(5))) {
       return saved && now - saved.at < 86400000
         ? Response.json(saved.data, { headers: now - saved.at >= 120000 ? { 'X-Wenku-Stale': '1' } : {} })
         : error('Release is not in the mirror registry', 404);
     }
-    if (saved && now - saved.at < 120000) return Response.json(saved.data);
+    if (saved && now - saved.at < (suffix === 'latest' ? 120000 : 300000)) return Response.json(saved.data);
     if (now >= this.cooldown) {
       let pending = this.pending.get(key);
       if (!pending) {
@@ -282,12 +278,13 @@ export class ReleaseRegistry {
     const text = await r.text();
     if (text.length > 1024 * 1024) throw new Error('Manifest too large');
     const data = JSON.parse(text);
-    if (data.draft !== false || data.prerelease !== false || !VERSION.test(data.tag_name)) throw new Error('No stable release');
+    if (data.draft !== false || data.prerelease !== false || !VERSION.test(data.tag_name) || withdrawnVersion(data.tag_name) ||
+        (suffix !== 'latest' && data.tag_name !== suffix.slice(5))) throw new Error('No stable release');
     const value = { data, at: now };
     await this.storage.put(key, value);
     // Reuse the same verified manifest for a tagged download, avoiding a second API call.
-    await this.storage.put(`release:tags/${data.tag_name}`, value);
-    const all = await this.storage.list({ prefix: 'release:tags/' });
+    await this.storage.put(`release:${CACHE_NAMESPACE}:tags/${data.tag_name}`, value);
+    const all = await this.storage.list({ prefix: `release:${CACHE_NAMESPACE}:tags/` });
     if (all.size > 20) {
       const oldest = [...all.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, all.size - 20).map(([k]) => k);
       await this.storage.delete(oldest);
@@ -296,9 +293,9 @@ export class ReleaseRegistry {
   }
 }
 
-export const HOME = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>纸间文库 · 版本下载</title>
+export const HOME = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文库 · 更新镜像</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#f5f4ee;color:#303633;font:16px/1.65 system-ui,-apple-system,sans-serif}main{max-width:900px;margin:auto;padding:12vh 28px 64px}small{letter-spacing:.16em;color:#65756e}h1{font-size:clamp(32px,6vw,56px);font-weight:500;letter-spacing:-.04em;margin:20px 0 12px}p{color:#65716c;max-width:630px}header{border-bottom:1px solid #d9dfd8;padding-bottom:36px;margin-bottom:32px}a{color:inherit}#files{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:26px 0 42px}.file{display:flex;flex-direction:column;gap:12px;padding:24px;background:#ffffffa8;border:1px solid #ffffff;border-radius:20px;text-decoration:none;transition:transform .2s,background .2s}.file:hover{transform:translateY(-3px);background:#fff}.file b{font-size:18px;font-weight:550}.file span{color:#6c7970;font-size:14px}.file em{font-style:normal;color:#395f4e;margin-top:8px;font-size:14px}footer{font-size:13px;color:#79827b;display:flex;gap:24px;flex-wrap:wrap}.status{font-size:14px;color:#536a5c}pre{font-size:13px;overflow:auto;background:#e9ece5;padding:18px;border-radius:12px}</style>
-<main><header><small>ZHIJIAN / READING ARCHIVE</small><h1>把故事，留在手边。</h1><p>纸间文库，自定义书源与本地阅读工具。立体书架、横排与竖排、本地导入、书签与听书，以轻盈的玻璃界面承载每一页故事。</p><p><strong>重要：自 0.4.0 起为零内置书源版本。不附带任何书源、书源合集或推荐订阅。</strong></p><p><strong>即日起停止提供 0.4.0 之前版本的所有安装包。旧版手动上传的 source.zip 一并撤下，仅保留 GitHub 自动生成的源码 ZIP／TAR.GZ、版本记录与 Git 标签。</strong></p><p>请仅导入可信、合法且有权使用的书源与作品。本项目明确反对并不支持侵权行为。升级前请备份记录，不要先卸载旧版。</p></header><div class="status" id="status">正在读取最新版本…</div><section id="releases"><div id="files"></div></section><details><summary>本版更新说明</summary><pre id="release-notes" style="white-space:pre-wrap">正在读取…</pre></details><br><footer><a href="https://github.com/mikufoxxx/Wenku8_Flutter">项目仓库 ↗</a><a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases">历史源码与版本记录 ↗</a><span>纸间文库 · Android</span></footer></main>
+<main><header><small>WENKU8 / READING ARCHIVE</small><h1>把故事，留在手边。</h1><p>轻小说文库 Flutter 客户端。在线发现、离线阅读、本地书库与自然听书，以轻盈的玻璃界面承载每一页故事。</p><p>立体书架 · 横排与竖排 · 本地导入 · 书签与听书</p></header><div class="status" id="status">正在读取最新版本…</div><section id="releases"><div id="files"></div></section><details><summary>本版更新说明</summary><pre id="release-notes" style="white-space:pre-wrap">正在读取…</pre></details><br><footer><a href="https://github.com/mikufoxxx/Wenku8_Flutter">项目仓库 ↗</a><a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases">历史版本 ↗</a><span>文库 · Android</span></footer></main>
 <script>
 async function read(url, method='GET') {
   const controller = new AbortController(), timer = setTimeout(()=>controller.abort(), 8000);
@@ -308,8 +305,6 @@ async function read(url, method='GET') {
 async function latest(){try{return await read('/api/releases/latest')}catch{return await read('https://api.github.com/repos/mikufoxxx/Wenku8_Flutter/releases/latest')}}
 latest().then(d=>{
   if(d.draft||d.prerelease||!/^v?\\d+\\.\\d+\\.\\d+(?:\\+\\d+)?$/.test(d.tag_name))throw Error();
-  const [major,minor]=d.tag_name.replace(/^v/,'').split('.').map(Number);
-  if(major===0&&minor<4)throw Error();
   document.getElementById('status').textContent=d.tag_name+' · 最新正式版本';
   document.getElementById('release-notes').textContent=d.body||'此版本未提供更新说明。';
   const host=document.getElementById('files');
@@ -330,5 +325,5 @@ latest().then(d=>{
       window.location.assign(target);busy=false;e.textContent='下载 ↓';
     });
   }
-}).catch(()=>{document.getElementById('status').textContent='暂时无法读取新版本，请稍后刷新或查看官方发布页。0.4.0 之前的安装包已停止提供。';document.getElementById('release-notes').textContent='暂时无法读取更新说明。'})
+}).catch(()=>{document.getElementById('status').textContent='暂时无法读取版本，请稍后刷新或查看历史版本。';document.getElementById('release-notes').textContent='暂时无法读取更新说明。'})
 </script></html>`;

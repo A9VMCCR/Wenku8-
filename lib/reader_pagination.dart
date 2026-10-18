@@ -155,11 +155,8 @@ Future<ReaderPagination?> paginateReader({
   );
   final measured =
       cache?._for((
-        // Display-only image filtering changes reading order, not source text.
-        // Keep its line/glyph measurements. Vertical glyph advances also do not
-        // depend on the number of columns which fit in a leaf.
-        content.paragraphs,
-        vertical ? null : size.width,
+        content,
+        size.width,
         style,
         preferences.mode,
         preferences.indent,

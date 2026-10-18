@@ -10,7 +10,6 @@ class MainActivity : AudioServiceActivity() {
     private var refreshRate: HighRefreshRateController? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ReaderWindowLayout.apply(window)
         refreshRate = HighRefreshRateController(this)
     }
 

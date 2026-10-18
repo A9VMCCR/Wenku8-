@@ -1,4 +1,4 @@
-ZhiJian Library / 纸间文库 (formerly Wenku8 Flutter)
+Wenku8 Flutter
 
 Based on MewX/light-novel-library_Wenku8_Android and its contributors.
 https://github.com/MewX/light-novel-library_Wenku8_Android
@@ -15,15 +15,15 @@ diagnostic entries and keep chapter-level listening progress/media metadata.
 Modified on 2026-10-17 to refine paragraph/column page turns, preserve EPUB
 image dimensions, add author work lists and retain complete login sessions.
 
-The original Android app's embedded JNI API runtime (libcpp.so) was used by
-0.3.x, with unchanged redistribution permission confirmed on 2026-10-15.
-Starting with 0.4.0 the built-in provider is retired, its channel cannot make
-content requests, and libcpp.so is excluded from APK packaging. Historical
-binary files remain unmodified; no source or modification rights are implied.
+The original Android app's embedded JNI API runtime (libcpp.so) is retained
+without modification to preserve network functionality. The project maintainer
+confirmed on 2026-10-15 that unchanged redistribution is permitted. Its source
+is not present here; it is a separately authorized third-party binary, not
+covered by this project's source license. Do not modify it or infer additional
+rights from the GPL notice for the application.
 
-Earlier releases included Source Han Serif CN Regular and Bold (Adobe, SIL
-Open Font License 1.1). The font files are not distributed with 0.4.0; this
-version uses platform fonts and optional user-imported fonts.
+Source Han Serif CN Regular and Bold: Copyright Adobe, SIL Open Font License
+1.1. Official unmodified font files and notice: assets/fonts/.
 
 Edge read-aloud v2 protocol adaptation: rany2/edge-tts,
 Copyright (c) 2025- rany <rany@riseup.net>, LGPL version 3.
@@ -47,41 +47,3 @@ OpenCC 1.1.9 dictionaries: BYVoid and contributors, Apache License 2.0.
 Unmodified dictionaries and provenance: assets/opencc/.
 Full license: assets/licenses/opencc.txt. The Dart display converter is
 implemented in this project; the OpenCC native engine is not included.
-
-0.4.0 custom source engine, modified 2026-10-18: the Legado rule and request
-parsers are adapted from gedoor and contributors, GPL-3.0, pinned to
-LegadoTeam/legado 3.26082823, commit
-3046111c1718e7b67c2ad468e54edf295ec05820. Package relocation, app-specific
-host replacement and Android compatibility changes are recorded in
-third_party/legado/README.md. Full GPL-3.0 text is retained there and in
-assets/licenses/GPL-3.0.txt. No third-party source lists are bundled.
-
-The same pinned Legado revision also supplies LoginUiV2, RowUi and
-JsSourceMarshaller. Adaptations replace Android presentation, Room entities,
-Gson helpers and app logging with the existing Flutter/runtime adapters.
-CryptoJS from that revision is unmodified: Copyright (c) 2009-2013 Jeff Mott,
-Copyright (c) 2013-2016 Evan Vosberg, MIT License. The original script and
-license are in android/app/src/main/resources/legado/; the license is also
-registered in assets/licenses/cryptojs.txt.
-
-HtmlUnit core-js 5.3.0-legado.4 is copied unmodified from the pinned Legado
-Maven directory. Its source revisions, complete source archives, licenses,
-notices and changes are in third_party/htmlunit-core-js and assets/licenses.
-The same revision's E4X implementation and legacy RhinoContext compatibility
-are reused; original notices remain applicable.
-
-JsonPath 3.0.0 (Jayway, Apache-2.0),
-Gson 2.14.0 (Google, Apache-2.0), JsoupXpath 2.5.3 (Apache-2.0),
-Commons Text 1.13.1 (Apache Software Foundation, Apache-2.0),
-Hutool 5.8.22 (Hutool contributors, MulanPSL-2.0), OkHttp 4.12.0
-(Square contributors, Apache-2.0) and AndroidX WebKit 1.14.0
-(Android Open Source Project, Apache-2.0) are unmodified dependencies.
-Their notices are in assets/licenses/; source links and exact versions
-are recorded in docs/THIRD_PARTY.md.
-
-Novel host completion, 2026-10-18: pinned SourceLock, ScriptBindings,
-ConcurrentNativeObject, BaseSource/entity helpers and ChineseUtils are adapted
-under GPL-3.0. The ICU charset detector retains IBM/Unicode notices. Unmodified
-libarchive-android 1.1.6, quick-transfer-core 0.2.17 and Material 1.14.0 retain
-their respective licenses, together with libarchive's native dependencies.
-Full notices: assets/licenses/source-host.txt and third_party/source-host/.

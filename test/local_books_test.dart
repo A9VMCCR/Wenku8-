@@ -81,7 +81,7 @@ void main() {
       final book = parseLocalBook(input);
       expect(book.novel.id, inInclusiveRange(localBookIdStart, 0x7fffffff));
       expect(book.novel.chapters.map((c) => c.title), [
-        '未命名章节 1',
+        '一本书',
         '第一章 相遇',
         '第二章 回声',
         '序章',
