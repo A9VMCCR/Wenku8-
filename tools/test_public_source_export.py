@@ -17,7 +17,7 @@ class PublicSourceExportTest(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.base = Path(self.temporary.name).resolve()
         self.root = self.base / "project"
-        for name in ("lib/main.dart", "android/local.properties", "android/key.properties",
+        for name in ("lib/main.dart", "android/local.properties", "android/key.properties", "android/project.iml",
                      "android/gradle/wrapper/gradle-wrapper.jar", "android/.gradle/cache.bin",
                      "android/app/src/main/jniLibs/arm64-v8a/libcpp.so",
                      "ios/Runner.xcodeproj/xcuserdata/private.xcuserstate",

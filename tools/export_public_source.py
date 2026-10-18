@@ -56,7 +56,7 @@ def main():
             return
         if source.name.startswith((".env", ".dev.vars")):
             return
-        if source.name in PRIVATE_NAMES or source.suffix in {".jks", ".keystore", ".apk", ".aab", ".log", ".pyc", ".p12", ".pem", ".key", ".mobileprovision", ".xcuserstate"}:
+        if source.name in PRIVATE_NAMES or source.suffix in {".iml", ".jks", ".keystore", ".apk", ".aab", ".log", ".pyc", ".p12", ".pem", ".key", ".mobileprovision", ".xcuserstate"}:
             return
         if relative.as_posix() in DEVELOPMENT_ENTRIES:
             return

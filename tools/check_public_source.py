@@ -10,7 +10,7 @@ SKIP = {'.git', '.dart_tool', '.gradle', '.cxx', 'build', 'Pods', '__pycache__',
 PRIVATE_NAMES = {'local.properties', 'key.properties', '.DS_Store', 'Generated.xcconfig',
                  'flutter_export_environment.sh', '.env', '.env.local'}
 PRIVATE_DIRS = {'.local-notes', '.local-samples', '.wrangler', 'node_modules', 'flutter_screenshots', 'xcuserdata'}
-PRIVATE_SUFFIXES = {'.jks', '.keystore', '.pem', '.key', '.p12', '.mobileprovision', '.log', '.apk', '.aab'}
+PRIVATE_SUFFIXES = {'.iml', '.jks', '.keystore', '.pem', '.key', '.p12', '.mobileprovision', '.log', '.apk', '.aab'}
 OCTET = r'(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])'
 # Verified literal examples in unmodified libmobi v0.12, not local build paths.
 UPSTREAM_PATH_EXAMPLES = {

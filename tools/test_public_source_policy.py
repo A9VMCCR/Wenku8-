@@ -22,9 +22,10 @@ class PublicSourcePolicyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'key.properties').write_text('fixture')
+            (root / 'project.iml').write_text('fixture')
             (root / 'machine.txt').write_text('/' + 'Users/private/project')
             (root / 'device.txt').write_text('adb -s ' + 'ABCD1234567890')
-            self.assertEqual(len(policy.inspect(root)), 3)
+            self.assertEqual(len(policy.inspect(root)), 4)
 
     def test_public_api_identifier_and_embedded_binary_are_not_private_credentials(self):
         with tempfile.TemporaryDirectory() as directory:
