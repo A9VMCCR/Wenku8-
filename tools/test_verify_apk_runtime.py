@@ -10,6 +10,17 @@ spec.loader.exec_module(runtime)
 
 
 class ApkRuntimeTest(unittest.TestCase):
+    def test_source_preview_cannot_embed_private_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / 'preview.apk'
+            with ZipFile(apk, 'w') as archive:
+                archive.writestr('lib/arm64-v8a/libflutter.so', b'engine')
+            runtime.verify_source_preview(apk)
+            with ZipFile(apk, 'a') as archive:
+                archive.writestr('lib/arm64-v8a/libcpp.so', b'private')
+            with self.assertRaises(ValueError):
+                runtime.verify_source_preview(apk)
+
     def test_original_succeeds_and_stripped_runtime_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

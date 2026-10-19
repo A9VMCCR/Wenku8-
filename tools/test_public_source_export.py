@@ -44,7 +44,7 @@ class PublicSourceExportTest(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             export_source.main()
 
-    def test_complete_candidate_keeps_the_embedded_dependency_without_local_data(self):
+    def test_public_candidate_excludes_private_runtime_without_changing_original(self):
         output = self.base / "complete"
         self.export(output)
         files = {p.relative_to(output).as_posix() for p in output.rglob("*") if p.is_file()}
@@ -53,10 +53,10 @@ class PublicSourceExportTest(unittest.TestCase):
             "third_party/liquid_glass_easy/LICENSE",
             "third_party/liquid_glass_easy/lib/liquid_glass_easy.dart",
             "android/gradle/wrapper/gradle-wrapper.jar",
-            "android/app/src/main/jniLibs/arm64-v8a/libcpp.so",
             "tools/update-mirror/index.mjs", "tools/update-mirror/worker.mjs",
             "tools/update-mirror/build-site.mjs", "tools/update-mirror/wrangler.jsonc",
             "tools/content-gateway/index.mjs", "tools/content-gateway/worker.mjs"})
+        self.assertEqual((self.root / "android/app/src/main/jniLibs/arm64-v8a/libcpp.so").read_text(), "fixture")
 
     def test_source_only_is_explicit_and_leaves_runtime_out(self):
         output = self.base / "source-only"

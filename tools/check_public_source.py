@@ -38,6 +38,9 @@ def inspect(root: Path) -> list[str]:
             continue
         if not file.is_file():
             continue
+        if file.name.lower() == 'libcpp.so':
+            issues.append(f'{relative}: private API runtime must not be published in source')
+            continue
         if file.name in PRIVATE_NAMES or file.name.startswith(('.env', '.dev.vars')) or file.suffix.lower() in PRIVATE_SUFFIXES or any(p in PRIVATE_DIRS for p in relative.parts):
             issues.append(f'{relative}: private or generated artifact')
             continue

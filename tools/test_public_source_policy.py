@@ -27,12 +27,21 @@ class PublicSourcePolicyTest(unittest.TestCase):
             (root / 'device.txt').write_text('adb -s ' + 'ABCD1234567890')
             self.assertEqual(len(policy.inspect(root)), 4)
 
-    def test_public_api_identifier_and_embedded_binary_are_not_private_credentials(self):
+    def test_public_api_identifier_is_not_a_private_credential(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'protocol.dart').write_text("const token = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';")
-            (root / 'libcpp.so').write_bytes(b'\x7fELF\xff\x00')
             self.assertEqual(policy.inspect(root), [])
+
+    def test_private_api_runtime_is_blocked_before_binary_decoding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / 'android/app/src/main/jniLibs/arm64-v8a/libcpp.so'
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b'\x7fELF\xff\x00')
+            issues = policy.inspect(root)
+            self.assertEqual(len(issues), 1)
+            self.assertIn('private API runtime', issues[0])
 
     def test_worker_secret_files_and_local_state_are_blocked(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -85,10 +85,12 @@ flutter pub get
 flutter build apk --release --target-platform android-arm64
 ```
 
+公开源码与上游一样，不附带文库 API 实现。直接构建可用于本地导入与阅读，文库联网功能不可用；正式 APK 由维护者单独提供原运行库，功能不受这项源码整理影响。
+
 ### GitHub Actions
 
-- [Flutter Android](https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml)：代码检查、自动测试与 ARM64 APK 构建。
-- [Build Android APKs](https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/android-release.yml)：三架构签名 APK、源码归档与版本发布候选，支持版本标签触发和手动运行。
+- [Flutter Android](https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml)：代码检查、自动测试与独立源码预览包，不包含文库 API。
+- [Build Android APKs](https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/android-release.yml)：维护者提供私有运行库后，构建三架构签名 APK、源码归档与版本发布候选，支持版本标签触发和手动运行。
 
 签名配置与发布流程见 [构建发布指南](docs/RELEASING.md)。
 

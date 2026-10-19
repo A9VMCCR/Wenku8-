@@ -75,6 +75,20 @@ jobs:
       - run: python3 -m unittest discover -s tools -p 'test_*.py'
       - name: Update gateway tests
         run: node --test tools/update-mirror/worker.test.mjs tools/content-gateway/worker.test.mjs
+      - name: Supply private API runtime for official APKs
+        env:
+          API_RUNTIME_URL: ${{ secrets.WENKU8_API_RUNTIME_URL }}
+        run: |
+          if [[ -z "$API_RUNTIME_URL" ]]; then
+            echo '::error::Official APKs require the owner-supplied private API runtime. Configure WENKU8_API_RUNTIME_URL; public source previews must not be published as updates.'
+            exit 1
+          fi
+          archive="$RUNNER_TEMP/wenku8-api-runtime.zip"
+          if ! curl --fail --silent --location --proto '=https' --proto-redir '=https' --max-time 120 --max-filesize 33554432 "$API_RUNTIME_URL" --output "$archive" 2>/dev/null; then
+            echo '::error::Private API runtime download failed.'
+            exit 1
+          fi
+          python3 tools/provision_api_runtime.py "$archive"
       - name: Build all supported Android architectures
         env:
           UPDATE_REPOSITORY: ${{ github.repository }}
@@ -119,4 +133,4 @@ jobs:
           fi
       - name: Remove runner signing material
         if: always()
-        run: rm -f android/key.properties "$RUNNER_TEMP/wenku8-release.jks"
+        run: rm -f android/key.properties "$RUNNER_TEMP/wenku8-release.jks" "$RUNNER_TEMP/wenku8-api-runtime.zip"

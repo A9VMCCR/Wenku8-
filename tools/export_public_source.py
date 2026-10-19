@@ -13,6 +13,7 @@ FILES = (
     "CHANGELOG.md", "tools/prepare_release.py", "tools/test_prepare_release.py",
     "tools/check_public_source.py", "tools/test_public_source_policy.py",
     "tools/verify_apk_runtime.py", "tools/test_verify_apk_runtime.py",
+    "tools/provision_api_runtime.py", "tools/test_provision_api_runtime.py",
     "tools/create_update_fixtures.py",
 )
 DIRECTORIES = ("lib", "assets", "shaders", "test", "integration_test", "android", "ios", "docs/images", "third_party/liquid_glass_easy", "third_party/libmobi", "tools/update-mirror", "tools/content-gateway")
@@ -35,7 +36,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="New, empty output folder")
     parser.add_argument("--source-only", action="store_true",
-                        help="Omit the embedded libcpp.so runtime (the resulting app cannot use its network API)")
+                        help="Legacy alias: public exports always omit the private API runtime")
     args = parser.parse_args()
     destination = args.output.resolve()
     if destination == ROOT or ROOT.is_relative_to(destination) or destination.is_relative_to(ROOT):
@@ -60,7 +61,7 @@ def main():
             return
         if relative.as_posix() in DEVELOPMENT_ENTRIES:
             return
-        if source.name == "libcpp.so" and args.source_only:
+        if source.name.lower() == "libcpp.so":
             return
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -73,10 +74,7 @@ def main():
         for source in sorted((ROOT / directory).rglob("*")):
             copy(source.relative_to(ROOT))
     print(f"Exported {copied} source files to {destination}")
-    if args.source_only:
-        print("Network API runtime excluded. See docs/RELEASING.md before distributing a working network build.")
-    else:
-        print("Embedded network runtime retained unchanged under its separate redistribution conditions. See docs/THIRD_PARTY.md.")
+    print("Private API runtime excluded. Official APK builds supply it separately; see docs/RELEASING.md.")
 
 
 if __name__ == "__main__":

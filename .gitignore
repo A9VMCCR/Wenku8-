@@ -107,6 +107,8 @@ fabric.properties
 *.pyc
 
 # Machine paths and signing credentials
+# API implementation stays private, matching the upstream public source boundary.
+/android/app/src/main/jniLibs/**/libcpp.so
 key.properties
 *.keystore
 *.jks
@@ -128,6 +130,8 @@ key.properties
 !/tools/test_public_source_policy.py
 !/tools/verify_apk_runtime.py
 !/tools/test_verify_apk_runtime.py
+!/tools/provision_api_runtime.py
+!/tools/test_provision_api_runtime.py
 !/tools/create_update_fixtures.py
 !/tools/update-mirror/
 !/tools/content-gateway/

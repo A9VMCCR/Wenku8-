@@ -16,7 +16,8 @@ Modified on 2026-10-17 to refine paragraph/column page turns, preserve EPUB
 image dimensions, add author work lists and retain complete login sessions.
 
 The original Android app's embedded JNI API runtime (libcpp.so) is retained
-without modification to preserve network functionality. The project maintainer
+without modification in official APKs, but is excluded from the public source
+repository and source archives, matching the upstream API boundary. The project maintainer
 confirmed on 2026-10-15 that unchanged redistribution is permitted. Its source
 is not present here; it is a separately authorized third-party binary, not
 covered by this project's source license. Do not modify it or infer additional

@@ -16,14 +16,14 @@ python3 tools/export_public_source.py ../Wenku8_Flutter-release
 
 ## 联网接口的运行库
 
-当前 Android 接口通过 `TokenManager` 加载原版文库应用内嵌的 `libcpp.so`。它是现有联网功能的组成部分，整理工程时原样保留，不归入开发工具或个人数据清理范围。
+与上游公开工程的边界一致，公开仓库和源码归档不包含 API 实现或 `libcpp.so`。`TokenManager` 只保留调用声明；公开源码构建可用于本地阅读与界面开发，不能调用文库联网接口。
 
 这个工作区只有预编译运行库，没有对应 JNI 源码。项目维护者于 2026-10-15 确认该组件允许原样再分发；本分支保留原文件，不修改其内容或接口。此独立授权组件不纳入应用源码的 GPL 授权，也不能将工程 ZIP 描述为它的完整对应源码。超出原样再分发条件时需联系原版权方。
 
-保留的文件位于 `android/app/src/main/jniLibs/<abi>/libcpp.so`。如果只希望导出不含该库的源码供审阅，可以执行下面的命令；这样生成的 APK 无法调用现有文库联网接口。不要将个人会话、账号文件或从手机导出的数据放进工程。
+正式 APK 继续使用维护者私有工作区内 `android/app/src/main/jniLibs/<abi>/libcpp.so` 的原文件，公开源码整理不删除本地文件、不更改已发布 APK。该路径已忽略；导出脚本无条件排除库文件，公开源码检查也会拒绝误带的库。旧的 `--source-only` 参数继续兼容，已不需要特意添加。
 
 ```sh
-python3 tools/export_public_source.py ../Wenku8_Flutter-source-only --source-only
+python3 tools/export_public_source.py ../Wenku8_Flutter-source-only
 ```
 
 ## 签名与构建
@@ -47,7 +47,11 @@ cd android
 
 ## 用 GitHub Actions 构建 APK
 
-在 GitHub 打开 **Actions → Build Android APKs → Run workflow**。构建完成后，在该次运行的 **Artifacts** 下载压缩包，内含 ARM64、ARMv7、x86_64 APK、源码 ZIP 和本版说明。无需开通付费语音或更新服务。
+公开的 **Flutter Android** 工作流构建独立预览包，不包含文库 API 运行库，不作为正式更新分发。
+
+正式的 **Build Android APKs** 工作流需要维护者在 Actions Secret `WENKU8_API_RUNTIME_URL` 提供受控的 HTTPS 运行库归档地址。ZIP 根目录为 `<abi>/libcpp.so`，包含 `armeabi-v7a`、`arm64-v8a`、`x86_64`，可选 `x86`。不要提交该 ZIP 或地址。工作流临时注入原文件，校验 APK 中库文件字节保持一致，并从源码 ZIP 中再次排除；未配置时拒绝生成正式更新。该配置不需要在本项目中新建付费服务。
+
+配置完成后，在 GitHub 打开 **Actions → Build Android APKs → Run workflow**。Artifacts 包含三架构 APK、不含运行库的源码 ZIP 和本版说明。
 
 手动运行未配置签名时使用临时 Runner 的调试证书，只用于预览；它不能保证覆盖上次安装。要持续升级，先在仓库 **Settings → Secrets and variables → Actions** 配置同一套长期签名：
 

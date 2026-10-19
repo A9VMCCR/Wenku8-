@@ -19,13 +19,25 @@ def verify(apk: Path, abi: str, root: Path = ROOT):
             raise ValueError(f'{abi}: packaged API runtime differs from the original; check native symbol stripping')
 
 
+def verify_source_preview(apk: Path):
+    with ZipFile(apk) as archive:
+        if any(Path(name).name.lower() == 'libcpp.so' for name in archive.namelist()):
+            raise ValueError('Public source previews must not contain the private API runtime')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('apk', type=Path)
-    parser.add_argument('--abi', required=True, choices=['armeabi-v7a','arm64-v8a','x86_64'])
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--abi', choices=['armeabi-v7a','arm64-v8a','x86_64'])
+    mode.add_argument('--source-preview', action='store_true')
     args = parser.parse_args()
-    verify(args.apk, args.abi)
-    print(f'{args.abi}: embedded API runtime is byte-for-byte unchanged.')
+    if args.source_preview:
+        verify_source_preview(args.apk)
+        print('Public source preview contains no private API runtime; Wenku network API is unavailable.')
+    else:
+        verify(args.apk, args.abi)
+        print(f'{args.abi}: embedded API runtime is byte-for-byte unchanged.')
 
 
 if __name__ == '__main__':
