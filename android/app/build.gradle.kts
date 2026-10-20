@@ -12,16 +12,11 @@ val releaseKeys = Properties().apply {
     if (releaseKeyFile.isFile) releaseKeyFile.inputStream().use { load(it) }
 }
 val readerPreview = providers.gradleProperty("wenkuReaderPreview").orNull == "true"
-val catalogProbe = providers.gradleProperty("wenkuCatalogProbe").orNull == "true"
-check(!catalogProbe || readerPreview) { "Account read probes are restricted to the reader preview" }
 
 android {
     namespace = "org.mewx.wenku8_flutter"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
-    // The separately authorized API runtime must remain byte-for-byte intact.
-    // AGP otherwise strips its symbols even when jniLibs contains original files.
-    packaging.jniLibs.keepDebugSymbols.add("**/libcpp.so")
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -34,19 +29,17 @@ android {
     }
 
     defaultConfig {
-        applicationId = "org.mewx.wenku8_flutter"
+        // Public source previews must not replace an installed distribution.
+        applicationId = "org.mewx.wenku8_flutter.source_preview"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["wenkuAppLabel"] = "轻小说文库"
-        testInstrumentationRunner = "org.mewx.wenku8_flutter.SessionFixtureInstrumentation"
-        if (catalogProbe) testInstrumentationRunner = "org.mewx.wenku8_flutter.CatalogReadInstrumentation"
+        manifestPlaceholders["wenkuAppLabel"] = "轻小说文库 · 源码预览"
         // AGP otherwise builds upstream desktop utilities too, including the
         // DRM tool whose encryption code is intentionally disabled in this app.
         externalNativeBuild.cmake.targets.addAll(listOf("mobi", "wenku_mobi"))
     }
-    if (catalogProbe) testBuildType = "release"
 
     externalNativeBuild {
         cmake {
@@ -74,10 +67,8 @@ android {
         }
         release {
             proguardFile(file("document-import.pro"))
-            if (catalogProbe) proguardFile(file("catalog-probe.pro"))
             if (readerPreview) {
                 applicationIdSuffix = ".reader_preview"
-                manifestPlaceholders["wenkuAppLabel"] = "文库 · 阅读预览"
             }
             // Local previews remain install-compatible. Public distributions
             // use an owner's untracked key.properties, never an embedded key.
@@ -87,9 +78,7 @@ android {
         }
     }
 
-    // Match the embedded API library to the Flutter code actually compiled for
-    // this APK. Otherwise a one-ABI build advertises extra, unusable ABIs solely
-    // because libcpp.so exists for them. Let Flutter own split-APK filtering.
+    // Match native document import libraries to the selected Flutter targets.
     val targets = project.findProperty("target-platform")?.toString()
     if (targets != null && project.findProperty("split-per-abi")?.toString()?.toBoolean() != true) {
         val targetAbis = targets.split(",").map { platform ->

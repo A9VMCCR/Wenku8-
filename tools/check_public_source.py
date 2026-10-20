@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject private local artifacts and obvious credentials in a release checkout."""
+"""Reject restricted connectivity code, local artifacts and recognized secrets."""
 from __future__ import annotations
 
 import argparse
@@ -11,6 +11,24 @@ PRIVATE_NAMES = {'local.properties', 'key.properties', '.DS_Store', 'Generated.x
                  'flutter_export_environment.sh', '.env', '.env.local'}
 PRIVATE_DIRS = {'.local-notes', '.local-samples', '.wrangler', 'node_modules', 'flutter_screenshots', 'xcuserdata'}
 PRIVATE_SUFFIXES = {'.iml', '.jks', '.keystore', '.pem', '.key', '.p12', '.mobileprovision', '.log', '.apk', '.aab'}
+PRIVATE_COMPONENT_FILES = {
+    'AccountSessionStore.kt', 'ApiSessionCookies.kt', 'IllustrationUrlPolicy.kt',
+    'TokenManager.java', 'Wenku8Bridge.kt', 'WenkuEnginePlugins.kt',
+    'WenkuPublicGateway.kt', 'WenkuPublicationSession.kt', 'WenkuWebCatalogClient.kt',
+    'WenkuPublicWebClient.kt', 'WenkuWebSession.kt', 'WenkuOperationResult.kt',
+    'WenkuSignIn.kt', 'WenkuSearch.kt', 'WenkuWebLibrary.kt',
+    'wenku_web_catalogue.dart', 'wenku_web_reader.dart',
+    'SessionFixtureInstrumentation.kt', 'CatalogReadInstrumentation.java',
+    'provision_api_runtime.py', 'test_provision_api_runtime.py',
+    'verify_apk_runtime.py', 'test_verify_apk_runtime.py',
+}
+PRIVATE_COMPONENT_DIRS = {'tools/content-gateway', 'android/app/src/main/java/org/mewx/wenku8/api'}
+SOURCE_SUFFIXES = {'.dart', '.kt', '.java', '.js', '.mjs', '.ts'}
+CONNECTIVITY_PATTERNS = {
+    'restricted native binding': re.compile(r'getMagicVersion' + r'Cpp|System[.]loadLibrary\([\s\S]{0,40}[\"\']cpp[\"\']'),
+    'restricted platform channel': re.compile(r'org[.]mewx[.]wenku8/' + r'legacy_api'),
+    'restricted service endpoint': re.compile(r'https?://[\w.-]*wenku8[.](?:com|net|cc|cn)/(?:modules|api)/'),
+}
 OCTET = r'(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])'
 # Verified literal examples in unmodified libmobi v0.12, not local build paths.
 UPSTREAM_PATH_EXAMPLES = {
@@ -27,9 +45,9 @@ PATTERNS = {
 }
 
 
-def inspect(root: Path) -> list[str]:
+def inspect(root: Path, files=None) -> list[str]:
     issues = []
-    for file in sorted(root.rglob('*')):
+    for file in sorted(root.rglob('*') if files is None else files):
         relative = file.relative_to(root)
         if any(part in SKIP for part in relative.parts):
             continue
@@ -37,6 +55,12 @@ def inspect(root: Path) -> list[str]:
             issues.append(f'{relative}: symbolic link is not allowed in the public export')
             continue
         if not file.is_file():
+            continue
+        if file.name in PRIVATE_COMPONENT_FILES or any(
+            relative.as_posix() == name or relative.as_posix().startswith(name + '/')
+            for name in PRIVATE_COMPONENT_DIRS
+        ):
+            issues.append(f'{relative}: restricted connectivity component')
             continue
         if file.name.lower() == 'libcpp.so':
             issues.append(f'{relative}: private API runtime must not be published in source')
@@ -48,6 +72,10 @@ def inspect(root: Path) -> list[str]:
             text = file.read_text(encoding='utf-8')
         except (UnicodeDecodeError, ValueError):
             continue
+        if file.suffix in SOURCE_SUFFIXES:
+            for name, pattern in CONNECTIVITY_PATTERNS.items():
+                if pattern.search(text):
+                    issues.append(f'{relative}: {name}')
         for name, pattern in PATTERNS.items():
             scanned = text
             if name == 'host home path' and relative.as_posix() in UPSTREAM_PATH_EXAMPLES:
@@ -65,7 +93,7 @@ def main():
     issues = inspect(args.root.resolve())
     if issues:
         raise SystemExit('\n'.join(issues))
-    print('Public source policy passed: no prohibited local artifacts or recognized secrets.')
+    print('Public source policy passed: no recognized restricted components or private artifacts.')
 
 
 if __name__ == '__main__':

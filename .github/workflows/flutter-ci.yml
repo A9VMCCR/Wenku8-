@@ -1,11 +1,11 @@
-name: Flutter Android
+name: Flutter source checks
 
 on:
   push:
     branches: ['master']
-    paths: ['lib/**', 'test/**', 'android/**', 'shaders/**', 'assets/**', 'tools/**', 'pubspec.*', 'analysis_options.yaml', '.github/workflows/flutter-ci.yml', '.github/workflows/android-release.yml']
+    paths: ['lib/**', 'test/**', 'android/**', 'shaders/**', 'assets/**', 'tools/**', 'pubspec.*', 'analysis_options.yaml', '.github/workflows/flutter-ci.yml']
   pull_request:
-    paths: ['lib/**', 'test/**', 'android/**', 'shaders/**', 'assets/**', 'tools/**', 'pubspec.*', 'analysis_options.yaml', '.github/workflows/flutter-ci.yml', '.github/workflows/android-release.yml']
+    paths: ['lib/**', 'test/**', 'android/**', 'shaders/**', 'assets/**', 'tools/**', 'pubspec.*', 'analysis_options.yaml', '.github/workflows/flutter-ci.yml']
   workflow_dispatch:
 
 permissions:
@@ -33,18 +33,9 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       - run: python3 -m unittest discover -s tools -p 'test_*.py'
-      - name: Update gateway tests
-        run: node --test tools/update-mirror/worker.test.mjs tools/content-gateway/worker.test.mjs
-      - name: Build public source preview (no Wenku network API)
-        env:
-          ORG_GRADLE_PROJECT_wenkuReaderPreview: 'true'
+      - name: Update mirror tests
+        run: node --test tools/update-mirror/worker.test.mjs
+      - name: Build isolated local-reading source preview
         run: flutter build apk --release --target-platform android-arm64
-      - run: python3 tools/verify_apk_runtime.py build/app/outputs/flutter-apk/app-release.apk --source-preview
       - name: Native speech policy tests
         run: cd android && ./gradlew :app:testReleaseUnitTest
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android-arm64-source-preview
-          path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
-          retention-days: 7

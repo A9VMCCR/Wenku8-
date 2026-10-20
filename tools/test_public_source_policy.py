@@ -27,11 +27,27 @@ class PublicSourcePolicyTest(unittest.TestCase):
             (root / 'device.txt').write_text('adb -s ' + 'ABCD1234567890')
             self.assertEqual(len(policy.inspect(root)), 4)
 
-    def test_public_api_identifier_is_not_a_private_credential(self):
+    def test_domain_models_and_preview_boundary_are_allowed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / 'protocol.dart').write_text("const token = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';")
+            (root / 'model.dart').write_text('class Book { final int id; Book(this.id); }')
             self.assertEqual(policy.inspect(root), [])
+
+    def test_concrete_connectivity_files_are_blocked_without_dumping_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            file = root / 'WenkuWebCatalogClient.kt'
+            file.write_text('private-fixture')
+            issues = policy.inspect(root)
+            self.assertEqual(len(issues), 1)
+            self.assertIn('restricted connectivity component', issues[0])
+            self.assertNotIn('private-fixture', issues[0])
+
+    def test_renamed_native_binding_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'renamed.java').write_text('class Example { Object getMagicVersion' + 'Cpp(); }')
+            self.assertTrue(any('restricted native binding' in issue for issue in policy.inspect(root)))
 
     def test_private_api_runtime_is_blocked_before_binary_decoding(self):
         with tempfile.TemporaryDirectory() as directory:

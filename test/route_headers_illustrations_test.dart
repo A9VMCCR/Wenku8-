@@ -298,16 +298,9 @@ void main({
         addTearDown(library.dispose);
         await library.setReaderPreferences(ReaderPreferences(mode: mode));
         ReaderIllustrationCache.shared.clearMemory();
-        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          LegacyTransport.channel,
-          (call) async => call.method == 'illustration' ? bytes : null,
-        );
-        addTearDown(
-          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-            LegacyTransport.channel,
-            null,
-          ),
-        );
+        final originalReader = LegacyTransport.illustrationReader;
+        LegacyTransport.illustrationReader = (_) async => bytes;
+        addTearDown(() => LegacyTransport.illustrationReader = originalReader);
         for (final missing in [false, true]) {
           final novel = Novel(
             id: 71071,

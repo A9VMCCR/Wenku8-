@@ -9,7 +9,6 @@ import 'app_interactions.dart';
 import 'app_ui.dart';
 import 'catalog.dart';
 import 'feature_pages.dart';
-import 'legacy_transport.dart';
 import 'library_state.dart';
 import 'local_platform.dart';
 import 'wenku_account.dart';
@@ -599,11 +598,15 @@ class _ReviewComposerPageState extends State<ReviewComposerPage> {
     FocusManager.instance.primaryFocus?.unfocus();
     await _save();
     try {
-      final encodedContent = await LegacyTransport.encodeReview(content);
-      final action = widget.thread != null
-          ? 'action=review&do=reply&rid=${widget.thread!.id}&content=$encodedContent'
-          : 'action=review&do=post&aid=${widget.novel.id}&title=${await LegacyTransport.encodeReview(title)}&content=$encodedContent';
-      await widget.account.submitReview(action);
+      if (widget.thread case final thread?) {
+        await widget.account.replyReview(threadId: thread.id, content: content);
+      } else {
+        await widget.account.postReview(
+          bookId: widget.novel.id,
+          title: title,
+          content: content,
+        );
+      }
       _posted = true;
       await _writes;
       try {

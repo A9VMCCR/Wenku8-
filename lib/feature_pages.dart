@@ -13,6 +13,7 @@ import 'novel_feed_controller.dart';
 import 'pages.dart' show DiscoverPage, openDetail;
 import 'publication_catalog.dart';
 import 'wenku_account.dart';
+import 'online_component.dart';
 import 'wenku_features.dart';
 import 'web_publication_catalog.dart';
 
@@ -547,8 +548,6 @@ class _CloudBookshelfPageState extends State<CloudBookshelfPage> {
           summary: '',
           colors: const [Color(0xFF202020), Color(0xFF333333)],
           lastUpdate: book.updated,
-          coverUrl:
-              'https://img.wenku8.com/image/${book.id ~/ 1000}/${book.id}/${book.id}s.jpg',
         );
     openDetail(context, novel, widget.state, widget.repository);
   }
@@ -867,9 +866,7 @@ class _PublicationLibraryPageState extends State<PublicationLibraryPage> {
         onRetry: _feed!.retry,
       );
     }
-    if (failure is WenkuApiError &&
-        failure.code == 4 &&
-        widget.account != null) {
+    if (failure is OnlineAuthenticationRequired && widget.account != null) {
       return ContentNotice(
         icon: widget.account!.authenticated
             ? CupertinoIcons.arrow_clockwise

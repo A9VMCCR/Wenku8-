@@ -17,7 +17,6 @@ import 'package:wenku8_flutter/main.dart';
 import 'package:wenku8_flutter/native_effects.dart';
 import 'package:wenku8_flutter/pages.dart';
 
-import 'effects_test.dart' as effects;
 import '../test/detail_loading_test.dart' as detail_loading;
 import '../test/archive_carousel_test.dart' as archive_carousel;
 import '../test/archive_cover_flight_test.dart' as archive_cover;
@@ -54,7 +53,6 @@ Finder _glassControl(String label) => find
     .first;
 
 void main() {
-  effects.main();
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('native detail loading polish', () {

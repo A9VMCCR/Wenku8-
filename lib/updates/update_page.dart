@@ -659,7 +659,7 @@ class AppUpdatePage extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     const AppText(
-                      '内置字体：Adobe 思源宋体 CN，SIL OFL 1.1。在线语音协议适配：rany2/edge-tts，LGPL v3。接口运行库 libcpp.so 原样保留，其授权独立于本项目源码。',
+                      '内置字体：Adobe 思源宋体 CN，SIL OFL 1.1。在线语音协议适配：rany2/edge-tts，LGPL v3。',
                       style: TextStyle(height: 1.6),
                     ),
                     GlassTextButton(

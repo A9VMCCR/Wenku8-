@@ -2,18 +2,13 @@
 
 ## 应用源码
 
-基于 [MewX/light-novel-library_Wenku8_Android](https://github.com/MewX/light-novel-library_Wenku8_Android) 与原贡献者的工作。原始 [LICENSE](../LICENSE) 保留 GNU GPL version 2 或后续版本条款。本次 Flutter 组合版本按 [GPL version 3](../assets/licenses/GPL-3.0.txt) 分发，以兼容 LGPL v3 的协议适配代码。保留原署名、修改说明和构建脚本；发布 APK 时一并提供对应 Flutter 工程归档。
+基于 [MewX/light-novel-library_Wenku8_Android](https://github.com/MewX/light-novel-library_Wenku8_Android) 与原贡献者的工作。原始 [LICENSE](../LICENSE) 保留 GNU GPL version 2 或后续版本条款。本次 Flutter 组合版本按 [GPL version 3](../assets/licenses/GPL-3.0.txt) 分发，以兼容 LGPL v3 的协议适配代码。保留原署名、修改说明和构建脚本；分发时应按各组件的实际许可提供对应源码和声明。
 
-## 原版 API 运行库：libcpp.so
+## 公开源码范围
 
-- 路径：`android/app/src/main/jniLibs/<abi>/libcpp.so`。
-- 用途：现有文库联网接口的 JNI 运行库。
-- 本分支不修改、不解包、不重新实现该二进制。
-- 项目维护者于 2026-10-15 确认其可在**保持原样**的条件下再分发。正式 APK 继续使用原文件；与上游一致，公开仓库与源码归档不附带该实现。
-- 该组件的源码不在本工程中；不能将应用源码的 GPL 许可视为对该组件源码、修改权或其他用途的授权。需要超出原样再分发条件时，应联系原版权方。
-- 原项目当前公开构建使用 [api-stub](https://github.com/MewX/light-novel-library_Wenku8_Android/blob/master/studio-android/LightNovelLibrary/settings.gradle)，因此本工程源码归档不应被描述为该二进制的完整对应源码。
+公开工程包含界面、阅读器、本地书库、缓存和相关模型，不包含在线组件的请求、解析、认证、平台绑定和服务端实现。公开源码可构建独立的本地阅读预览；联网入口会明确提示组件未包含，不生成演示书目或伪造登录成功。
 
-公开源码导出始终排除该运行库，无需额外参数。缺少这个运行库的构建不能使用现有文库联网接口；正式打包由维护者单独提供原文件，详见 [构建发布指南](RELEASING.md)。
+该预览不等同于历史正式 APK 的完整对应源码，也不改变已包含第三方组件的许可义务。构建和导出方式见 [构建指南](RELEASING.md)。
 
 ## 内置字体：Adobe 思源宋体 CN
 
@@ -43,7 +38,7 @@ MOBI 在本机重建为 EPUB 后使用现有阅读器，不访问转换服务，
 
 Android 文档转换使用 [jsoup 1.23.2](https://jsoup.org/)（MIT，Jonathan Hedley）、[commonmark-java 0.30.1](https://github.com/commonmark/commonmark-java)（BSD-2-Clause，Atlassian）和 [PDFBox Android 2.0.27.0](https://github.com/TomRoush/PdfBox-Android)（Apache-2.0，Tom Roush / Apache Software Foundation）。PDFBox 的 Bouncy Castle 1.72 依赖遵循 MIT-style 许可。Android 旧版本兼容使用 Google 的 `desugar_jdk_libs_nio` 2.1.5（GPL-2.0 with Classpath Exception）。固定版本列于 `android/app/build.gradle.kts`，原文与 PDFBox / FontBox 声明保存在 `assets/licenses/` 并注册到应用许可页。FB2 / DOCX 的 SAX 转换与 RTF 正文导入为本工程实现。
 
-OpenJDK 兼容库的完整未修改源码、许可与构建脚本保存在 `third_party/desugar_jdk_libs-2.1.5/`，对应上游发布准备提交 `73170c345e6a762fc6a1f0301bb15218850023ef`；来源见 `third_party/DESUGAR_JDK_LIBS.md`，随应用对应源码一起提供。
+OpenJDK 兼容库通过 Gradle 依赖引入，源码与构建脚本见 [google/desugar_jdk_libs](https://github.com/google/desugar_jdk_libs)。Classpath Exception 与原始许可随 `assets/licenses/` 保留。
 
 依赖版本锁定于 `pubspec.lock`。Flutter、Cupertino Icons、音频与存储插件保留各自许可；Flutter 构建生成的许可集合可在 **设置 → 关于轻小说文库 → 开源许可与字体授权** 查看。该页面也包括上面的内置字体与协议适配声明。
 

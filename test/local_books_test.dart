@@ -9,7 +9,6 @@ import 'package:wenku8_flutter/offline_cache.dart';
 import 'package:wenku8_flutter/offline_repository.dart';
 import 'package:wenku8_flutter/catalog.dart';
 import 'package:wenku8_flutter/reader_content.dart';
-import 'package:wenku8_flutter/legacy_wenku_repository.dart';
 
 Uint8List epubFixture({Map<String, String> overrides = const {}}) {
   final entries = <String, List<int>>{
@@ -52,22 +51,6 @@ Uint8List epubFixture({Map<String, String> overrides = const {}}) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test(
-    'remote XML retains direct volume CDATA and unchanged global order',
-    () async {
-      final repo = LegacyWenkuRepository(
-        request: (_) async =>
-            '<package><volume vid="10"><![CDATA[第一卷]]><chapter cid="1">序章</chapter><chapter cid="2">终章</chapter></volume><volume vid="20"><![CDATA[第二卷]]><chapter cid="3">序章</chapter><chapter cid="3">重复</chapter></volume></package>',
-      );
-      final chapters = await repo.chapters(1305);
-      expect(chapters.map((c) => c.id), [1, 2, 3]);
-      expect(chapters.map((c) => c.volumeTitle), ['第一卷', '第一卷', '第二卷']);
-      expect(NovelVolume.of(chapters).map((v) => (v.start, v.end)), [
-        (0, 2),
-        (2, 3),
-      ]);
-    },
-  );
   test(
     'TXT recognizes volumes, headings, and bounds unstructured paragraphs',
     () {

@@ -5,11 +5,29 @@ import 'package:wenku8_flutter/app_interactions.dart';
 import 'package:wenku8_flutter/app_ui.dart';
 import 'package:wenku8_flutter/catalog.dart';
 import 'package:wenku8_flutter/feature_pages.dart';
-import 'package:wenku8_flutter/legacy_wenku_repository.dart';
+import 'package:wenku8_flutter/publication_catalog.dart';
 import 'package:wenku8_flutter/library_state.dart';
 import 'package:wenku8_flutter/pages.dart';
 
 import 'support/visual_review.dart';
+
+class _PublicationFixture extends DemoNovelRepository
+    implements PublicationCatalog {
+  @override
+  Future<List<PublicationLibrary>> publicationLibraries({
+    bool refresh = false,
+  }) async => const [
+    PublicationLibrary(1, '电击文库'),
+    PublicationLibrary(2, '富士见文库'),
+    PublicationLibrary(3, '角川文库'),
+  ];
+  @override
+  Future<NovelPage> browsePublication(
+    int libraryId, {
+    int page = 1,
+    bool refresh = false,
+  }) async => NovelPage(items: const [], page: page, totalPages: 0);
+}
 
 void main({
   bool native = false,
@@ -62,12 +80,7 @@ void main({
       (tester) async {
         final state = await LibraryState.load();
         addTearDown(state.dispose);
-        final repository = LegacyWenkuRepository(
-          request: (_) async =>
-              '<metadata><item sort="1">电击文库</item>'
-              '<item sort="2">富士见文库</item><item sort="3">角川文库</item></metadata>',
-          publicationRequest: (_) async => '<result><page num="0"/></result>',
-        );
+        final repository = _PublicationFixture();
         final key = await mount(
           tester,
           PublicationLibraryPage(

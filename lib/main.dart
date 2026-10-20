@@ -59,16 +59,7 @@ Future<void> main() async {
   final account = defaultTargetPlatform == TargetPlatform.android
       ? WenkuAccount()
       : null;
-  final remote = LegacyWenkuRepository(
-    publicationRequest: account?.readPublication,
-    publicationSessionKey: account == null
-        ? null
-        : () => (
-            account.sessionRevision,
-            account.publicationRevision,
-            account.authenticated,
-          ),
-  );
+  const remote = LegacyWenkuRepository();
   final repository = defaultTargetPlatform == TargetPlatform.android
       ? OfflineNovelRepository(
           remote: remote,
@@ -83,8 +74,6 @@ Future<void> main() async {
   final features = account != null
       ? WenkuFeatures(
           account: account,
-          // The authenticated novellist response already contains book metadata.
-          // Reuse its adapter, pagination and the existing account session.
           publications: remote,
           shelfSync: WenkuShelfSync(
             account: account,

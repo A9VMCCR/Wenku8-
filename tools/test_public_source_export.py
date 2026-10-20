@@ -54,14 +54,29 @@ class PublicSourceExportTest(unittest.TestCase):
             "third_party/liquid_glass_easy/lib/liquid_glass_easy.dart",
             "android/gradle/wrapper/gradle-wrapper.jar",
             "tools/update-mirror/index.mjs", "tools/update-mirror/worker.mjs",
-            "tools/update-mirror/build-site.mjs", "tools/update-mirror/wrangler.jsonc",
-            "tools/content-gateway/index.mjs", "tools/content-gateway/worker.mjs"})
+            "tools/update-mirror/build-site.mjs", "tools/update-mirror/wrangler.jsonc"})
         self.assertEqual((self.root / "android/app/src/main/jniLibs/arm64-v8a/libcpp.so").read_text(), "fixture")
 
     def test_source_only_is_explicit_and_leaves_runtime_out(self):
         output = self.base / "source-only"
         self.export(output, "--source-only")
         self.assertFalse(any(output.rglob("libcpp.so")))
+
+    def test_restricted_component_aborts_before_creating_export(self):
+        source = self.root / 'android/app/src/main/kotlin/WenkuWebCatalogClient.kt'
+        source.parent.mkdir(parents=True)
+        source.write_text('fixture')
+        output = self.base / 'blocked'
+        with self.assertRaises(SystemExit):
+            self.export(output)
+        self.assertFalse(output.exists())
+
+    def test_secret_in_selected_source_cannot_be_exported(self):
+        (self.root / 'lib/main.dart').write_text('ghp_' + 'a' * 40)
+        output = self.base / 'secret'
+        with self.assertRaises(SystemExit):
+            self.export(output)
+        self.assertFalse(output.exists())
 
     def test_never_overwrites_an_existing_export(self):
         output = self.base / "existing"

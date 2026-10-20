@@ -107,8 +107,10 @@ fabric.properties
 *.pyc
 
 # Machine paths and signing credentials
-# API implementation stays private, matching the upstream public source boundary.
+# Online implementation files and binaries are outside the public project.
 /android/app/src/main/jniLibs/**/libcpp.so
+/android/app/src/main/java/org/mewx/wenku8/api/
+/tools/content-gateway/
 key.properties
 *.keystore
 *.jks
@@ -128,18 +130,11 @@ key.properties
 !/tools/test_prepare_release.py
 !/tools/check_public_source.py
 !/tools/test_public_source_policy.py
-!/tools/verify_apk_runtime.py
-!/tools/test_verify_apk_runtime.py
-!/tools/provision_api_runtime.py
-!/tools/test_provision_api_runtime.py
 !/tools/create_update_fixtures.py
 !/tools/update-mirror/
-!/tools/content-gateway/
 
 # Cloudflare local build cache and local-only secrets
 .wrangler/
 /tools/update-mirror/.dev.vars*
 /tools/update-mirror/.env*
 /tools/update-mirror/public/
-/tools/content-gateway/.dev.vars*
-/tools/content-gateway/.env*

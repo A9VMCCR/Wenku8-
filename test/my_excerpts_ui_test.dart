@@ -279,15 +279,10 @@ Tomorrow we will meet again.''', id: 7123401),
       final png = (await tester.runAsync(
         () => rootBundle.load('assets/branding/app-icon.png'),
       ))!.buffer.asUint8List();
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        LegacyTransport.channel,
-        (call) async => call.method == 'illustration' ? png : null,
-      );
+      final originalReader = LegacyTransport.illustrationReader;
+      LegacyTransport.illustrationReader = (_) async => png;
       addTearDown(() {
-        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          LegacyTransport.channel,
-          null,
-        );
+        LegacyTransport.illustrationReader = originalReader;
         ReaderIllustrationCache.shared.clearMemory();
       });
       await tester.runAsync(

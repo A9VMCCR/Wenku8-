@@ -64,17 +64,13 @@ class _Images extends DemoNovelRepository {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(loadReviewFonts);
+  final originalReader = LegacyTransport.illustrationReader;
   setUp(() async {
     final bytes = await coverFixtureBytes();
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(
-          LegacyTransport.channel,
-          (call) async => call.method == 'illustration' ? bytes : null,
-        );
+    LegacyTransport.illustrationReader = (_) async => bytes;
   });
   tearDown(() {
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(LegacyTransport.channel, null);
+    LegacyTransport.illustrationReader = originalReader;
     ReaderIllustrationCache.shared.clearMemory();
   });
 

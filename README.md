@@ -85,14 +85,13 @@ flutter pub get
 flutter build apk --release --target-platform android-arm64
 ```
 
-公开源码与上游一样，不附带文库 API 实现。直接构建可用于本地导入与阅读，文库联网功能不可用；正式 APK 由维护者单独提供原运行库，功能不受这项源码整理影响。
+公开源码提供本地导入、阅读器、书架与界面开发环境，不包含在线组件。构建产物为独立的「轻小说文库 · 源码预览」，不能作为正式版升级包；已发布版本不受本次工程整理影响。
 
 ### GitHub Actions
 
-- [Flutter Android](https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml)：代码检查、自动测试与独立源码预览包，不包含文库 API。
-- [Build Android APKs](https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/android-release.yml)：维护者提供私有运行库后，构建三架构签名 APK、源码归档与版本发布候选，支持版本标签触发和手动运行。
+- [Flutter source checks](https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml)：代码检查、自动测试与独立源码预览构建，不上传安装包或创建版本发布。
 
-签名配置与发布流程见 [构建发布指南](docs/RELEASING.md)。
+源码边界与构建方式见 [构建指南](docs/RELEASING.md)。
 
 ## 友情链接
 
@@ -110,7 +109,7 @@ flutter build apk --release --target-platform android-arm64
 - 内置字体：[Adobe Source Han Serif CN](https://github.com/adobe-fonts/source-han-serif)，[SIL OFL 1.1](assets/fonts/OFL-SourceHanSerif.txt)。
 - 在线语音协议适配：[rany2/edge-tts](https://github.com/rany2/edge-tts)，[LGPL v3](assets/licenses/edge-tts.txt)。
 
-完整版权声明与接口运行库分发条件见 [NOTICE](NOTICE) 和 [第三方组件许可](docs/THIRD_PARTY.md)。
+完整版权声明与第三方组件说明见 [NOTICE](NOTICE) 和 [第三方组件许可](docs/THIRD_PARTY.md)。
 
 ## Star History
 
